@@ -1,4 +1,3 @@
-import ClerkKit
 import ClerkKitUI
 import Inject
 import SwiftUI
@@ -53,7 +52,6 @@ struct ProfileView: View {
             }
         }) {
             AuthView()
-                .environment(Clerk.shared)
         }
         .enableInjection()
     }
