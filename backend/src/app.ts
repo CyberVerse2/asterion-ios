@@ -1,5 +1,6 @@
 import cors from "@fastify/cors";
 import Fastify from "fastify";
+import type { FastifyError } from "fastify";
 import { env } from "./config/env";
 import { healthRoutes } from "./routes/health";
 import { authPlugin } from "./plugins/auth";
@@ -32,7 +33,7 @@ export function buildApp() {
   app.register(healthRoutes);
   app.register(meRoutes);
 
-  app.setErrorHandler((error, request, reply) => {
+  app.setErrorHandler((error: FastifyError, request, reply) => {
     request.log.error(
       {
         err: error,

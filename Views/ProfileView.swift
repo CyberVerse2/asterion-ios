@@ -341,7 +341,7 @@ struct ProfileView: View {
             async let libraryFetch = apiClient.fetchMyLibrary()
             async let allNovelsFetch = apiClient.fetchNovels(limit: 500, search: "")
             async let progressFetch = apiClient.fetchAllReadingProgress()
-            async let historyFetch = apiClient.fetchReadingHistory(limit: 10_000)
+            async let historyFetch = fetchAllReadingHistory()
 
             cloudProfile = try await profileFetch
             let stats = try await statsFetch
@@ -388,6 +388,22 @@ struct ProfileView: View {
         } catch {
             cloudSyncError = "Signed in, but cloud sync failed. Check USER_API_BASE_URL / backend server."
         }
+    }
+
+    private func fetchAllReadingHistory() async throws -> [AsterionReadingHistoryEntry] {
+        var all: [AsterionReadingHistoryEntry] = []
+        let pageSize = 50
+        var offset = 0
+        while true {
+            let chunk = try await apiClient.fetchReadingHistory(limit: pageSize, offset: offset)
+            if chunk.isEmpty { break }
+            all.append(contentsOf: chunk)
+            if chunk.count < pageSize { break }
+            offset += pageSize
+            // Guard against unexpected infinite loops.
+            if offset > 50_000 { break }
+        }
+        return all
     }
 
     private func pushPreferencesToCloud() async {

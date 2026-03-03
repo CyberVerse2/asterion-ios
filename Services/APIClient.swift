@@ -263,9 +263,10 @@ final class APIClient: ObservableObject {
         return wrapper.data.deleted
     }
 
-    func fetchReadingHistory(limit: Int = 20) async throws -> [AsterionReadingHistoryEntry] {
+    func fetchReadingHistory(limit: Int = 20, offset: Int = 0) async throws -> [AsterionReadingHistoryEntry] {
         let url = userBaseURL.appending(path: "/me/history").appending(queryItems: [
             URLQueryItem(name: "limit", value: "\(limit)"),
+            URLQueryItem(name: "offset", value: "\(offset)"),
         ])
         let wrapper: DataWrapper<[AsterionReadingHistoryEntry]> = try await request(url: url)
         return wrapper.data

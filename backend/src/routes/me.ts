@@ -46,6 +46,7 @@ const preferencesPatchSchema = z.object({
 
 const historyQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(50).optional().default(20),
+  offset: z.coerce.number().int().min(0).optional().default(0),
 });
 
 const libraryNovelSchema = z.object({
@@ -274,10 +275,16 @@ export const meRoutes: FastifyPluginAsync = async (app) => {
       .from(readingHistory)
       .where(eq(readingHistory.userId, user.id))
       .orderBy(desc(readingHistory.visitedAt))
-      .limit(parsed.data.limit);
+      .limit(parsed.data.limit)
+      .offset(parsed.data.offset);
 
     app.log.info(
-      { clerkUserId: request.auth.clerkUserId, userId: user.id, limit: parsed.data.limit },
+      {
+        clerkUserId: request.auth.clerkUserId,
+        userId: user.id,
+        limit: parsed.data.limit,
+        offset: parsed.data.offset,
+      },
       "GET /me/history completed."
     );
     return { data: rows };
