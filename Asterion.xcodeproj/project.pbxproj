@@ -6,6 +6,39 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		70CC44942F55E13B0099DF4E /* ReaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC448F2F55E13B0099DF4E /* ReaderView.swift */; };
+		70CC44952F55E13B0099DF4E /* ReadingProgressService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC44852F55E13B0099DF4E /* ReadingProgressService.swift */; };
+		70CC44962F55E13B0099DF4E /* NovelDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC448C2F55E13B0099DF4E /* NovelDetailView.swift */; };
+		70CC44972F55E13B0099DF4E /* ProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC448D2F55E13B0099DF4E /* ProfileView.swift */; };
+		70CC44982F55E13B0099DF4E /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC44822F55E13B0099DF4E /* APIClient.swift */; };
+		70CC44992F55E13B0099DF4E /* AuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC44832F55E13B0099DF4E /* AuthService.swift */; };
+		70CC449A2F55E13B0099DF4E /* ReadingProgress.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC447E2F55E13B0099DF4E /* ReadingProgress.swift */; };
+		70CC449B2F55E13B0099DF4E /* Chapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC447C2F55E13B0099DF4E /* Chapter.swift */; };
+		70CC449C2F55E13B0099DF4E /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC44842F55E13B0099DF4E /* KeychainHelper.swift */; };
+		70CC449D2F55E13B0099DF4E /* URL+QueryItems.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC44882F55E13B0099DF4E /* URL+QueryItems.swift */; };
+		70CC449E2F55E13B0099DF4E /* Novel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC447D2F55E13B0099DF4E /* Novel.swift */; };
+		70CC449F2F55E13B0099DF4E /* AppShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC44792F55E13B0099DF4E /* AppShortcuts.swift */; };
+		70CC44A02F55E13B0099DF4E /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC448A2F55E13B0099DF4E /* HomeView.swift */; };
+		70CC44A12F55E13B0099DF4E /* RankingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC448E2F55E13B0099DF4E /* RankingView.swift */; };
+		70CC44A22F55E13B0099DF4E /* ContinueReadingIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC447A2F55E13B0099DF4E /* ContinueReadingIntent.swift */; };
+		70CC44A42F55E13B0099DF4E /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC44872F55E13B0099DF4E /* Theme.swift */; };
+		70CC44A52F55E13B0099DF4E /* User.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC447F2F55E13B0099DF4E /* User.swift */; };
+		70CC44A72F55E13B0099DF4E /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC448B2F55E13B0099DF4E /* LibraryView.swift */; };
+		70CC44A92F55E13B0099DF4E /* screenshots-checklist.md in Resources */ = {isa = PBXBuildFile; fileRef = 70CC44762F55E13B0099DF4E /* screenshots-checklist.md */; };
+		70CC44AA2F55E13B0099DF4E /* metadata.md in Resources */ = {isa = PBXBuildFile; fileRef = 70CC44752F55E13B0099DF4E /* metadata.md */; };
+		70CC44AC2F55E13B0099DF4E /* icon-brief.md in Resources */ = {isa = PBXBuildFile; fileRef = 70CC44742F55E13B0099DF4E /* icon-brief.md */; };
+		70CC44B42F55E5CD0099DF4E /* AsterionApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC44B32F55E5CD0099DF4E /* AsterionApp.swift */; };
+		70CC44B72F55FC420099DF4E /* Inject in Frameworks */ = {isa = PBXBuildFile; productRef = 70CC44B62F55FC410099DF4E /* Inject */; };
+		70CC450B2F5686900099DF4E /* ClerkKit in Frameworks */ = {isa = PBXBuildFile; productRef = 70CC450C2F5686900099DF4E /* ClerkKit */; };
+		70CC450D2F5686900099DF4E /* ClerkKitUI in Frameworks */ = {isa = PBXBuildFile; productRef = 70CC450E2F5686900099DF4E /* ClerkKitUI */; };
+		70CC44C52F55F0000099DF4E /* GenreStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC44C02F55F0000099DF4E /* GenreStyle.swift */; };
+		70CC44C62F55F0000099DF4E /* MazePatternView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC44C12F55F0000099DF4E /* MazePatternView.swift */; };
+		70CC44C72F55F0000099DF4E /* CoverImageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC44C22F55F0000099DF4E /* CoverImageView.swift */; };
+		70CC44C82F55F0000099DF4E /* SearchInputView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC44C32F55F0000099DF4E /* SearchInputView.swift */; };
+		AABB00012F5700010099DF4E /* ChaptersView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABB00002F5700010099DF4E /* ChaptersView.swift */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		70CC44582F55E0800099DF4E /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -27,14 +60,38 @@
 		70CC44482F55E07E0099DF4E /* Asterion.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Asterion.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		70CC44572F55E0800099DF4E /* AsterionTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AsterionTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		70CC44612F55E0800099DF4E /* AsterionUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AsterionUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		70CC44742F55E13B0099DF4E /* icon-brief.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = "icon-brief.md"; sourceTree = "<group>"; };
+		70CC44752F55E13B0099DF4E /* metadata.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = metadata.md; sourceTree = "<group>"; };
+		70CC44762F55E13B0099DF4E /* screenshots-checklist.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = "screenshots-checklist.md"; sourceTree = "<group>"; };
+		70CC44792F55E13B0099DF4E /* AppShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppShortcuts.swift; sourceTree = "<group>"; };
+		70CC447A2F55E13B0099DF4E /* ContinueReadingIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContinueReadingIntent.swift; sourceTree = "<group>"; };
+		70CC447C2F55E13B0099DF4E /* Chapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chapter.swift; sourceTree = "<group>"; };
+		70CC447D2F55E13B0099DF4E /* Novel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Novel.swift; sourceTree = "<group>"; };
+		70CC447E2F55E13B0099DF4E /* ReadingProgress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingProgress.swift; sourceTree = "<group>"; };
+		70CC447F2F55E13B0099DF4E /* User.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = User.swift; sourceTree = "<group>"; };
+		70CC44822F55E13B0099DF4E /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
+		70CC44832F55E13B0099DF4E /* AuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthService.swift; sourceTree = "<group>"; };
+		70CC44842F55E13B0099DF4E /* KeychainHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainHelper.swift; sourceTree = "<group>"; };
+		70CC44852F55E13B0099DF4E /* ReadingProgressService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingProgressService.swift; sourceTree = "<group>"; };
+		70CC44872F55E13B0099DF4E /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		70CC44882F55E13B0099DF4E /* URL+QueryItems.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "URL+QueryItems.swift"; sourceTree = "<group>"; };
+		70CC448A2F55E13B0099DF4E /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
+		70CC448B2F55E13B0099DF4E /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
+		70CC448C2F55E13B0099DF4E /* NovelDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NovelDetailView.swift; sourceTree = "<group>"; };
+		70CC448D2F55E13B0099DF4E /* ProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileView.swift; sourceTree = "<group>"; };
+		70CC448E2F55E13B0099DF4E /* RankingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RankingView.swift; sourceTree = "<group>"; };
+		70CC448F2F55E13B0099DF4E /* ReaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderView.swift; sourceTree = "<group>"; };
+		70CC44912F55E13B0099DF4E /* ReadingWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingWidget.swift; sourceTree = "<group>"; };
+		70CC44922F55E13B0099DF4E /* WidgetBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetBundle.swift; sourceTree = "<group>"; };
+		70CC44B32F55E5CD0099DF4E /* AsterionApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AsterionApp.swift; sourceTree = "<group>"; };
+		70CC44C02F55F0000099DF4E /* GenreStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenreStyle.swift; sourceTree = "<group>"; };
+		70CC44C12F55F0000099DF4E /* MazePatternView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MazePatternView.swift; sourceTree = "<group>"; };
+		70CC44C22F55F0000099DF4E /* CoverImageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoverImageView.swift; sourceTree = "<group>"; };
+		70CC44C32F55F0000099DF4E /* SearchInputView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchInputView.swift; sourceTree = "<group>"; };
+		AABB00002F5700010099DF4E /* ChaptersView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChaptersView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		70CC444A2F55E07E0099DF4E /* Asterion */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = Asterion;
-			sourceTree = "<group>";
-		};
 		70CC445A2F55E0800099DF4E /* AsterionTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = AsterionTests;
@@ -52,6 +109,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				70CC44B72F55FC420099DF4E /* Inject in Frameworks */,
+				70CC450B2F5686900099DF4E /* ClerkKit in Frameworks */,
+				70CC450D2F5686900099DF4E /* ClerkKitUI in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -75,7 +135,13 @@
 		70CC443F2F55E07E0099DF4E = {
 			isa = PBXGroup;
 			children = (
-				70CC444A2F55E07E0099DF4E /* Asterion */,
+				70CC44772F55E13B0099DF4E /* AppStore */,
+				70CC447B2F55E13B0099DF4E /* Intents */,
+				70CC44802F55E13B0099DF4E /* Models */,
+				70CC44862F55E13B0099DF4E /* Services */,
+				70CC44892F55E13B0099DF4E /* Utilities */,
+				70CC44902F55E13B0099DF4E /* Views */,
+				70CC44932F55E13B0099DF4E /* Widgets */,
 				70CC445A2F55E0800099DF4E /* AsterionTests */,
 				70CC44642F55E0800099DF4E /* AsterionUITests */,
 				70CC44492F55E07E0099DF4E /* Products */,
@@ -90,6 +156,92 @@
 				70CC44612F55E0800099DF4E /* AsterionUITests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		70CC44772F55E13B0099DF4E /* AppStore */ = {
+			isa = PBXGroup;
+			children = (
+				70CC44B32F55E5CD0099DF4E /* AsterionApp.swift */,
+				70CC44742F55E13B0099DF4E /* icon-brief.md */,
+				70CC44752F55E13B0099DF4E /* metadata.md */,
+				70CC44762F55E13B0099DF4E /* screenshots-checklist.md */,
+			);
+			path = AppStore;
+			sourceTree = "<group>";
+		};
+		70CC447B2F55E13B0099DF4E /* Intents */ = {
+			isa = PBXGroup;
+			children = (
+				70CC44792F55E13B0099DF4E /* AppShortcuts.swift */,
+				70CC447A2F55E13B0099DF4E /* ContinueReadingIntent.swift */,
+			);
+			path = Intents;
+			sourceTree = "<group>";
+		};
+		70CC44802F55E13B0099DF4E /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				70CC447C2F55E13B0099DF4E /* Chapter.swift */,
+				70CC447D2F55E13B0099DF4E /* Novel.swift */,
+				70CC447E2F55E13B0099DF4E /* ReadingProgress.swift */,
+				70CC447F2F55E13B0099DF4E /* User.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		70CC44862F55E13B0099DF4E /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				70CC44822F55E13B0099DF4E /* APIClient.swift */,
+				70CC44832F55E13B0099DF4E /* AuthService.swift */,
+				70CC44842F55E13B0099DF4E /* KeychainHelper.swift */,
+				70CC44852F55E13B0099DF4E /* ReadingProgressService.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		70CC44892F55E13B0099DF4E /* Utilities */ = {
+			isa = PBXGroup;
+			children = (
+				70CC44C02F55F0000099DF4E /* GenreStyle.swift */,
+				70CC44872F55E13B0099DF4E /* Theme.swift */,
+				70CC44882F55E13B0099DF4E /* URL+QueryItems.swift */,
+			);
+			path = Utilities;
+			sourceTree = "<group>";
+		};
+		70CC44902F55E13B0099DF4E /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				70CC44C42F55F0000099DF4E /* Components */,
+				AABB00002F5700010099DF4E /* ChaptersView.swift */,
+				70CC448A2F55E13B0099DF4E /* HomeView.swift */,
+				70CC448B2F55E13B0099DF4E /* LibraryView.swift */,
+				70CC448C2F55E13B0099DF4E /* NovelDetailView.swift */,
+				70CC448D2F55E13B0099DF4E /* ProfileView.swift */,
+				70CC448E2F55E13B0099DF4E /* RankingView.swift */,
+				70CC448F2F55E13B0099DF4E /* ReaderView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		70CC44932F55E13B0099DF4E /* Widgets */ = {
+			isa = PBXGroup;
+			children = (
+				70CC44912F55E13B0099DF4E /* ReadingWidget.swift */,
+				70CC44922F55E13B0099DF4E /* WidgetBundle.swift */,
+			);
+			path = Widgets;
+			sourceTree = "<group>";
+		};
+		70CC44C42F55F0000099DF4E /* Components */ = {
+			isa = PBXGroup;
+			children = (
+				70CC44C12F55F0000099DF4E /* MazePatternView.swift */,
+				70CC44C22F55F0000099DF4E /* CoverImageView.swift */,
+				70CC44C32F55F0000099DF4E /* SearchInputView.swift */,
+			);
+			path = Components;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -107,11 +259,11 @@
 			);
 			dependencies = (
 			);
-			fileSystemSynchronizedGroups = (
-				70CC444A2F55E07E0099DF4E /* Asterion */,
-			);
 			name = Asterion;
 			packageProductDependencies = (
+				70CC44B62F55FC410099DF4E /* Inject */,
+				70CC450C2F5686900099DF4E /* ClerkKit */,
+				70CC450E2F5686900099DF4E /* ClerkKitUI */,
 			);
 			productName = Asterion;
 			productReference = 70CC44482F55E07E0099DF4E /* Asterion.app */;
@@ -195,6 +347,10 @@
 			);
 			mainGroup = 70CC443F2F55E07E0099DF4E;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				70CC44B52F55FC400099DF4E /* XCRemoteSwiftPackageReference "Inject" */,
+				70CC450A2F56868A0099DF4E /* XCRemoteSwiftPackageReference "clerk-ios" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 70CC44492F55E07E0099DF4E /* Products */;
 			projectDirPath = "";
@@ -212,6 +368,9 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				70CC44A92F55E13B0099DF4E /* screenshots-checklist.md in Resources */,
+				70CC44AA2F55E13B0099DF4E /* metadata.md in Resources */,
+				70CC44AC2F55E13B0099DF4E /* icon-brief.md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -236,6 +395,30 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				70CC44942F55E13B0099DF4E /* ReaderView.swift in Sources */,
+				70CC44952F55E13B0099DF4E /* ReadingProgressService.swift in Sources */,
+				70CC44962F55E13B0099DF4E /* NovelDetailView.swift in Sources */,
+				70CC44972F55E13B0099DF4E /* ProfileView.swift in Sources */,
+				70CC44982F55E13B0099DF4E /* APIClient.swift in Sources */,
+				70CC44992F55E13B0099DF4E /* AuthService.swift in Sources */,
+				70CC449A2F55E13B0099DF4E /* ReadingProgress.swift in Sources */,
+				70CC449B2F55E13B0099DF4E /* Chapter.swift in Sources */,
+				70CC449C2F55E13B0099DF4E /* KeychainHelper.swift in Sources */,
+				70CC449D2F55E13B0099DF4E /* URL+QueryItems.swift in Sources */,
+				70CC449E2F55E13B0099DF4E /* Novel.swift in Sources */,
+				70CC449F2F55E13B0099DF4E /* AppShortcuts.swift in Sources */,
+				70CC44A02F55E13B0099DF4E /* HomeView.swift in Sources */,
+				70CC44A12F55E13B0099DF4E /* RankingView.swift in Sources */,
+				70CC44A22F55E13B0099DF4E /* ContinueReadingIntent.swift in Sources */,
+				70CC44A42F55E13B0099DF4E /* Theme.swift in Sources */,
+				70CC44A52F55E13B0099DF4E /* User.swift in Sources */,
+				70CC44A72F55E13B0099DF4E /* LibraryView.swift in Sources */,
+				70CC44B42F55E5CD0099DF4E /* AsterionApp.swift in Sources */,
+				70CC44C52F55F0000099DF4E /* GenreStyle.swift in Sources */,
+				70CC44C62F55F0000099DF4E /* MazePatternView.swift in Sources */,
+				70CC44C72F55F0000099DF4E /* CoverImageView.swift in Sources */,
+				70CC44C82F55F0000099DF4E /* SearchInputView.swift in Sources */,
+				AABB00012F5700010099DF4E /* ChaptersView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -390,10 +573,12 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				EMIT_FRONTEND_COMMAND_LINES = YES;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CLERK_PUBLISHABLE_KEY = pk_test_cG9ldGljLWdhdG9yLTk3LmNsZXJrLmFjY291bnRzLmRldiQ;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -409,18 +594,23 @@
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 26.2;
 				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-Xlinker",
+					"-interposable",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = cyberverse.Asterion;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2,7";
+				TARGETED_DEVICE_FAMILY = "1,2";
 				XROS_DEPLOYMENT_TARGET = 26.2;
 			};
 			name = Debug;
@@ -436,6 +626,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CLERK_PUBLISHABLE_KEY = pk_test_cG9ldGljLWdhdG9yLTk3LmNsZXJrLmFjY291bnRzLmRldiQ;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -456,13 +647,14 @@
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2,7";
+				TARGETED_DEVICE_FAMILY = "1,2";
 				XROS_DEPLOYMENT_TARGET = 26.2;
 			};
 			name = Release;
@@ -605,6 +797,43 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		70CC44B52F55FC400099DF4E /* XCRemoteSwiftPackageReference "Inject" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/krzysztofzablocki/Inject";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.5.2;
+			};
+		};
+		70CC450A2F56868A0099DF4E /* XCRemoteSwiftPackageReference "clerk-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/clerk/clerk-ios";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.0.3;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		70CC44B62F55FC410099DF4E /* Inject */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 70CC44B52F55FC400099DF4E /* XCRemoteSwiftPackageReference "Inject" */;
+			productName = Inject;
+		};
+		70CC450C2F5686900099DF4E /* ClerkKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 70CC450A2F56868A0099DF4E /* XCRemoteSwiftPackageReference "clerk-ios" */;
+			productName = ClerkKit;
+		};
+		70CC450E2F5686900099DF4E /* ClerkKitUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 70CC450A2F56868A0099DF4E /* XCRemoteSwiftPackageReference "clerk-ios" */;
+			productName = ClerkKitUI;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 70CC44402F55E07E0099DF4E /* Project object */;
 }

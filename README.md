@@ -21,3 +21,8 @@ Native SwiftUI scaffold for the Apple-first Asterion app.
    - App Groups (for widget shared data)
    - Siri
 4. Replace `APIClient.baseURL` with production API origin.
+5. Configure Clerk auth:
+   - Add Swift packages:
+     - `https://github.com/clerk/clerk-ios` (products: `ClerkKit`, `ClerkKitUI`)
+   - Add `CLERK_PUBLISHABLE_KEY` to your app's `Info.plist`.
+   - Ensure your Clerk app is configured for iOS/native auth.

@@ -1,10 +1,17 @@
-import Combine
+import ClerkKit
+import ClerkKitUI
+import Inject
 import SwiftUI
 
 @MainActor
 final class TabBarState: ObservableObject {
     @Published var isVisible = true
 }
+
+private let _clerkConfigured: Bool = {
+    Clerk.configure(publishableKey: "pk_test_cG9ldGljLWdhdG9yLTk3LmNsZXJrLmFjY291bnRzLmRldiQ")
+    return true
+}()
 
 @main
 struct AsterionApp: App {
@@ -13,6 +20,8 @@ struct AsterionApp: App {
     @StateObject private var tabBarState = TabBarState()
 
     init() {
+        _ = _clerkConfigured
+
         let bg = UIColor(red: 0.051, green: 0.047, blue: 0.043, alpha: 1)
 
         let appearance = UINavigationBarAppearance()
@@ -41,9 +50,10 @@ struct AsterionApp: App {
                 .environmentObject(authService)
                 .environmentObject(apiClient)
                 .environmentObject(tabBarState)
+                .environment(Clerk.shared)
                 .preferredColorScheme(.dark)
                 .task {
-                    await authService.restoreSession()
+                    await authService.syncClerkSession()
                     apiClient.setSessionToken(authService.sessionToken)
                 }
         }
@@ -58,24 +68,25 @@ enum AsterionTab: String, CaseIterable {
 
     var label: String {
         switch self {
-        case .discover:  return "Discover"
-        case .rankings:  return "Rankings"
-        case .library:   return "Library"
-        case .profile:   return "Profile"
+        case .discover: return "Discover"
+        case .rankings: return "Rankings"
+        case .library: return "Library"
+        case .profile: return "Profile"
         }
     }
 
     var systemImage: String {
         switch self {
-        case .discover:  return "sparkles"
-        case .rankings:  return "crown"
-        case .library:   return "books.vertical"
-        case .profile:   return "person.crop.circle"
+        case .discover: return "sparkles"
+        case .rankings: return "crown"
+        case .library: return "books.vertical"
+        case .profile: return "person.crop.circle"
         }
     }
 }
 
 struct RootTabView: View {
+    @ObserveInjection var inject
     @EnvironmentObject private var tabBarState: TabBarState
     @State private var selectedTab: AsterionTab = .discover
 
@@ -107,5 +118,6 @@ struct RootTabView: View {
         }
         .tint(Color.goldAccent)
         .toolbarVisibility(tabBarState.isVisible ? .visible : .hidden, for: .tabBar)
+        .enableInjection()
     }
 }
