@@ -31,6 +31,7 @@ struct HomeView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
+                    pageTitleSection
                     searchSection
 
                     if loading && novels.isEmpty {
@@ -50,9 +51,7 @@ struct HomeView: View {
                 Color.asterionBackground.ignoresSafeArea()
                 MazePatternView().ignoresSafeArea()
             }
-            .navigationTitle("Asterion")
-            .navigationBarTitleDisplayMode(.large)
-            .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: Novel.self) { novel in
                 NovelDetailView(novel: novel)
             }
@@ -66,6 +65,15 @@ struct HomeView: View {
     }
 
     // MARK: - Search
+
+    private var pageTitleSection: some View {
+        Text("Asterion")
+            .font(.asterionSerif(48, weight: .semibold))
+            .foregroundStyle(Color.asterionText)
+            .padding(.horizontal, 24)
+            .padding(.top, 14)
+            .padding(.bottom, 8)
+    }
 
     private var searchSection: some View {
         SearchInputView(text: $search, placeholder: "Search novels...")

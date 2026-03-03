@@ -40,7 +40,7 @@ async function authenticate(request: FastifyRequest, reply: FastifyReply): Promi
 
     request.auth = { clerkUserId: jwtPayload.sub };
   } catch (error) {
-    request.log.warn({ error }, "Clerk token verification failed.");
+    request.log.warn({ err: error }, "Clerk token verification failed.");
     return reply.code(401).send({ error: "Invalid or expired token." });
   }
 }

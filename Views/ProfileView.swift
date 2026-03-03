@@ -18,11 +18,22 @@ struct ProfileView: View {
     @State private var cloudChaptersRead = 0
     @State private var cloudSyncError: String?
     @State private var isApplyingServerPreferences = false
+    @State private var startedNovelIds: Set<String> = []
+    @State private var completedNovelIds: Set<String> = []
 
     enum FontSizePref: String, CaseIterable { case small, medium, large }
 
-    private var ongoing: Int { libraryNovels.filter { $0.status == "Ongoing" }.count }
-    private var completed: Int { libraryNovels.filter { $0.status == "Completed" }.count }
+    private var ongoing: Int {
+        let libraryIds = Set(libraryNovels.map(\.id))
+        return startedNovelIds
+            .intersection(libraryIds)
+            .subtracting(completedNovelIds)
+            .count
+    }
+    private var completed: Int {
+        let libraryIds = Set(libraryNovels.map(\.id))
+        return completedNovelIds.intersection(libraryIds).count
+    }
     private var totalChapters: Int {
         libraryNovels.reduce(0) { sum, n in
             sum + (Int(n.totalChapters?.filter(\.isNumber) ?? "") ?? 0)
@@ -37,16 +48,17 @@ struct ProfileView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                if authService.isSignedIn {
-                    signedInContent
-                } else {
-                    signedOutContent
+                VStack(alignment: .leading, spacing: 0) {
+                    pageTitleSection
+                    if authService.isSignedIn {
+                        signedInContent
+                    } else {
+                        signedOutContent
+                    }
                 }
             }
             .background(Color.asterionBackground.ignoresSafeArea())
-            .navigationTitle("Profile")
-            .navigationBarTitleDisplayMode(.large)
-            .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbar(.hidden, for: .navigationBar)
             .task {
                 await loadCloudProfileData()
             }
@@ -74,6 +86,15 @@ struct ProfileView: View {
             Task { await pushPreferencesToCloud() }
         }
         .enableInjection()
+    }
+
+    private var pageTitleSection: some View {
+        Text("Profile")
+            .font(.asterionSerif(42, weight: .semibold))
+            .foregroundStyle(Color.asterionText)
+            .padding(.horizontal, 24)
+            .padding(.top, 14)
+            .padding(.bottom, 8)
     }
 
     // MARK: - Signed Out
@@ -242,7 +263,7 @@ struct ProfileView: View {
                 .padding(.top, 4)
         }
         .frame(maxWidth: .infinity)
-        .padding(.bottom, 36)
+        .padding(.bottom, 18)
     }
 
     private var initials: String {
@@ -282,7 +303,7 @@ struct ProfileView: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(.bottom, 28)
+        .padding(.bottom, 18)
     }
 
     // MARK: - Stats Grid
@@ -307,6 +328,8 @@ struct ProfileView: View {
             cloudProgressCount = 0
             cloudChaptersRead = 0
             libraryNovels = []
+            startedNovelIds = []
+            completedNovelIds = []
             cloudSyncError = nil
             return
         }
@@ -317,12 +340,16 @@ struct ProfileView: View {
             async let prefsFetch = apiClient.fetchMyPreferences()
             async let libraryFetch = apiClient.fetchMyLibrary()
             async let allNovelsFetch = apiClient.fetchNovels(limit: 500, search: "")
+            async let progressFetch = apiClient.fetchAllReadingProgress()
+            async let historyFetch = apiClient.fetchReadingHistory(limit: 10_000)
 
             cloudProfile = try await profileFetch
             let stats = try await statsFetch
             let prefs = try await prefsFetch
             let libraryItems = try await libraryFetch
             let allNovels = try await allNovelsFetch
+            let progressList = try await progressFetch
+            let history = try await historyFetch
 
             cloudBookmarkCount = stats.bookmarks
             cloudProgressCount = stats.novelsInProgress
@@ -330,6 +357,26 @@ struct ProfileView: View {
 
             let libraryIds = Set(libraryItems.map(\.novelId))
             libraryNovels = allNovels.filter { libraryIds.contains($0.id) }
+
+            let startedFromProgress = Set(progressList.map(\.novelId))
+            let startedFromHistory = Set(history.map(\.novelId))
+            startedNovelIds = startedFromProgress.union(startedFromHistory)
+
+            var distinctChapterCountsByNovel: [String: Set<String>] = [:]
+            for entry in history {
+                distinctChapterCountsByNovel[entry.novelId, default: []].insert(entry.chapterId)
+            }
+
+            var completedIds: Set<String> = []
+            for novel in allNovels {
+                let totalChapters = Int(novel.totalChapters?.filter(\.isNumber) ?? "") ?? 0
+                guard totalChapters > 0 else { continue }
+                let readCount = distinctChapterCountsByNovel[novel.id]?.count ?? 0
+                if readCount >= totalChapters {
+                    completedIds.insert(novel.id)
+                }
+            }
+            completedNovelIds = completedIds
 
             isApplyingServerPreferences = true
             readingGoal = prefs.readingGoal

@@ -91,4 +91,39 @@ final class OfflineChapterStore {
         guard let data = try? Data(contentsOf: fileURL) else { return [] }
         return (try? decoder.decode([Novel].self, from: data)) ?? []
     }
+
+    func saveDownloadedChapter(
+        novelTitle: String,
+        chapterNumber: Int,
+        chapterTitle: String,
+        content: String
+    ) async throws -> URL {
+        let fileManager = FileManager.default
+        let documents = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first
+            ?? baseDirectory
+        let rootFolder = documents.appendingPathComponent("Asterion Downloads", isDirectory: true)
+        let novelFolderName = sanitizeFilenameComponent(novelTitle).isEmpty
+            ? "novel"
+            : sanitizeFilenameComponent(novelTitle)
+        let novelFolder = rootFolder.appendingPathComponent(novelFolderName, isDirectory: true)
+        if !fileManager.fileExists(atPath: novelFolder.path) {
+            try fileManager.createDirectory(at: novelFolder, withIntermediateDirectories: true)
+        }
+
+        let chapterPrefix = chapterNumber > 0 ? String(format: "ch-%04d", chapterNumber) : "chapter"
+        let chapterSlug = sanitizeFilenameComponent(chapterTitle).isEmpty
+            ? "untitled"
+            : sanitizeFilenameComponent(chapterTitle)
+        let fileName = "\(chapterPrefix)-\(chapterSlug).txt"
+        let fileURL = novelFolder.appendingPathComponent(fileName)
+        try Data(content.utf8).write(to: fileURL, options: .atomic)
+        return fileURL
+    }
+
+    private func sanitizeFilenameComponent(_ value: String) -> String {
+        value
+            .lowercased()
+            .replacingOccurrences(of: "[^a-z0-9._-]+", with: "-", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+    }
 }

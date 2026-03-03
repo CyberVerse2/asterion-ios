@@ -13,7 +13,7 @@ async function start() {
   try {
     await app.listen({ host: env.API_HOST, port: env.API_PORT });
   } catch (error) {
-    app.log.error(error);
+    app.log.error({ err: error }, "Failed to start server.");
     process.exit(1);
   }
 }

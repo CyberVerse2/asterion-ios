@@ -1,6 +1,7 @@
 import AppIntents
 import ActivityKit
 import SwiftUI
+import UIKit
 import WidgetKit
 
 struct ReadingEntry: TimelineEntry {
@@ -69,28 +70,35 @@ struct ChapterDownloadLiveActivityWidget: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: ChapterDownloadActivityAttributes.self) { context in
             // Lock Screen / banner UI
-            VStack(alignment: .leading, spacing: 10) {
-                Text("DOWNLOADING CHAPTERS")
-                    .font(.caption2)
-                    .fontWeight(.semibold)
-                    .tracking(1)
-                    .foregroundStyle(gold.opacity(0.9))
-                Text(context.attributes.novelTitle)
-                    .font(.headline)
-                    .lineLimit(1)
-                ProgressView(
-                    value: Double(context.state.completed),
-                    total: Double(max(context.state.total, 1))
+            HStack(alignment: .top, spacing: 10) {
+                liveActivityCoverImage(
+                    data: context.attributes.novelImageData,
+                    urlString: context.attributes.novelImageURL
                 )
-                .tint(gold)
-                HStack {
-                    Text("\(context.state.completed)/\(context.state.total)")
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("DOWNLOADING CHAPTERS")
                         .font(.caption2)
-                        .foregroundStyle(.secondary.opacity(0.9))
-                    Spacer()
-                    Text(context.state.statusText)
-                        .font(.caption2)
+                        .fontWeight(.semibold)
+                        .tracking(1)
                         .foregroundStyle(gold.opacity(0.9))
+                    Text(context.attributes.novelTitle)
+                        .font(.headline)
+                        .lineLimit(1)
+                    ProgressView(
+                        value: Double(context.state.completed),
+                        total: Double(max(context.state.total, 1))
+                    )
+                    .tint(gold)
+                    HStack {
+                        Text("\(context.state.completed)/\(context.state.total)")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary.opacity(0.9))
+                        Spacer()
+                        Text(context.state.statusText)
+                            .font(.caption2)
+                            .foregroundStyle(gold.opacity(0.9))
+                    }
                 }
             }
             .padding(12)
@@ -103,8 +111,11 @@ struct ChapterDownloadLiveActivityWidget: Widget {
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    Image(systemName: "arrow.down.doc")
-                        .foregroundStyle(gold)
+                    liveActivityCoverImage(
+                        data: context.attributes.novelImageData,
+                        urlString: context.attributes.novelImageURL,
+                        size: 34
+                    )
                 }
                 DynamicIslandExpandedRegion(.center) {
                     Text(context.attributes.novelTitle)
@@ -150,6 +161,74 @@ struct ChapterDownloadLiveActivityWidget: Widget {
                     .foregroundStyle(gold)
             }
             .keylineTint(gold)
+        }
+    }
+
+    @ViewBuilder
+    private func liveActivityCoverImage(data: Data?, urlString: String?, size: CGFloat = 44) -> some View {
+        if let data, let image = UIImage(data: data) {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+                .frame(width: size, height: size)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(gold.opacity(0.35), lineWidth: 1)
+                )
+        } else if let url = normalizedLiveActivityImageURL(urlString) {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case let .success(image):
+                    image
+                        .resizable()
+                        .scaledToFill()
+                default:
+                    fallbackCoverIcon
+                }
+            }
+            .frame(width: size, height: size)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(gold.opacity(0.35), lineWidth: 1)
+            )
+        } else {
+            fallbackCoverIcon
+                .frame(width: size, height: size)
+        }
+    }
+
+    private func normalizedLiveActivityImageURL(_ raw: String?) -> URL? {
+        guard var value = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+        if value.hasPrefix("//") {
+            value = "https:\(value)"
+        } else if !value.contains("://") {
+            value = "https://\(value)"
+        }
+
+        if value.hasPrefix("http://") {
+            value = value.replacingOccurrences(of: "http://", with: "https://")
+        }
+
+        if let direct = URL(string: value) {
+            return direct
+        }
+        if let encoded = value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+            return URL(string: encoded)
+        }
+        return nil
+    }
+
+    private var fallbackCoverIcon: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 8)
+                .fill(card.opacity(0.8))
+            Image(systemName: "book.closed")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(gold.opacity(0.95))
         }
     }
 }

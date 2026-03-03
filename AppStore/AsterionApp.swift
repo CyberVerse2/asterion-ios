@@ -26,15 +26,8 @@ struct AsterionApp: App {
         let bg = UIColor(red: 0.051, green: 0.047, blue: 0.043, alpha: 1)
         let titleColor = UIColor(red: 0.91, green: 0.863, blue: 0.784, alpha: 1)
 
-        let titleBase = UIFont.systemFont(ofSize: 18, weight: .semibold)
-        let titleFont = titleBase.fontDescriptor.withDesign(.serif).map {
-            UIFont(descriptor: $0, size: 18)
-        } ?? titleBase
-
-        let largeTitleBase = UIFont.systemFont(ofSize: 36, weight: .bold)
-        let largeTitleFont = largeTitleBase.fontDescriptor.withDesign(.serif).map {
-            UIFont(descriptor: $0, size: 36)
-        } ?? largeTitleBase
+        let titleFont = makeNavigationSerifFont(size: 18, weight: .semibold)
+        let largeTitleFont = makeNavigationSerifFont(size: 36, weight: .bold)
 
         let appearance = UINavigationBarAppearance()
         appearance.configureWithOpaqueBackground()
@@ -52,6 +45,7 @@ struct AsterionApp: App {
         UINavigationBar.appearance().standardAppearance = appearance
         UINavigationBar.appearance().scrollEdgeAppearance = appearance
         UINavigationBar.appearance().compactAppearance = appearance
+        UINavigationBar.appearance().compactScrollEdgeAppearance = appearance
         UINavigationBar.appearance().tintColor = UIColor(red: 0.42, green: 0.392, blue: 0.349, alpha: 1)
 
         let tabAppearance = UITabBarAppearance()
@@ -60,6 +54,16 @@ struct AsterionApp: App {
         tabAppearance.shadowColor = .clear
         UITabBar.appearance().standardAppearance = tabAppearance
         UITabBar.appearance().scrollEdgeAppearance = tabAppearance
+    }
+
+    private func makeNavigationSerifFont(size: CGFloat, weight: UIFont.Weight) -> UIFont {
+        let fallbackSystem = UIFont.systemFont(ofSize: size, weight: weight)
+        switch weight {
+        case .bold, .semibold, .heavy, .black:
+            return UIFont(name: "Georgia-Bold", size: size) ?? fallbackSystem
+        default:
+            return UIFont(name: "Georgia", size: size) ?? fallbackSystem
+        }
     }
 
     var body: some Scene {

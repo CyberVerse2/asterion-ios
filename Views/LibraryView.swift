@@ -49,6 +49,7 @@ struct LibraryView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
+                    pageTitleSection
                     SearchInputView(text: $search, placeholder: "Search by title or author...")
                         .padding(.horizontal, 24)
                         .padding(.bottom, 12)
@@ -116,9 +117,7 @@ struct LibraryView: View {
             }
             .refreshable { await loadLibrary() }
             .background(Color.asterionBackground.ignoresSafeArea())
-            .navigationTitle("Library")
-            .navigationBarTitleDisplayMode(.large)
-            .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: Novel.self) { novel in
                 NovelDetailView(novel: novel)
             }
@@ -126,6 +125,15 @@ struct LibraryView: View {
             .debounceSearch(text: $search, debouncedText: $debouncedSearch)
         }
         .enableInjection()
+    }
+
+    private var pageTitleSection: some View {
+        Text("Library")
+            .font(.asterionSerif(42, weight: .semibold))
+            .foregroundStyle(Color.asterionText)
+            .padding(.horizontal, 24)
+            .padding(.top, 14)
+            .padding(.bottom, 8)
     }
 
     private var sortPicker: some View {

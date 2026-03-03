@@ -1,6 +1,5 @@
 import Inject
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct ReaderView: View {
     @ObserveInjection var inject
@@ -24,9 +23,8 @@ struct ReaderView: View {
     @State private var paragraphOffsets: [Int: CGFloat] = [:]
     @State private var pendingRestoreLine: Int?
     @State private var progressSyncTask: Task<Void, Never>?
-    @State private var isExportingChapter = false
-    @State private var exportDocument: ChapterTextDocument?
-    @State private var exportFilename = "chapter.txt"
+    @State private var showDownloadAlert = false
+    @State private var downloadAlertMessage = ""
 
     private var genreColor: Color { GenreStyle.color(for: novel.genres) }
 
@@ -35,7 +33,22 @@ struct ReaderView: View {
     }
     private var hasPrev: Bool { currentIndex > 0 }
     private var hasNext: Bool { currentIndex >= 0 && currentIndex < allChapters.count - 1 }
-    private var readerHorizontalPadding: CGFloat { horizontalSizeClass == .compact ? 20 : 32 }
+    private var isLargeIPadLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
+    }
+    private var readerHorizontalPadding: CGFloat {
+        if horizontalSizeClass == .compact { return 20 }
+        return isLargeIPadLayout ? 56 : 32
+    }
+    private var readerMaxContentWidth: CGFloat {
+        isLargeIPadLayout ? 900 : 640
+    }
+    private var topBarTitleMaxWidth: CGFloat {
+        isLargeIPadLayout ? 280 : 160
+    }
+    private var topBarHorizontalPadding: CGFloat {
+        isLargeIPadLayout ? 28 : 20
+    }
 
     private var paragraphs: [String] {
         currentChapter.plainContent
@@ -51,6 +64,9 @@ struct ReaderView: View {
         self.novel = novel
         self.allChapters = allChapters
         self._currentChapter = State(initialValue: initialChapter)
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            self._fontSize = State(initialValue: 21)
+        }
     }
 
     var body: some View {
@@ -111,14 +127,12 @@ struct ReaderView: View {
                 totalLines: max(1, paragraphs.count)
             )
         }
-        .fileExporter(
-            isPresented: $isExportingChapter,
-            document: exportDocument,
-            contentType: .plainText,
-            defaultFilename: exportFilename
-        ) { _ in
-            exportDocument = nil
+        .alert("Chapter Download", isPresented: $showDownloadAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(downloadAlertMessage)
         }
+        .edgeSwipeToDismiss { dismiss() }
         .onChange(of: currentChapter.id) { _, _ in
             currentLine = 0
             withAnimation {
@@ -166,7 +180,7 @@ struct ReaderView: View {
                 Text(para)
                     .id(lineAnchorId(for: index))
                     .font(.asterionSerif(fontSize))
-                    .lineSpacing(fontSize * 0.85)
+                    .lineSpacing(fontSize * (isLargeIPadLayout ? 0.95 : 0.85))
                     .foregroundStyle(Color.asterionReaderText)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.leading, index > 0 ? readerHorizontalPadding : 0)
@@ -182,7 +196,7 @@ struct ReaderView: View {
         }
         .padding(.horizontal, readerHorizontalPadding)
         .padding(.bottom, 140)
-        .frame(maxWidth: 640)
+        .frame(maxWidth: readerMaxContentWidth)
         .frame(maxWidth: .infinity)
     }
 
@@ -203,8 +217,9 @@ struct ReaderView: View {
                             .foregroundStyle(Color.asterionMuted)
                             .padding(.horizontal, 24)
                             .padding(.vertical, 12)
-                            .overlay(
+                            .background(
                                 RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color.asterionCard)
                                     .stroke(Color.asterionBorder, lineWidth: 1)
                             )
                     }
@@ -221,7 +236,7 @@ struct ReaderView: View {
                             .padding(.vertical, 12)
                             .background(
                                 RoundedRectangle(cornerRadius: 12)
-                                    .fill(genreColor.opacity(0.1))
+                                    .fill(Color.asterionCard)
                                     .stroke(genreColor.opacity(0.3), lineWidth: 1)
                             )
                     }
@@ -240,7 +255,7 @@ struct ReaderView: View {
                 dismiss()
             } label: {
                 Text("← Back")
-                    .font(.system(size: 13))
+                    .font(.asterionMono(13))
                     .foregroundStyle(Color.asterionMuted)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 6)
@@ -255,13 +270,13 @@ struct ReaderView: View {
                 .font(.asterionMono(11))
                 .foregroundStyle(Color.asterionDim)
                 .lineLimit(1)
-                .frame(maxWidth: 160)
+                .frame(maxWidth: topBarTitleMaxWidth)
 
             Spacer()
 
             HStack(spacing: 8) {
                 Button {
-                    prepareChapterExport()
+                    Task { await downloadCurrentChapterToFolder() }
                 } label: {
                     Image(systemName: "arrow.down.doc")
                         .font(.system(size: 14))
@@ -294,8 +309,8 @@ struct ReaderView: View {
                 }
             }
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 50)
+        .padding(.horizontal, topBarHorizontalPadding)
+        .padding(.top, 40)
         .padding(.bottom, 12)
         .background(
             LinearGradient(
@@ -320,8 +335,10 @@ struct ReaderView: View {
                         .foregroundStyle(Color.asterionMuted)
                         .padding(.horizontal, 20)
                         .padding(.vertical, 8)
-                        .overlay(
-                            Capsule().stroke(Color.asterionBorder, lineWidth: 1)
+                        .background(
+                            Capsule()
+                                .fill(Color.asterionCard)
+                                .stroke(Color.asterionBorder, lineWidth: 1)
                         )
                 }
             }
@@ -332,8 +349,10 @@ struct ReaderView: View {
                         .foregroundStyle(Color.goldAccent)
                         .padding(.horizontal, 20)
                         .padding(.vertical, 8)
-                        .overlay(
-                            Capsule().stroke(genreColor.opacity(0.5), lineWidth: 1)
+                        .background(
+                            Capsule()
+                                .fill(Color.asterionCard)
+                                .stroke(genreColor.opacity(0.5), lineWidth: 1)
                         )
                 }
             }
@@ -478,7 +497,7 @@ struct ReaderView: View {
         "line-\(index)"
     }
 
-    private func prepareChapterExport() {
+    private func downloadCurrentChapterToFolder() async {
         let chapterHeader: String
         if currentChapter.chapterNumber > 0 {
             chapterHeader = "Chapter \(currentChapter.chapterNumber): \(currentChapter.title)"
@@ -492,20 +511,20 @@ struct ReaderView: View {
 
         \(body)
         """
-        Task { await OfflineChapterStore.shared.cacheChapter(currentChapter) }
-        exportDocument = ChapterTextDocument(text: content)
-        exportFilename = makeDownloadFilename()
-        isExportingChapter = true
-    }
-
-    private func makeDownloadFilename() -> String {
-        let chapterPart = currentChapter.chapterNumber > 0 ? "ch-\(currentChapter.chapterNumber)" : "chapter"
-        let base = "\(novel.title)-\(chapterPart)"
-        let sanitized = base
-            .lowercased()
-            .replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
-        return sanitized.isEmpty ? "chapter.txt" : "\(sanitized).txt"
+        do {
+            await OfflineChapterStore.shared.cacheChapter(currentChapter)
+            let fileURL = try await OfflineChapterStore.shared.saveDownloadedChapter(
+                novelTitle: novel.title,
+                chapterNumber: currentChapter.chapterNumber,
+                chapterTitle: currentChapter.title,
+                content: content
+            )
+            downloadAlertMessage = "Saved to \(fileURL.deletingLastPathComponent().lastPathComponent)"
+            showDownloadAlert = true
+        } catch {
+            downloadAlertMessage = "Couldn't save chapter to local folder."
+            showDownloadAlert = true
+        }
     }
 
     private func shouldFilterMetadataLine(_ line: String) -> Bool {
@@ -571,30 +590,6 @@ struct ReaderView: View {
         }
 
         return false
-    }
-}
-
-private struct ChapterTextDocument: FileDocument {
-    static var readableContentTypes: [UTType] { [.plainText] }
-
-    var text: String
-
-    init(text: String) {
-        self.text = text
-    }
-
-    init(configuration: ReadConfiguration) throws {
-        guard let data = configuration.file.regularFileContents,
-              let value = String(data: data, encoding: .utf8)
-        else {
-            throw CocoaError(.fileReadCorruptFile)
-        }
-        text = value
-    }
-
-    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
-        let data = Data(text.utf8)
-        return .init(regularFileWithContents: data)
     }
 }
 

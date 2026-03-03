@@ -9,6 +9,12 @@ final class ReadingProgressService: ObservableObject {
     private weak var apiClient: APIClient?
     private let queueKey = "asterion.pending.progress.queue"
 
+    private func debugLog(_ message: String) {
+        #if DEBUG
+        print("[ReadingProgressSync] \(message)")
+        #endif
+    }
+
     private struct PendingProgressPayload: Codable, Hashable {
         let novelId: String
         let chapterId: String
@@ -24,14 +30,17 @@ final class ReadingProgressService: ObservableObject {
 
     func configure(apiClient: APIClient) {
         self.apiClient = apiClient
+        debugLog("Configured API client.")
     }
 
     func refreshRemoteProgress(novelId: String) async {
         guard let apiClient else { return }
         do {
             currentProgress = try await apiClient.fetchReadingProgress(novelId: novelId)
+            debugLog("Remote progress refreshed for novelId=\(novelId)")
         } catch {
             // Keep existing local state if remote load fails.
+            debugLog("Remote progress refresh failed for novelId=\(novelId): \(error.localizedDescription)")
         }
     }
 
@@ -57,6 +66,7 @@ final class ReadingProgressService: ObservableObject {
             queuedAt: Date()
         )
         enqueue(payload)
+        debugLog("Queued progress novelId=\(novelId) chapterId=\(chapterId) line=\(currentLine)/\(totalLines)")
         Task { await flushQueue() }
     }
 
@@ -64,6 +74,7 @@ final class ReadingProgressService: ObservableObject {
         guard let apiClient else { return }
         var queue = loadQueue()
         guard !queue.isEmpty else { return }
+        debugLog("Starting queue flush. pending=\(queue.count)")
 
         while let item = queue.first {
             do {
@@ -76,7 +87,9 @@ final class ReadingProgressService: ObservableObject {
                 )
                 queue.removeFirst()
                 saveQueue(queue)
+                debugLog("Synced queued progress novelId=\(item.novelId) chapterId=\(item.chapterId). remaining=\(queue.count)")
             } catch {
+                debugLog("Queue flush paused after sync failure: \(error.localizedDescription)")
                 break
             }
         }

@@ -1,6 +1,5 @@
 import Inject
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct NovelDetailView: View {
     @ObserveInjection var inject
@@ -21,12 +20,10 @@ struct NovelDetailView: View {
     @State private var isInLibrary = false
     @State private var libraryActionInFlight = false
     @State private var isDownloadingAllChapters = false
-    @State private var isExportingNovel = false
-    @State private var novelExportDocument: NovelChaptersFolderDocument?
-    @State private var novelExportFilename = "novel-chapters"
     @State private var downloadError: String?
     @State private var downloadPreparedCount = 0
     @State private var downloadTotalCount = 0
+    @State private var isNovelAvailableOffline = false
 
     private let previewCount = 5
     private var genreColor: Color { GenreStyle.color(for: novel.genres) }
@@ -46,42 +43,21 @@ struct NovelDetailView: View {
                 genrePillsSection
                 synopsisSection
                 startReadingButton
-                downloadAllButton
                 chapterPreviewSection
                 similarNovelsSection
             }
             .padding(.bottom, 100)
         }
-        .overlay(alignment: .topLeading) {
-            Button { dismiss() } label: {
-                Text("← Back")
-                    .font(.system(size: 13))
-                    .foregroundStyle(Color.asterionMuted)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 6)
-                    .background(
-                        Capsule()
-                            .fill(Color.asterionCard.opacity(0.5))
-                            .stroke(Color.asterionBorder, lineWidth: 1)
-                    )
-            }
-            .padding(.top, 54)
-            .padding(.leading, 20)
+        .overlay(alignment: .top) {
+            topNavigationBar
         }
         .background(Color.asterionBackground.ignoresSafeArea())
         .toolbarVisibility(.hidden, for: .navigationBar)
         .toolbarVisibility(.hidden, for: .tabBar)
-        .fileExporter(
-            isPresented: $isExportingNovel,
-            document: novelExportDocument,
-            contentType: .folder,
-            defaultFilename: novelExportFilename
-        ) { _ in
-            novelExportDocument = nil
-        }
         .task { await loadInitialData() }
         .onAppear { tabBarState.isVisible = false }
         .onDisappear { tabBarState.isVisible = true }
+        .edgeSwipeToDismiss { dismiss() }
         .enableInjection()
     }
 
@@ -215,6 +191,71 @@ struct NovelDetailView: View {
         }
     }
 
+    private var topNavigationBar: some View {
+        HStack(spacing: 12) {
+            Button { dismiss() } label: {
+                Text("← Back")
+                    .font(.asterionMono(13))
+                    .foregroundStyle(Color.asterionMuted)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 6)
+                    .background(
+                        Capsule()
+                            .fill(Color.asterionCard)
+                            .stroke(Color.asterionBorder, lineWidth: 1)
+                    )
+            }
+            .buttonStyle(.plain)
+
+            Spacer()
+
+            Button {
+                if !isDownloadingAllChapters {
+                    Task { await downloadAllChapters() }
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    ZStack {
+                        Circle()
+                            .stroke(Color.asterionBorder, lineWidth: 2)
+                            .frame(width: 28, height: 28)
+
+                        if isDownloadingAllChapters {
+                            Circle()
+                                .trim(from: 0, to: downloadProgress)
+                                .stroke(
+                                    Color.goldAccent,
+                                    style: StrokeStyle(lineWidth: 2.4, lineCap: .round)
+                                )
+                                .rotationEffect(.degrees(-90))
+                                .frame(width: 28, height: 28)
+                        }
+
+                        Image(systemName: downloadIndicatorIconName)
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(downloadIndicatorColor)
+                    }
+
+                    Text(downloadStatusLabel)
+                        .font(.asterionMono(11))
+                        .foregroundStyle(Color.asterionMuted)
+                        .lineLimit(1)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(
+                    Capsule()
+                        .fill(Color.asterionCard)
+                        .stroke(Color.asterionBorder, lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(isDownloadingAllChapters && downloadTotalCount == 0)
+        }
+        .padding(.top, 44)
+        .padding(.horizontal, 20)
+    }
+
     // MARK: - Start Reading
 
     @ViewBuilder
@@ -264,19 +305,11 @@ struct NovelDetailView: View {
                     allChapters: chapterListForReader
                 )
             } label: {
-                VStack(spacing: 2) {
-                    if readingProgress != nil {
-                        Text("Continue Reading · \(continueChapterTitle)")
-                            .font(.asterionSerif(16, weight: .semibold))
-                            .foregroundStyle(Color.asterionBackground)
-                            .lineLimit(1)
-                    } else {
-                        Text("Start Reading")
-                            .font(.asterionSerif(17, weight: .semibold))
-                            .foregroundStyle(Color.asterionBackground)
-                            .tracking(1)
-                    }
-                }
+                Text(readingButtonTitle)
+                    .font(.asterionSerif(17, weight: .semibold))
+                    .foregroundStyle(Color.asterionBackground)
+                    .lineLimit(1)
+                    .padding(.horizontal, 20)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 14)
                 .background(
@@ -297,62 +330,37 @@ struct NovelDetailView: View {
         }
     }
 
-    private var continueChapterTitle: String {
-        guard let continueChapter else { return "Resume where you left off" }
-        return continueChapter.chapterNumber > 0
-            ? "Ch. \(continueChapter.chapterNumber) · \(continueChapter.title)"
-            : continueChapter.title
+    private var readingButtonTitle: String {
+        guard readingProgress != nil else { return "Start Reading" }
+        if let chapterNumber = continueChapter?.chapterNumber, chapterNumber > 0 {
+            return "Continue Reading · Ch. \(chapterNumber)"
+        }
+        return "Continue Reading"
     }
 
-    @ViewBuilder
-    private var downloadAllButton: some View {
-        Button {
-            Task { await downloadAllChapters() }
-        } label: {
-            HStack(spacing: 8) {
-                if isDownloadingAllChapters {
-                    ProgressView()
-                        .tint(Color.goldAccent)
-                        .scaleEffect(0.85)
-                } else {
-                    Image(systemName: "arrow.down.doc")
-                        .font(.system(size: 14))
-                        .foregroundStyle(Color.goldAccent)
-                }
-                Text(
-                    isDownloadingAllChapters
-                        ? "Preparing \(downloadPreparedCount)/\(max(downloadTotalCount, 1))..."
-                        : "Download All Chapters"
-                )
-                    .font(.asterionMono(13))
-                    .foregroundStyle(Color.goldAccent)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(Color.asterionBorder, lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
-        .disabled(isDownloadingAllChapters)
-        .padding(.horizontal, 24)
-        .padding(.bottom, 8)
+    private var downloadProgress: CGFloat {
+        guard downloadTotalCount > 0 else { return 0 }
+        return min(1, CGFloat(downloadPreparedCount) / CGFloat(downloadTotalCount))
+    }
 
-        if isDownloadingAllChapters, downloadTotalCount > 0 {
-            ProgressView(value: Double(downloadPreparedCount), total: Double(downloadTotalCount))
-                .tint(Color.goldAccent)
-                .padding(.horizontal, 24)
-                .padding(.bottom, 6)
-        }
+    private var downloadIndicatorIconName: String {
+        if isDownloadingAllChapters { return "arrow.down" }
+        if isNovelAvailableOffline { return "checkmark" }
+        return "arrow.down.doc"
+    }
 
-        if let downloadError {
-            Text(downloadError)
-                .font(.asterionMono(11))
-                .foregroundStyle(.orange.opacity(0.9))
-                .padding(.horizontal, 24)
-                .padding(.bottom, 6)
+    private var downloadIndicatorColor: Color {
+        isNovelAvailableOffline ? Color(red: 0.353, green: 0.608, blue: 0.478) : Color.goldAccent
+    }
+
+    private var downloadStatusLabel: String {
+        if isDownloadingAllChapters {
+            return "Downloading \(downloadPreparedCount)/\(max(downloadTotalCount, 1))"
         }
+        if isNovelAvailableOffline {
+            return "Available Offline"
+        }
+        return "Download All"
     }
 
     // MARK: - Chapter Preview
@@ -472,41 +480,46 @@ struct NovelDetailView: View {
                     .tracking(2)
                     .padding(.horizontal, 24)
 
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 12) {
-                        ForEach(similarNovels, id: \.id) { n in
-                            NavigationLink {
-                                NovelDetailView(novel: n)
-                            } label: {
-                                VStack(alignment: .leading, spacing: 0) {
-                                    CoverImageView(novel: n, size: .tile)
-                                        .padding(.bottom, 8)
+                LazyVGrid(
+                    columns: [
+                        GridItem(.flexible(), spacing: 16),
+                        GridItem(.flexible(), spacing: 16),
+                        GridItem(.flexible(), spacing: 16),
+                    ],
+                    spacing: 16
+                ) {
+                    ForEach(similarNovels, id: \.id) { n in
+                        NavigationLink {
+                            NovelDetailView(novel: n)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 0) {
+                                CoverImageView(novel: n, size: .tile)
+                                    .padding(.bottom, 8)
 
-                                    Text(n.title)
-                                        .font(.asterionSerif(13, weight: .medium))
-                                        .foregroundStyle(Color.asterionText)
-                                        .lineLimit(2)
-                                        .multilineTextAlignment(.leading)
+                                Text(n.title)
+                                    .font(.asterionSerif(13, weight: .medium))
+                                    .foregroundStyle(Color.asterionText)
+                                    .lineLimit(2)
+                                    .multilineTextAlignment(.leading)
 
-                                    Text(n.author ?? "Unknown")
+                                Text(n.author ?? "Unknown")
+                                    .font(.asterionMono(10))
+                                    .foregroundStyle(Color.asterionMuted)
+                                    .padding(.top, 3)
+
+                                if let rating = n.rating {
+                                    Text("★ \(String(format: "%.1f", rating))")
                                         .font(.asterionMono(10))
-                                        .foregroundStyle(Color.asterionMuted)
-                                        .padding(.top, 3)
-
-                                    if let rating = n.rating {
-                                        Text("★ \(String(format: "%.1f", rating))")
-                                            .font(.asterionMono(10))
-                                            .foregroundStyle(Color.goldAccent)
-                                            .padding(.top, 4)
-                                    }
+                                        .foregroundStyle(Color.goldAccent)
+                                        .padding(.top, 4)
                                 }
-                                .frame(width: 130)
                             }
-                            .buttonStyle(.plain)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
+                        .buttonStyle(.plain)
                     }
-                    .padding(.horizontal, 24)
                 }
+                .padding(.horizontal, 24)
             }
             .padding(.top, 24)
             .padding(.bottom, 8)
@@ -521,6 +534,7 @@ struct NovelDetailView: View {
         async let progressTask: () = loadProgress()
         async let libraryTask: () = loadLibraryState()
         _ = await (chaptersTask, novelsTask, progressTask, libraryTask)
+        await refreshOfflineAvailability()
     }
 
     private func loadChapters() async {
@@ -619,9 +633,11 @@ struct NovelDetailView: View {
                 return
             }
             downloadTotalCount = chapterList.count
-            DownloadLiveActivityManager.shared.start(novelTitle: novel.title, total: chapterList.count)
-
-            var chapterFiles: [ChapterExportEntry] = []
+            await DownloadLiveActivityManager.shared.start(
+                novelTitle: novel.title,
+                novelImageURL: novel.imageUrl,
+                total: chapterList.count
+            )
 
             for chapter in chapterList {
                 let fullChapter: Chapter
@@ -653,12 +669,11 @@ struct NovelDetailView: View {
 
                 \(fullChapter.plainContent)
                 """
-                chapterFiles.append(
-                    ChapterExportEntry(
-                        chapterNumber: fullChapter.chapterNumber,
-                        title: fullChapter.title,
-                        text: fileBody
-                    )
+                _ = try await OfflineChapterStore.shared.saveDownloadedChapter(
+                    novelTitle: novel.title,
+                    chapterNumber: fullChapter.chapterNumber,
+                    chapterTitle: fullChapter.title,
+                    content: fileBody
                 )
                 downloadPreparedCount += 1
                 DownloadLiveActivityManager.shared.update(
@@ -667,12 +682,7 @@ struct NovelDetailView: View {
                 )
             }
 
-            novelExportDocument = NovelChaptersFolderDocument(
-                novelTitle: novel.title,
-                chapters: chapterFiles
-            )
-            novelExportFilename = makeNovelDownloadFilename()
-            isExportingNovel = true
+            isNovelAvailableOffline = true
             DownloadLiveActivityManager.shared.end(
                 success: true,
                 completed: chapterList.count,
@@ -715,66 +725,29 @@ struct NovelDetailView: View {
         return results
     }
 
-    private func makeNovelDownloadFilename() -> String {
-        let base = "\(novel.title)-chapters"
-        let sanitized = base
-            .lowercased()
-            .replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
-        return sanitized.isEmpty ? "novel-chapters" : sanitized
-    }
-}
-
-private struct ChapterExportEntry {
-    let chapterNumber: Int
-    let title: String
-    let text: String
-}
-
-private struct NovelChaptersFolderDocument: FileDocument {
-    static var readableContentTypes: [UTType] { [.folder] }
-
-    let novelTitle: String
-    let chapters: [ChapterExportEntry]
-
-    init(novelTitle: String, chapters: [ChapterExportEntry]) {
-        self.novelTitle = novelTitle
-        self.chapters = chapters
-    }
-
-    init(configuration: ReadConfiguration) throws {
-        throw CocoaError(.fileReadUnknown)
-    }
-
-    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
-        var children: [String: FileWrapper] = [:]
-
-        for (index, chapter) in chapters.enumerated() {
-            let chapterIndex = index + 1
-            let numberLabel = chapter.chapterNumber > 0 ? chapter.chapterNumber : chapterIndex
-            let rawName = String(
-                format: "%04d-ch-%d-%@.txt",
-                chapterIndex,
-                numberLabel,
-                chapter.title
-            )
-            let fileName = sanitizeFilenameComponent(rawName)
-            children[fileName] = FileWrapper(regularFileWithContents: Data(chapter.text.utf8))
+    private func refreshOfflineAvailability() async {
+        let cachedChapterList = await OfflineChapterStore.shared.loadChapterList(novelId: novel.id)
+        guard !cachedChapterList.isEmpty else {
+            isNovelAvailableOffline = false
+            return
         }
 
-        let readme = """
-        \(novelTitle)
-        Downloaded chapters: \(chapters.count)
-        """
-        children["README.txt"] = FileWrapper(regularFileWithContents: Data(readme.utf8))
-        return FileWrapper(directoryWithFileWrappers: children)
-    }
+        let expectedTotal = totalChapters > 0
+            ? totalChapters
+            : (Int(novel.totalChapters?.filter(\.isNumber) ?? "") ?? cachedChapterList.count)
+        if cachedChapterList.count < max(1, expectedTotal) {
+            isNovelAvailableOffline = false
+            return
+        }
 
-    private func sanitizeFilenameComponent(_ value: String) -> String {
-        let sanitized = value
-            .lowercased()
-            .replacingOccurrences(of: "[^a-z0-9._-]+", with: "-", options: .regularExpression)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
-        return sanitized.isEmpty ? UUID().uuidString + ".txt" : sanitized
+        for chapter in cachedChapterList {
+            guard let cached = await OfflineChapterStore.shared.chapter(id: chapter.id),
+                  !(cached.content ?? "").isEmpty
+            else {
+                isNovelAvailableOffline = false
+                return
+            }
+        }
+        isNovelAvailableOffline = true
     }
 }

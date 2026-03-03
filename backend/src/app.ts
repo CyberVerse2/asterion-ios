@@ -32,5 +32,27 @@ export function buildApp() {
   app.register(healthRoutes);
   app.register(meRoutes);
 
+  app.setErrorHandler((error, request, reply) => {
+    request.log.error(
+      {
+        err: error,
+        method: request.method,
+        url: request.url,
+        params: request.params,
+        query: request.query,
+      },
+      "Unhandled route error."
+    );
+
+    if (reply.sent) {
+      return;
+    }
+
+    const statusCode = error.statusCode && error.statusCode >= 400 ? error.statusCode : 500;
+    reply.code(statusCode).send({
+      error: statusCode >= 500 ? "Internal Server Error" : error.message,
+    });
+  });
+
   return app;
 }

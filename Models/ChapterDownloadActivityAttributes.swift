@@ -9,4 +9,6 @@ struct ChapterDownloadActivityAttributes: ActivityAttributes {
     }
 
     var novelTitle: String
+    var novelImageURL: String?
+    var novelImageData: Data?
 }

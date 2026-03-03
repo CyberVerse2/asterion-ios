@@ -1,6 +1,5 @@
 import Inject
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct ChaptersView: View {
     @ObserveInjection var inject
@@ -18,10 +17,9 @@ struct ChaptersView: View {
     @State private var search = ""
     @State private var debouncedSearch = ""
     @State private var resolvedTotalCount: Int
-    @State private var isExportingChapter = false
-    @State private var exportDocument: ChapterDownloadTextDocument?
-    @State private var exportFilename = "chapter.txt"
     @State private var exportingChapterId: String?
+    @State private var showDownloadAlert = false
+    @State private var downloadAlertMessage = ""
 
     private let perPage = 30
     private var totalPages: Int { max(1, Int(ceil(Double(max(0, resolvedTotalCount)) / Double(perPage)))) }
@@ -48,7 +46,7 @@ struct ChaptersView: View {
         .overlay(alignment: .topLeading) {
             Button { dismiss() } label: {
                 Text("← Back")
-                    .font(.system(size: 13))
+                    .font(.asterionMono(13))
                     .foregroundStyle(Color.asterionMuted)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 6)
@@ -58,7 +56,7 @@ struct ChaptersView: View {
                             .stroke(Color.asterionBorder, lineWidth: 1)
                     )
             }
-            .padding(.top, 54)
+            .padding(.top, 44)
             .padding(.leading, 20)
         }
         .background(Color.asterionBackground.ignoresSafeArea())
@@ -75,14 +73,12 @@ struct ChaptersView: View {
         .onChange(of: page) { _, newPage in
             Task { await loadChapters(pg: newPage, searchTerm: debouncedSearch) }
         }
-        .fileExporter(
-            isPresented: $isExportingChapter,
-            document: exportDocument,
-            contentType: .plainText,
-            defaultFilename: exportFilename
-        ) { _ in
-            exportDocument = nil
+        .alert("Chapter Download", isPresented: $showDownloadAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(downloadAlertMessage)
         }
+        .edgeSwipeToDismiss { dismiss() }
         .enableInjection()
     }
 
@@ -356,41 +352,18 @@ struct ChaptersView: View {
 
         \(fullChapter.plainContent)
         """
-        exportDocument = ChapterDownloadTextDocument(text: content)
-        exportFilename = makeDownloadFilename(chapter: fullChapter)
-        isExportingChapter = true
-    }
-
-    private func makeDownloadFilename(chapter: Chapter) -> String {
-        let chapterPart = chapter.chapterNumber > 0 ? "ch-\(chapter.chapterNumber)" : "chapter"
-        let base = "\(novel.title)-\(chapterPart)"
-        let sanitized = base
-            .lowercased()
-            .replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
-        return sanitized.isEmpty ? "chapter.txt" : "\(sanitized).txt"
-    }
-}
-
-private struct ChapterDownloadTextDocument: FileDocument {
-    static var readableContentTypes: [UTType] { [.plainText] }
-
-    var text: String
-
-    init(text: String) {
-        self.text = text
-    }
-
-    init(configuration: ReadConfiguration) throws {
-        guard let data = configuration.file.regularFileContents,
-              let value = String(data: data, encoding: .utf8)
-        else {
-            throw CocoaError(.fileReadCorruptFile)
+        do {
+            let fileURL = try await OfflineChapterStore.shared.saveDownloadedChapter(
+                novelTitle: novel.title,
+                chapterNumber: fullChapter.chapterNumber,
+                chapterTitle: fullChapter.title,
+                content: content
+            )
+            downloadAlertMessage = "Saved to \(fileURL.deletingLastPathComponent().lastPathComponent)"
+            showDownloadAlert = true
+        } catch {
+            downloadAlertMessage = "Couldn't save chapter to local folder."
+            showDownloadAlert = true
         }
-        text = value
-    }
-
-    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
-        .init(regularFileWithContents: Data(text.utf8))
     }
 }

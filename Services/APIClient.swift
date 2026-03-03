@@ -71,19 +71,22 @@ struct PaginatedResponse<T: Decodable>: Decodable {
 @MainActor
 final class APIClient: ObservableObject {
     private let contentBaseURL = URL(string: "https://scraper-production-8f07.up.railway.app")!
-    private let userBaseURL: URL = {
-        if let configured = Bundle.main.object(forInfoDictionaryKey: "USER_API_BASE_URL") as? String,
-           !configured.isEmpty,
-           let url = URL(string: configured)
-        {
-            return url
-        }
-        return URL(string: "http://127.0.0.1:3001")!
-    }()
+    private let userBaseURL: URL = APIClient.resolveUserBaseURL()
     private var sessionToken: String?
+
+    private func debugLog(_ message: String) {
+        #if DEBUG
+        print("[APIClient] \(message)")
+        #endif
+    }
+
+    init() {
+        debugLog("Resolved user API base URL: \(userBaseURL.absoluteString)")
+    }
 
     func setSessionToken(_ token: String?) {
         self.sessionToken = token
+        debugLog("Session token updated. tokenPresent=\(token != nil)")
     }
 
     // MARK: - Novels
@@ -349,13 +352,28 @@ final class APIClient: ObservableObject {
         if let body {
             request.httpBody = try JSONEncoder().encode(body)
         }
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch {
+            if let urlError = error as? URLError {
+                debugLog(
+                    "Transport failure \(method) \(url.absoluteString): code=\(urlError.code.rawValue) reason=\(urlError.localizedDescription)"
+                )
+            } else {
+                debugLog("Transport failure \(method) \(url.absoluteString): \(error.localizedDescription)")
+            }
+            throw error
+        }
         guard let httpResponse = response as? HTTPURLResponse else {
             throw URLError(.badServerResponse)
         }
         if httpResponse.statusCode == 401, retryOnUnauthorized {
+            debugLog("Received 401 for \(method) \(url.absoluteString). Attempting token refresh.")
             let refreshed = await refreshSessionTokenIfPossible()
             if refreshed {
+                debugLog("Token refresh succeeded. Retrying request \(method) \(url.absoluteString).")
                 return try await self.request(
                     url: url,
                     method: method,
@@ -363,9 +381,15 @@ final class APIClient: ObservableObject {
                     retryOnUnauthorized: false
                 )
             }
+            debugLog("Token refresh failed for \(method) \(url.absoluteString).")
         }
         guard 200..<300 ~= httpResponse.statusCode else {
-            throw NSError(domain: "APIClient", code: httpResponse.statusCode)
+            throw makeHTTPError(
+                statusCode: httpResponse.statusCode,
+                data: data,
+                url: url,
+                method: method
+            )
         }
         return try Self.makeDecoder().decode(T.self, from: data)
     }
@@ -384,33 +408,78 @@ final class APIClient: ObservableObject {
         if let sessionToken {
             request.setValue("Bearer \(sessionToken)", forHTTPHeaderField: "Authorization")
         }
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch {
+            if let urlError = error as? URLError {
+                debugLog(
+                    "Transport failure \(method) \(url.absoluteString): code=\(urlError.code.rawValue) reason=\(urlError.localizedDescription)"
+                )
+            } else {
+                debugLog("Transport failure \(method) \(url.absoluteString): \(error.localizedDescription)")
+            }
+            throw error
+        }
         guard let httpResponse = response as? HTTPURLResponse else {
             throw URLError(.badServerResponse)
         }
         if httpResponse.statusCode == 401, retryOnUnauthorized {
+            debugLog("Received 401 for \(method) \(url.absoluteString). Attempting token refresh.")
             let refreshed = await refreshSessionTokenIfPossible()
             if refreshed {
+                debugLog("Token refresh succeeded. Retrying request \(method) \(url.absoluteString).")
                 return try await requestNoBody(
                     url: url,
                     method: method,
                     retryOnUnauthorized: false
                 )
             }
+            debugLog("Token refresh failed for \(method) \(url.absoluteString).")
         }
         guard 200..<300 ~= httpResponse.statusCode else {
-            throw NSError(domain: "APIClient", code: httpResponse.statusCode)
+            throw makeHTTPError(
+                statusCode: httpResponse.statusCode,
+                data: data,
+                url: url,
+                method: method
+            )
         }
         return try Self.makeDecoder().decode(T.self, from: data)
     }
 
+    private func makeHTTPError(statusCode: Int, data: Data, url: URL, method: String) -> NSError {
+        let responseBody = String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        #if DEBUG
+        if !responseBody.isEmpty {
+            print("[APIClient] \(method) \(url.absoluteString) -> \(statusCode): \(responseBody)")
+        } else {
+            print("[APIClient] \(method) \(url.absoluteString) -> \(statusCode)")
+        }
+        #endif
+
+        var userInfo: [String: Any] = [
+            NSLocalizedDescriptionKey: "HTTP \(statusCode) for \(method) \(url.path())",
+        ]
+        if !responseBody.isEmpty {
+            userInfo[NSLocalizedFailureReasonErrorKey] = responseBody
+            userInfo["responseBody"] = responseBody
+        }
+        return NSError(domain: "APIClient", code: statusCode, userInfo: userInfo)
+    }
+
     private func refreshSessionTokenIfPossible() async -> Bool {
         do {
+            debugLog("Attempting Clerk token refresh.")
             let token = try await Clerk.shared.auth.getToken()
             guard let token, !token.isEmpty else { return false }
             sessionToken = token
+            debugLog("Clerk token refresh returned a token.")
             return true
         } catch {
+            debugLog("Clerk token refresh threw error: \(error.localizedDescription)")
             return false
         }
     }
@@ -433,5 +502,44 @@ final class APIClient: ObservableObject {
             throw DecodingError.dataCorruptedError(in: container, debugDescription: "Invalid ISO8601 date: \(value)")
         }
         return decoder
+    }
+
+    private static func resolveUserBaseURL() -> URL {
+        let rawConfigured: String? = {
+            if let direct = Bundle.main.object(forInfoDictionaryKey: "USER_API_BASE_URL") as? String {
+                return direct
+            }
+
+            // Some generated Info.plist variants can nest custom keys by underscores:
+            // USER_API_BASE_URL -> USER -> API -> BASE -> URL
+            if let user = Bundle.main.infoDictionary?["USER"] as? [String: Any],
+               let api = user["API"] as? [String: Any],
+               let base = api["BASE"] as? [String: Any],
+               let nested = base["URL"] as? String
+            {
+                return nested
+            }
+            return nil
+        }()
+
+        if let rawConfigured {
+            let configured = rawConfigured.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !configured.isEmpty {
+                if let directURL = URL(string: configured), directURL.scheme != nil {
+                    return directURL
+                }
+                if let httpsURL = URL(string: "https://\(configured)") {
+                    return httpsURL
+                }
+                #if DEBUG
+                print("[APIClient] Invalid USER_API_BASE_URL value: \(configured). Falling back to production.")
+                #endif
+            }
+        }
+
+        #if DEBUG
+        print("[APIClient] USER_API_BASE_URL not found. Falling back to production.")
+        #endif
+        return URL(string: "https://asterion-ios-production.up.railway.app")!
     }
 }

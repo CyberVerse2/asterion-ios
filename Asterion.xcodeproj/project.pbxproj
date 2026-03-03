@@ -30,12 +30,12 @@
 		70CC44AC2F55E13B0099DF4E /* icon-brief.md in Resources */ = {isa = PBXBuildFile; fileRef = 70CC44742F55E13B0099DF4E /* icon-brief.md */; };
 		70CC44B42F55E5CD0099DF4E /* AsterionApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC44B32F55E5CD0099DF4E /* AsterionApp.swift */; };
 		70CC44B72F55FC420099DF4E /* Inject in Frameworks */ = {isa = PBXBuildFile; productRef = 70CC44B62F55FC410099DF4E /* Inject */; };
-		70CC450B2F5686900099DF4E /* ClerkKit in Frameworks */ = {isa = PBXBuildFile; productRef = 70CC450C2F5686900099DF4E /* ClerkKit */; };
-		70CC450D2F5686900099DF4E /* ClerkKitUI in Frameworks */ = {isa = PBXBuildFile; productRef = 70CC450E2F5686900099DF4E /* ClerkKitUI */; };
 		70CC44C52F55F0000099DF4E /* GenreStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC44C02F55F0000099DF4E /* GenreStyle.swift */; };
 		70CC44C62F55F0000099DF4E /* MazePatternView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC44C12F55F0000099DF4E /* MazePatternView.swift */; };
 		70CC44C72F55F0000099DF4E /* CoverImageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC44C22F55F0000099DF4E /* CoverImageView.swift */; };
 		70CC44C82F55F0000099DF4E /* SearchInputView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC44C32F55F0000099DF4E /* SearchInputView.swift */; };
+		70CC450B2F5686900099DF4E /* ClerkKit in Frameworks */ = {isa = PBXBuildFile; productRef = 70CC450C2F5686900099DF4E /* ClerkKit */; };
+		70CC450D2F5686900099DF4E /* ClerkKitUI in Frameworks */ = {isa = PBXBuildFile; productRef = 70CC450E2F5686900099DF4E /* ClerkKitUI */; };
 		AABB00012F5700010099DF4E /* ChaptersView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABB00002F5700010099DF4E /* ChaptersView.swift */; };
 		AABB00032F5700010099DF4E /* OfflineChapterStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABB00022F5700010099DF4E /* OfflineChapterStore.swift */; };
 		AABB00052F5700010099DF4E /* DownloadLiveActivityManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABB00042F5700010099DF4E /* DownloadLiveActivityManager.swift */; };
@@ -45,6 +45,7 @@
 		AABB00122F5700010099DF4E /* ContinueReadingIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC447A2F55E13B0099DF4E /* ContinueReadingIntent.swift */; };
 		AABB00132F5700010099DF4E /* ChapterDownloadActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABB00062F5700010099DF4E /* ChapterDownloadActivityAttributes.swift */; };
 		AABB00142F5700010099DF4E /* AsterionWidgetExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = AABB00152F5700010099DF4E /* AsterionWidgetExtension.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		AABB00222F5700010099DF4E /* EdgeSwipeBackModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABB00232F5700010099DF4E /* EdgeSwipeBackModifier.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -122,7 +123,8 @@
 		AABB00042F5700010099DF4E /* DownloadLiveActivityManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadLiveActivityManager.swift; sourceTree = "<group>"; };
 		AABB00062F5700010099DF4E /* ChapterDownloadActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChapterDownloadActivityAttributes.swift; sourceTree = "<group>"; };
 		AABB00152F5700010099DF4E /* AsterionWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = AsterionWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		AABB00172F5700010099DF4E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = AsterionWidgetExtension/Info.plist; sourceTree = SOURCE_ROOT; };
+		AABB00172F5700010099DF4E /* AsterionWidgetExtension/Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = AsterionWidgetExtension/Info.plist; sourceTree = SOURCE_ROOT; };
+		AABB00232F5700010099DF4E /* EdgeSwipeBackModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EdgeSwipeBackModifier.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -212,14 +214,6 @@
 			path = AppStore;
 			sourceTree = "<group>";
 		};
-		AABB00162F5700010099DF4E /* AsterionWidgetExtension */ = {
-			isa = PBXGroup;
-			children = (
-				AABB00172F5700010099DF4E /* Info.plist */,
-			);
-			path = AsterionWidgetExtension;
-			sourceTree = "<group>";
-		};
 		70CC447B2F55E13B0099DF4E /* Intents */ = {
 			isa = PBXGroup;
 			children = (
@@ -258,6 +252,7 @@
 			isa = PBXGroup;
 			children = (
 				70CC44C02F55F0000099DF4E /* GenreStyle.swift */,
+				AABB00232F5700010099DF4E /* EdgeSwipeBackModifier.swift */,
 				70CC44872F55E13B0099DF4E /* Theme.swift */,
 				70CC44882F55E13B0099DF4E /* URL+QueryItems.swift */,
 			);
@@ -298,6 +293,14 @@
 			path = Components;
 			sourceTree = "<group>";
 		};
+		AABB00162F5700010099DF4E /* AsterionWidgetExtension */ = {
+			isa = PBXGroup;
+			children = (
+				AABB00172F5700010099DF4E /* AsterionWidgetExtension/Info.plist */,
+			);
+			path = AsterionWidgetExtension;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -324,25 +327,6 @@
 			productName = Asterion;
 			productReference = 70CC44482F55E07E0099DF4E /* Asterion.app */;
 			productType = "com.apple.product-type.application";
-		};
-		AABB001C2F5700010099DF4E /* AsterionWidgetExtension */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = AABB001D2F5700010099DF4E /* Build configuration list for PBXNativeTarget "AsterionWidgetExtension" */;
-			buildPhases = (
-				AABB00192F5700010099DF4E /* Sources */,
-				AABB001A2F5700010099DF4E /* Frameworks */,
-				AABB001B2F5700010099DF4E /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			name = AsterionWidgetExtension;
-			packageProductDependencies = (
-			);
-			productName = AsterionWidgetExtension;
-			productReference = AABB00152F5700010099DF4E /* AsterionWidgetExtension.appex */;
-			productType = "com.apple.product-type.app-extension";
 		};
 		70CC44562F55E0800099DF4E /* AsterionTests */ = {
 			isa = PBXNativeTarget;
@@ -390,6 +374,25 @@
 			productReference = 70CC44612F55E0800099DF4E /* AsterionUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		AABB001C2F5700010099DF4E /* AsterionWidgetExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AABB001D2F5700010099DF4E /* Build configuration list for PBXNativeTarget "AsterionWidgetExtension" */;
+			buildPhases = (
+				AABB00192F5700010099DF4E /* Sources */,
+				AABB001A2F5700010099DF4E /* Frameworks */,
+				AABB001B2F5700010099DF4E /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = AsterionWidgetExtension;
+			packageProductDependencies = (
+			);
+			productName = AsterionWidgetExtension;
+			productReference = AABB00152F5700010099DF4E /* AsterionWidgetExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -403,9 +406,6 @@
 					70CC44472F55E07E0099DF4E = {
 						CreatedOnToolsVersion = 26.2;
 					};
-					AABB001C2F5700010099DF4E = {
-						CreatedOnToolsVersion = 26.2;
-					};
 					70CC44562F55E0800099DF4E = {
 						CreatedOnToolsVersion = 26.2;
 						TestTargetID = 70CC44472F55E07E0099DF4E;
@@ -413,6 +413,9 @@
 					70CC44602F55E0800099DF4E = {
 						CreatedOnToolsVersion = 26.2;
 						TestTargetID = 70CC44472F55E07E0099DF4E;
+					};
+					AABB001C2F5700010099DF4E = {
+						CreatedOnToolsVersion = 26.2;
 					};
 				};
 			};
@@ -504,6 +507,7 @@
 				70CC44C62F55F0000099DF4E /* MazePatternView.swift in Sources */,
 				70CC44C72F55F0000099DF4E /* CoverImageView.swift in Sources */,
 				70CC44C82F55F0000099DF4E /* SearchInputView.swift in Sources */,
+				AABB00222F5700010099DF4E /* EdgeSwipeBackModifier.swift in Sources */,
 				AABB00012F5700010099DF4E /* ChaptersView.swift in Sources */,
 				AABB00032F5700010099DF4E /* OfflineChapterStore.swift in Sources */,
 				AABB00052F5700010099DF4E /* DownloadLiveActivityManager.swift in Sources */,
@@ -678,6 +682,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = V6Y7WXX6Z5;
 				EMIT_FRONTEND_COMMAND_LINES = YES;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_PREVIEWS = YES;
@@ -685,7 +690,6 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CLERK_PUBLISHABLE_KEY = pk_test_cG9ldGljLWdhdG9yLTk3LmNsZXJrLmFjY291bnRzLmRldiQ;
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
-				INFOPLIST_KEY_USER_API_BASE_URL = "$(USER_API_BASE_URL)";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -696,6 +700,7 @@
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_USER_API_BASE_URL = "$(USER_API_BASE_URL)";
 				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
@@ -718,7 +723,7 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				USER_API_BASE_URL = "http://127.0.0.1:3001";
+				USER_API_BASE_URL = "https://asterion-ios-production.up.railway.app";
 				XROS_DEPLOYMENT_TARGET = 26.2;
 			};
 			name = Debug;
@@ -730,13 +735,13 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = V6Y7WXX6Z5;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CLERK_PUBLISHABLE_KEY = pk_test_cG9ldGljLWdhdG9yLTk3LmNsZXJrLmFjY291bnRzLmRldiQ;
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
-				INFOPLIST_KEY_USER_API_BASE_URL = "$(USER_API_BASE_URL)";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -747,6 +752,7 @@
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_USER_API_BASE_URL = "$(USER_API_BASE_URL)";
 				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
@@ -765,60 +771,8 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				USER_API_BASE_URL = "https://your-backend.up.railway.app";
+				USER_API_BASE_URL = "https://asterion-ios-production.up.railway.app";
 				XROS_DEPLOYMENT_TARGET = 26.2;
-			};
-			name = Release;
-		};
-		AABB001E2F5700010099DF4E /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				APPLICATION_EXTENSION_API_ONLY = YES;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = AsterionWidgetExtension/Info.plist;
-				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@executable_path/../../Frameworks",
-				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = cyberverse.Asterion.widget;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = auto;
-				SKIP_INSTALL = YES;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-			};
-			name = Debug;
-		};
-		AABB001F2F5700010099DF4E /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				APPLICATION_EXTENSION_API_ONLY = YES;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = AsterionWidgetExtension/Info.plist;
-				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@executable_path/../../Frameworks",
-				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = cyberverse.Asterion.widget;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = auto;
-				SKIP_INSTALL = YES;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
 		};
@@ -920,6 +874,60 @@
 			};
 			name = Release;
 		};
+		AABB001E2F5700010099DF4E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = V6Y7WXX6Z5;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = AsterionWidgetExtension/Info.plist;
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = cyberverse.Asterion.widget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		AABB001F2F5700010099DF4E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = V6Y7WXX6Z5;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = AsterionWidgetExtension/Info.plist;
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = cyberverse.Asterion.widget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -941,15 +949,6 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		AABB001D2F5700010099DF4E /* Build configuration list for PBXNativeTarget "AsterionWidgetExtension" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				AABB001E2F5700010099DF4E /* Debug */,
-				AABB001F2F5700010099DF4E /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
 		70CC446E2F55E0800099DF4E /* Build configuration list for PBXNativeTarget "AsterionTests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -964,6 +963,15 @@
 			buildConfigurations = (
 				70CC44722F55E0800099DF4E /* Debug */,
 				70CC44732F55E0800099DF4E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AABB001D2F5700010099DF4E /* Build configuration list for PBXNativeTarget "AsterionWidgetExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AABB001E2F5700010099DF4E /* Debug */,
+				AABB001F2F5700010099DF4E /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

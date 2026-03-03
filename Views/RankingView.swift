@@ -35,14 +35,11 @@ struct RankingView: View {
         return Int(v.filter(\.isNumber)) ?? 0
     }
 
-    private let medals = ["🥇", "🥈", "🥉"]
-
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    Color.clear.frame(height: 0)
-                    
+                    pageTitleSection
                     sortPillsSection
 
                     if loading && novels.isEmpty {
@@ -82,9 +79,7 @@ struct RankingView: View {
             }
             .refreshable { await loadNovels() }
             .background(Color.asterionBackground.ignoresSafeArea())
-            .navigationTitle("Rankings")
-            .navigationBarTitleDisplayMode(.large)
-            .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: Novel.self) { novel in
                 NovelDetailView(novel: novel)
             }
@@ -94,6 +89,15 @@ struct RankingView: View {
     }
 
     // MARK: - Sort Pills
+
+    private var pageTitleSection: some View {
+        Text("Rankings")
+            .font(.asterionSerif(42, weight: .semibold))
+            .foregroundStyle(Color.asterionText)
+            .padding(.horizontal, 24)
+            .padding(.top, 14)
+            .padding(.bottom, 6)
+    }
 
     private var sortPillsSection: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -132,14 +136,12 @@ struct RankingView: View {
                 NavigationLink(value: novel) {
                     RankingRow(
                         novel: novel,
-                        rank: index + 1,
-                        isTop3: index < 3,
-                        medal: index < 3 ? medals[index] : nil
+                        rank: index + 1
                     )
                 }
                 .buttonStyle(.plain)
 
-                if index >= 3 {
+                if index < sorted.count - 1 {
                     Divider().overlay(Color.asterionCard)
                 }
             }
@@ -173,29 +175,19 @@ struct RankingView: View {
 private struct RankingRow: View {
     let novel: Novel
     let rank: Int
-    let isTop3: Bool
-    let medal: String?
-
-    private var genreColor: Color { GenreStyle.color(for: novel.genres) }
 
     var body: some View {
         HStack(spacing: 14) {
-            if let medal {
-                Text(medal)
-                    .font(.system(size: 20))
-                    .frame(width: 36)
-            } else {
-                Text("\(rank)")
-                    .font(.asterionMono(11))
-                    .foregroundStyle(Color.asterionBorderHover)
-                    .frame(width: 36)
-            }
+            Text("\(rank)")
+                .font(.asterionMono(11))
+                .foregroundStyle(Color.asterionBorderHover)
+                .frame(width: 36)
 
-            CoverImageView(novel: novel, size: isTop3 ? .md : .sm)
+            CoverImageView(novel: novel, size: .sm)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(novel.title)
-                    .font(.asterionSerif(isTop3 ? 17 : 15, weight: .medium))
+                    .font(.asterionSerif(15, weight: .medium))
                     .foregroundStyle(Color.asterionText)
                     .lineLimit(1)
 
@@ -227,16 +219,6 @@ private struct RankingRow: View {
                 .font(.system(size: 16))
                 .foregroundStyle(Color.asterionBorder)
         }
-        .padding(.vertical, isTop3 ? 18 : 14)
-        .padding(.horizontal, isTop3 ? 16 : 0)
-        .background {
-            if isTop3 {
-                RoundedRectangle(cornerRadius: 14)
-                    .fill(Color.asterionCard.opacity(0.5))
-                    .stroke(Color.asterionBorder, lineWidth: 1)
-            }
-        }
-        .clipShape(RoundedRectangle(cornerRadius: isTop3 ? 14 : 0))
-        .padding(.bottom, isTop3 ? 8 : 0)
+        .padding(.vertical, 14)
     }
 }
