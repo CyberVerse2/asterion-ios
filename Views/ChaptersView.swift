@@ -1,5 +1,6 @@
 import Inject
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ChaptersView: View {
     @ObserveInjection var inject
@@ -16,10 +17,22 @@ struct ChaptersView: View {
     @State private var page = 0
     @State private var search = ""
     @State private var debouncedSearch = ""
+    @State private var resolvedTotalCount: Int
+    @State private var isExportingChapter = false
+    @State private var exportDocument: ChapterDownloadTextDocument?
+    @State private var exportFilename = "chapter.txt"
+    @State private var exportingChapterId: String?
 
     private let perPage = 30
-    private var totalPages: Int { max(1, Int(ceil(Double(totalCount) / Double(perPage)))) }
+    private var totalPages: Int { max(1, Int(ceil(Double(max(0, resolvedTotalCount)) / Double(perPage)))) }
     private var genreColor: Color { GenreStyle.color(for: novel.genres) }
+
+    init(novel: Novel, allChapters: [Chapter], totalCount: Int) {
+        self.novel = novel
+        self.allChapters = allChapters
+        self.totalCount = totalCount
+        _resolvedTotalCount = State(initialValue: totalCount)
+    }
 
     var body: some View {
         ScrollView {
@@ -50,8 +63,10 @@ struct ChaptersView: View {
         }
         .background(Color.asterionBackground.ignoresSafeArea())
         .toolbarVisibility(.hidden, for: .navigationBar)
+        .toolbarVisibility(.hidden, for: .tabBar)
         .task { await loadChapters(pg: 0) }
         .onAppear { tabBarState.isVisible = false }
+        .onDisappear { tabBarState.isVisible = true }
         .debounceSearch(text: $search, debouncedText: $debouncedSearch)
         .onChange(of: debouncedSearch) { _, _ in
             page = 0
@@ -59,6 +74,14 @@ struct ChaptersView: View {
         }
         .onChange(of: page) { _, newPage in
             Task { await loadChapters(pg: newPage, searchTerm: debouncedSearch) }
+        }
+        .fileExporter(
+            isPresented: $isExportingChapter,
+            document: exportDocument,
+            contentType: .plainText,
+            defaultFilename: exportFilename
+        ) { _ in
+            exportDocument = nil
         }
         .enableInjection()
     }
@@ -76,7 +99,7 @@ struct ChaptersView: View {
                     .font(.asterionSerif(22))
                     .foregroundStyle(Color.asterionText)
 
-                Text(totalCount > 0 ? "\(totalCount) chapters" : "Chapters")
+                Text(resolvedTotalCount > 0 ? "\(resolvedTotalCount) chapters" : "Chapters")
                     .font(.asterionMono(11))
                     .foregroundStyle(Color.asterionDim)
             }
@@ -159,34 +182,60 @@ struct ChaptersView: View {
         } else {
             VStack(spacing: 0) {
                 ForEach(Array(chapters.enumerated()), id: \.element.id) { index, chapter in
-                    NavigationLink {
-                        ReaderView(
-                            initialChapter: chapter,
-                            novel: novel,
-                            allChapters: allChapters.isEmpty ? chapters : allChapters
-                        )
-                    } label: {
-                        HStack(spacing: 10) {
-                            Text("#\(chapter.chapterNumber)")
-                                .font(.asterionMono(10))
-                                .foregroundStyle(Color.asterionDim)
-                                .frame(width: 40, alignment: .leading)
+                    HStack(spacing: 8) {
+                        NavigationLink {
+                            ReaderView(
+                                initialChapter: chapter,
+                                novel: novel,
+                                allChapters: allChapters.isEmpty ? chapters : allChapters
+                            )
+                        } label: {
+                            HStack(spacing: 10) {
+                                Text("#\(chapter.chapterNumber)")
+                                    .font(.asterionMono(10))
+                                    .foregroundStyle(Color.asterionDim)
+                                    .frame(width: 40, alignment: .leading)
 
-                            Text(chapter.title)
-                                .font(.asterionSerif(15))
-                                .foregroundStyle(Color.asterionReaderText)
-                                .lineLimit(1)
+                                Text(chapter.title)
+                                    .font(.asterionSerif(15))
+                                    .foregroundStyle(Color.asterionReaderText)
+                                    .lineLimit(1)
 
-                            Spacer()
+                                Spacer()
 
-                            Text("›")
-                                .font(.system(size: 14))
-                                .foregroundStyle(Color.asterionBorder)
+                                Text("›")
+                                    .font(.system(size: 14))
+                                    .foregroundStyle(Color.asterionBorder)
+                            }
+                            .padding(.vertical, 14)
+                            .padding(.horizontal, 12)
                         }
-                        .padding(.vertical, 14)
-                        .padding(.horizontal, 16)
+                        .buttonStyle(.plain)
+
+                        Button {
+                            Task { await downloadChapter(chapter) }
+                        } label: {
+                            ZStack {
+                                if exportingChapterId == chapter.id {
+                                    ProgressView()
+                                        .tint(Color.goldAccent)
+                                        .scaleEffect(0.8)
+                                } else {
+                                    Image(systemName: "arrow.down.doc")
+                                        .font(.system(size: 13))
+                                        .foregroundStyle(Color.asterionMuted)
+                                }
+                            }
+                            .frame(width: 28, height: 28)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(Color.asterionBorder, lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(exportingChapterId != nil)
+                        .padding(.trailing, 12)
                     }
-                    .buttonStyle(.plain)
 
                     if index < chapters.count - 1 {
                         Divider().overlay(Color.asterionCard)
@@ -249,6 +298,9 @@ struct ChaptersView: View {
                 limit: perPage,
                 offset: pg * perPage
             )
+            await OfflineChapterStore.shared.saveChapterList(novelId: novel.id, chapters: response.data, mergeWithExisting: true)
+            resolvedTotalCount = response.meta?.total
+                ?? (resolvedTotalCount > 0 ? resolvedTotalCount : max(totalCount, response.data.count))
             if searchTerm.isEmpty {
                 chapters = response.data
             } else {
@@ -258,7 +310,87 @@ struct ChaptersView: View {
                 }
             }
         } catch {
-            self.error = error.localizedDescription
+            let cachedAll = await OfflineChapterStore.shared.loadChapterList(novelId: novel.id)
+            if !cachedAll.isEmpty {
+                resolvedTotalCount = cachedAll.count
+                let filtered: [Chapter]
+                if searchTerm.isEmpty {
+                    filtered = cachedAll
+                } else {
+                    let q = searchTerm.lowercased()
+                    filtered = cachedAll.filter {
+                        $0.title.lowercased().contains(q) || String($0.chapterNumber).contains(q)
+                    }
+                }
+                let start = min(pg * perPage, filtered.count)
+                let end = min(start + perPage, filtered.count)
+                chapters = Array(filtered[start..<end])
+                self.error = nil
+            } else {
+                self.error = error.localizedDescription
+            }
         }
+    }
+
+    private func downloadChapter(_ chapter: Chapter) async {
+        exportingChapterId = chapter.id
+        defer { exportingChapterId = nil }
+
+        let fullChapter: Chapter
+        do {
+            fullChapter = try await apiClient.fetchChapter(id: chapter.id)
+        } catch {
+            fullChapter = chapter
+        }
+        await OfflineChapterStore.shared.cacheChapter(fullChapter)
+
+        let header: String
+        if fullChapter.chapterNumber > 0 {
+            header = "Chapter \(fullChapter.chapterNumber): \(fullChapter.title)"
+        } else {
+            header = fullChapter.title
+        }
+        let content = """
+        \(novel.title)
+        \(header)
+
+        \(fullChapter.plainContent)
+        """
+        exportDocument = ChapterDownloadTextDocument(text: content)
+        exportFilename = makeDownloadFilename(chapter: fullChapter)
+        isExportingChapter = true
+    }
+
+    private func makeDownloadFilename(chapter: Chapter) -> String {
+        let chapterPart = chapter.chapterNumber > 0 ? "ch-\(chapter.chapterNumber)" : "chapter"
+        let base = "\(novel.title)-\(chapterPart)"
+        let sanitized = base
+            .lowercased()
+            .replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        return sanitized.isEmpty ? "chapter.txt" : "\(sanitized).txt"
+    }
+}
+
+private struct ChapterDownloadTextDocument: FileDocument {
+    static var readableContentTypes: [UTType] { [.plainText] }
+
+    var text: String
+
+    init(text: String) {
+        self.text = text
+    }
+
+    init(configuration: ReadConfiguration) throws {
+        guard let data = configuration.file.regularFileContents,
+              let value = String(data: data, encoding: .utf8)
+        else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        text = value
+    }
+
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        .init(regularFileWithContents: Data(text.utf8))
     }
 }

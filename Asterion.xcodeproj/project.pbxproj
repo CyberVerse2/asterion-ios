@@ -37,6 +37,14 @@
 		70CC44C72F55F0000099DF4E /* CoverImageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC44C22F55F0000099DF4E /* CoverImageView.swift */; };
 		70CC44C82F55F0000099DF4E /* SearchInputView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC44C32F55F0000099DF4E /* SearchInputView.swift */; };
 		AABB00012F5700010099DF4E /* ChaptersView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABB00002F5700010099DF4E /* ChaptersView.swift */; };
+		AABB00032F5700010099DF4E /* OfflineChapterStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABB00022F5700010099DF4E /* OfflineChapterStore.swift */; };
+		AABB00052F5700010099DF4E /* DownloadLiveActivityManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABB00042F5700010099DF4E /* DownloadLiveActivityManager.swift */; };
+		AABB00072F5700010099DF4E /* ChapterDownloadActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABB00062F5700010099DF4E /* ChapterDownloadActivityAttributes.swift */; };
+		AABB00102F5700010099DF4E /* ReadingWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC44912F55E13B0099DF4E /* ReadingWidget.swift */; };
+		AABB00112F5700010099DF4E /* WidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC44922F55E13B0099DF4E /* WidgetBundle.swift */; };
+		AABB00122F5700010099DF4E /* ContinueReadingIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC447A2F55E13B0099DF4E /* ContinueReadingIntent.swift */; };
+		AABB00132F5700010099DF4E /* ChapterDownloadActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABB00062F5700010099DF4E /* ChapterDownloadActivityAttributes.swift */; };
+		AABB00142F5700010099DF4E /* AsterionWidgetExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = AABB00152F5700010099DF4E /* AsterionWidgetExtension.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -54,7 +62,28 @@
 			remoteGlobalIDString = 70CC44472F55E07E0099DF4E;
 			remoteInfo = Asterion;
 		};
+		AABB00202F5700010099DF4E /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 70CC44402F55E07E0099DF4E /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = AABB001C2F5700010099DF4E;
+			remoteInfo = AsterionWidgetExtension;
+		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		AABB00182F5700010099DF4E /* Embed App Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				AABB00142F5700010099DF4E /* AsterionWidgetExtension.appex in Embed App Extensions */,
+			);
+			name = "Embed App Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		70CC44482F55E07E0099DF4E /* Asterion.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Asterion.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -89,6 +118,11 @@
 		70CC44C22F55F0000099DF4E /* CoverImageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoverImageView.swift; sourceTree = "<group>"; };
 		70CC44C32F55F0000099DF4E /* SearchInputView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchInputView.swift; sourceTree = "<group>"; };
 		AABB00002F5700010099DF4E /* ChaptersView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChaptersView.swift; sourceTree = "<group>"; };
+		AABB00022F5700010099DF4E /* OfflineChapterStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineChapterStore.swift; sourceTree = "<group>"; };
+		AABB00042F5700010099DF4E /* DownloadLiveActivityManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadLiveActivityManager.swift; sourceTree = "<group>"; };
+		AABB00062F5700010099DF4E /* ChapterDownloadActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChapterDownloadActivityAttributes.swift; sourceTree = "<group>"; };
+		AABB00152F5700010099DF4E /* AsterionWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = AsterionWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		AABB00172F5700010099DF4E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = AsterionWidgetExtension/Info.plist; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -129,6 +163,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		AABB001A2F5700010099DF4E /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -136,6 +177,7 @@
 			isa = PBXGroup;
 			children = (
 				70CC44772F55E13B0099DF4E /* AppStore */,
+				AABB00162F5700010099DF4E /* AsterionWidgetExtension */,
 				70CC447B2F55E13B0099DF4E /* Intents */,
 				70CC44802F55E13B0099DF4E /* Models */,
 				70CC44862F55E13B0099DF4E /* Services */,
@@ -152,6 +194,7 @@
 			isa = PBXGroup;
 			children = (
 				70CC44482F55E07E0099DF4E /* Asterion.app */,
+				AABB00152F5700010099DF4E /* AsterionWidgetExtension.appex */,
 				70CC44572F55E0800099DF4E /* AsterionTests.xctest */,
 				70CC44612F55E0800099DF4E /* AsterionUITests.xctest */,
 			);
@@ -169,6 +212,14 @@
 			path = AppStore;
 			sourceTree = "<group>";
 		};
+		AABB00162F5700010099DF4E /* AsterionWidgetExtension */ = {
+			isa = PBXGroup;
+			children = (
+				AABB00172F5700010099DF4E /* Info.plist */,
+			);
+			path = AsterionWidgetExtension;
+			sourceTree = "<group>";
+		};
 		70CC447B2F55E13B0099DF4E /* Intents */ = {
 			isa = PBXGroup;
 			children = (
@@ -181,6 +232,7 @@
 		70CC44802F55E13B0099DF4E /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				AABB00062F5700010099DF4E /* ChapterDownloadActivityAttributes.swift */,
 				70CC447C2F55E13B0099DF4E /* Chapter.swift */,
 				70CC447D2F55E13B0099DF4E /* Novel.swift */,
 				70CC447E2F55E13B0099DF4E /* ReadingProgress.swift */,
@@ -195,6 +247,8 @@
 				70CC44822F55E13B0099DF4E /* APIClient.swift */,
 				70CC44832F55E13B0099DF4E /* AuthService.swift */,
 				70CC44842F55E13B0099DF4E /* KeychainHelper.swift */,
+				AABB00042F5700010099DF4E /* DownloadLiveActivityManager.swift */,
+				AABB00022F5700010099DF4E /* OfflineChapterStore.swift */,
 				70CC44852F55E13B0099DF4E /* ReadingProgressService.swift */,
 			);
 			path = Services;
@@ -254,10 +308,12 @@
 				70CC44442F55E07E0099DF4E /* Sources */,
 				70CC44452F55E07E0099DF4E /* Frameworks */,
 				70CC44462F55E07E0099DF4E /* Resources */,
+				AABB00182F5700010099DF4E /* Embed App Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				AABB00212F5700010099DF4E /* PBXTargetDependency */,
 			);
 			name = Asterion;
 			packageProductDependencies = (
@@ -268,6 +324,25 @@
 			productName = Asterion;
 			productReference = 70CC44482F55E07E0099DF4E /* Asterion.app */;
 			productType = "com.apple.product-type.application";
+		};
+		AABB001C2F5700010099DF4E /* AsterionWidgetExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AABB001D2F5700010099DF4E /* Build configuration list for PBXNativeTarget "AsterionWidgetExtension" */;
+			buildPhases = (
+				AABB00192F5700010099DF4E /* Sources */,
+				AABB001A2F5700010099DF4E /* Frameworks */,
+				AABB001B2F5700010099DF4E /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = AsterionWidgetExtension;
+			packageProductDependencies = (
+			);
+			productName = AsterionWidgetExtension;
+			productReference = AABB00152F5700010099DF4E /* AsterionWidgetExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 		70CC44562F55E0800099DF4E /* AsterionTests */ = {
 			isa = PBXNativeTarget;
@@ -328,6 +403,9 @@
 					70CC44472F55E07E0099DF4E = {
 						CreatedOnToolsVersion = 26.2;
 					};
+					AABB001C2F5700010099DF4E = {
+						CreatedOnToolsVersion = 26.2;
+					};
 					70CC44562F55E0800099DF4E = {
 						CreatedOnToolsVersion = 26.2;
 						TestTargetID = 70CC44472F55E07E0099DF4E;
@@ -357,6 +435,7 @@
 			projectRoot = "";
 			targets = (
 				70CC44472F55E07E0099DF4E /* Asterion */,
+				AABB001C2F5700010099DF4E /* AsterionWidgetExtension */,
 				70CC44562F55E0800099DF4E /* AsterionTests */,
 				70CC44602F55E0800099DF4E /* AsterionUITests */,
 			);
@@ -382,6 +461,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		70CC445F2F55E0800099DF4E /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AABB001B2F5700010099DF4E /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -419,6 +505,9 @@
 				70CC44C72F55F0000099DF4E /* CoverImageView.swift in Sources */,
 				70CC44C82F55F0000099DF4E /* SearchInputView.swift in Sources */,
 				AABB00012F5700010099DF4E /* ChaptersView.swift in Sources */,
+				AABB00032F5700010099DF4E /* OfflineChapterStore.swift in Sources */,
+				AABB00052F5700010099DF4E /* DownloadLiveActivityManager.swift in Sources */,
+				AABB00072F5700010099DF4E /* ChapterDownloadActivityAttributes.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -436,6 +525,17 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		AABB00192F5700010099DF4E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AABB00112F5700010099DF4E /* WidgetBundle.swift in Sources */,
+				AABB00102F5700010099DF4E /* ReadingWidget.swift in Sources */,
+				AABB00122F5700010099DF4E /* ContinueReadingIntent.swift in Sources */,
+				AABB00132F5700010099DF4E /* ChapterDownloadActivityAttributes.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -448,6 +548,11 @@
 			isa = PBXTargetDependency;
 			target = 70CC44472F55E07E0099DF4E /* Asterion */;
 			targetProxy = 70CC44622F55E0800099DF4E /* PBXContainerItemProxy */;
+		};
+		AABB00212F5700010099DF4E /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = AABB001C2F5700010099DF4E /* AsterionWidgetExtension */;
+			targetProxy = AABB00202F5700010099DF4E /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -579,6 +684,8 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CLERK_PUBLISHABLE_KEY = pk_test_cG9ldGljLWdhdG9yLTk3LmNsZXJrLmFjY291bnRzLmRldiQ;
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
+				INFOPLIST_KEY_USER_API_BASE_URL = "$(USER_API_BASE_URL)";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -611,6 +718,7 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
+				USER_API_BASE_URL = "http://127.0.0.1:3001";
 				XROS_DEPLOYMENT_TARGET = 26.2;
 			};
 			name = Debug;
@@ -627,6 +735,8 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CLERK_PUBLISHABLE_KEY = pk_test_cG9ldGljLWdhdG9yLTk3LmNsZXJrLmFjY291bnRzLmRldiQ;
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
+				INFOPLIST_KEY_USER_API_BASE_URL = "$(USER_API_BASE_URL)";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -655,7 +765,60 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
+				USER_API_BASE_URL = "https://your-backend.up.railway.app";
 				XROS_DEPLOYMENT_TARGET = 26.2;
+			};
+			name = Release;
+		};
+		AABB001E2F5700010099DF4E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = AsterionWidgetExtension/Info.plist;
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = cyberverse.Asterion.widget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		AABB001F2F5700010099DF4E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = AsterionWidgetExtension/Info.plist;
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = cyberverse.Asterion.widget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
 		};
@@ -774,6 +937,15 @@
 			buildConfigurations = (
 				70CC446C2F55E0800099DF4E /* Debug */,
 				70CC446D2F55E0800099DF4E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AABB001D2F5700010099DF4E /* Build configuration list for PBXNativeTarget "AsterionWidgetExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AABB001E2F5700010099DF4E /* Debug */,
+				AABB001F2F5700010099DF4E /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

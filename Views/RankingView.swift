@@ -154,9 +154,16 @@ struct RankingView: View {
         defer { loading = false }
         do {
             novels = try await apiClient.fetchNovels(limit: 100)
+            await OfflineChapterStore.shared.saveCatalog(novels)
             failed = false
         } catch {
-            if novels.isEmpty { failed = true }
+            let cached = await OfflineChapterStore.shared.loadCatalog()
+            if !cached.isEmpty {
+                novels = cached
+                failed = false
+            } else if novels.isEmpty {
+                failed = true
+            }
         }
     }
 }

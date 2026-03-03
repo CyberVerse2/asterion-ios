@@ -18,18 +18,36 @@ struct AsterionApp: App {
     @StateObject private var authService = AuthService()
     @StateObject private var apiClient = APIClient()
     @StateObject private var tabBarState = TabBarState()
+    @StateObject private var readingProgressService = ReadingProgressService()
 
     init() {
         _ = _clerkConfigured
 
         let bg = UIColor(red: 0.051, green: 0.047, blue: 0.043, alpha: 1)
+        let titleColor = UIColor(red: 0.91, green: 0.863, blue: 0.784, alpha: 1)
+
+        let titleBase = UIFont.systemFont(ofSize: 18, weight: .semibold)
+        let titleFont = titleBase.fontDescriptor.withDesign(.serif).map {
+            UIFont(descriptor: $0, size: 18)
+        } ?? titleBase
+
+        let largeTitleBase = UIFont.systemFont(ofSize: 36, weight: .bold)
+        let largeTitleFont = largeTitleBase.fontDescriptor.withDesign(.serif).map {
+            UIFont(descriptor: $0, size: 36)
+        } ?? largeTitleBase
 
         let appearance = UINavigationBarAppearance()
         appearance.configureWithOpaqueBackground()
         appearance.backgroundColor = bg
         appearance.shadowColor = .clear
-        appearance.titleTextAttributes = [.foregroundColor: UIColor(red: 0.91, green: 0.863, blue: 0.784, alpha: 1)]
-        appearance.largeTitleTextAttributes = [.foregroundColor: UIColor(red: 0.91, green: 0.863, blue: 0.784, alpha: 1)]
+        appearance.titleTextAttributes = [
+            .foregroundColor: titleColor,
+            .font: titleFont,
+        ]
+        appearance.largeTitleTextAttributes = [
+            .foregroundColor: titleColor,
+            .font: largeTitleFont,
+        ]
 
         UINavigationBar.appearance().standardAppearance = appearance
         UINavigationBar.appearance().scrollEdgeAppearance = appearance
@@ -50,11 +68,15 @@ struct AsterionApp: App {
                 .environmentObject(authService)
                 .environmentObject(apiClient)
                 .environmentObject(tabBarState)
+                .environmentObject(readingProgressService)
                 .environment(Clerk.shared)
                 .preferredColorScheme(.dark)
                 .task {
                     await authService.syncClerkSession()
                     apiClient.setSessionToken(authService.sessionToken)
+                    await authService.syncUserProfileToBackend(using: apiClient)
+                    readingProgressService.configure(apiClient: apiClient)
+                    await readingProgressService.flushQueue()
                 }
         }
     }

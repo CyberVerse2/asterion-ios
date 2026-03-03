@@ -10,6 +10,7 @@ struct HomeView: View {
     @State private var search = ""
     @State private var debouncedSearch = ""
     @State private var showAll = false
+    @State private var continueReadingItems: [ContinueReadingItem] = []
 
     private let initialCount = 6
 
@@ -20,22 +21,10 @@ struct HomeView: View {
 
     private struct ContinueReadingItem: Identifiable {
         let novel: Novel
-        let chapterNum: Int
-        let chapterTitle: String
+        let chapter: Chapter
+        let allChapters: [Chapter]
+        let percentage: Double
         var id: String { novel.id }
-    }
-
-    private static let seedProgress: [(chapterNum: Int, chapterTitle: String)] = [
-        (847, "Nightmare's Edge"),
-        (312, "The Fool's Gambit"),
-    ]
-
-    private var continueReading: [ContinueReadingItem] {
-        novels.prefix(2).enumerated().compactMap { idx, novel in
-            guard idx < Self.seedProgress.count else { return nil }
-            let seed = Self.seedProgress[idx]
-            return ContinueReadingItem(novel: novel, chapterNum: seed.chapterNum, chapterTitle: seed.chapterTitle)
-        }
     }
 
     var body: some View {
@@ -139,7 +128,7 @@ struct HomeView: View {
 
     @ViewBuilder
     private var contentSection: some View {
-        if debouncedSearch.isEmpty && !continueReading.isEmpty {
+        if debouncedSearch.isEmpty && !continueReadingItems.isEmpty {
             continueReadingSection
         }
         browseGridSection
@@ -154,12 +143,19 @@ struct HomeView: View {
                 .foregroundStyle(Color.asterionMuted)
                 .tracking(3)
 
-            ForEach(continueReading) { item in
-                NavigationLink(value: item.novel) {
+            ForEach(continueReadingItems) { item in
+                NavigationLink {
+                    ReaderView(
+                        initialChapter: item.chapter,
+                        novel: item.novel,
+                        allChapters: item.allChapters
+                    )
+                } label: {
                     ContinueReadingCard(
                         novel: item.novel,
-                        chapterNum: item.chapterNum,
-                        chapterTitle: item.chapterTitle
+                        chapterNum: item.chapter.chapterNumber,
+                        chapterTitle: item.chapter.title,
+                        percentage: item.percentage
                     )
                 }
                 .buttonStyle(.plain)
@@ -220,9 +216,83 @@ struct HomeView: View {
         defer { loading = false }
         do {
             novels = try await apiClient.fetchNovels(limit: 50, search: search)
+            await OfflineChapterStore.shared.saveCatalog(novels)
+            if search.isEmpty {
+                await loadContinueReading()
+            } else {
+                continueReadingItems = []
+            }
             failed = false
         } catch {
-            if novels.isEmpty { failed = true }
+            let cached = await OfflineChapterStore.shared.loadCatalog()
+            if !cached.isEmpty {
+                if search.isEmpty {
+                    novels = cached
+                } else {
+                    let q = search.lowercased()
+                    novels = cached.filter {
+                        $0.title.lowercased().contains(q) || ($0.author?.lowercased().contains(q) ?? false)
+                    }
+                }
+                if search.isEmpty {
+                    await loadContinueReading()
+                } else {
+                    continueReadingItems = []
+                }
+                failed = false
+            } else if novels.isEmpty {
+                failed = true
+            }
+        }
+    }
+
+    private func loadContinueReading() async {
+        do {
+            let progress = try await apiClient.fetchAllReadingProgress()
+            let recentByNovelId = Dictionary(uniqueKeysWithValues: progress.map { ($0.novelId, $0) })
+            let candidateNovels = novels.filter { recentByNovelId[$0.id] != nil }
+            let topNovels = Array(candidateNovels.prefix(2))
+
+            var built: [ContinueReadingItem] = []
+            for novel in topNovels {
+                guard let p = recentByNovelId[novel.id] else { continue }
+                let chapter: Chapter?
+                do {
+                    chapter = try await apiClient.fetchChapter(id: p.chapterId)
+                } catch {
+                    chapter = nil
+                }
+                guard let chapter else { continue }
+
+                let chapterList: [Chapter]
+                do {
+                    let response = try await apiClient.fetchChapters(novelId: novel.id, limit: 1000, offset: 0)
+                    await OfflineChapterStore.shared.saveChapterList(novelId: novel.id, chapters: response.data, mergeWithExisting: true)
+                    chapterList = response.data
+                } catch {
+                    let cached = await OfflineChapterStore.shared.loadChapterList(novelId: novel.id)
+                    chapterList = cached.isEmpty ? [chapter] : cached
+                }
+                let containsCurrent = chapterList.contains(where: { $0.id == chapter.id })
+                let allChapters = containsCurrent ? chapterList : ([chapter] + chapterList)
+
+                let totalChapterCount = max(allChapters.count, 1)
+                let chapterIndex = Double(max(chapter.chapterNumber - 1, 0))
+                let withinChapterFraction = p.percentage / 100.0
+                let novelPercentage = min(100, ((chapterIndex + withinChapterFraction) / Double(totalChapterCount)) * 100)
+
+                built.append(
+                    ContinueReadingItem(
+                        novel: novel,
+                        chapter: chapter,
+                        allChapters: allChapters,
+                        percentage: novelPercentage
+                    )
+                )
+            }
+            continueReadingItems = built
+        } catch {
+            continueReadingItems = []
         }
     }
 }
@@ -233,15 +303,11 @@ private struct ContinueReadingCard: View {
     let novel: Novel
     let chapterNum: Int
     let chapterTitle: String
+    let percentage: Double
 
     private var color: Color { GenreStyle.color(for: novel.genres) }
 
-    private var totalCh: Int {
-        Int(novel.totalChapters?.filter(\.isNumber) ?? "") ?? 1
-    }
-    private var pct: Double {
-        min(100, Double(chapterNum) / Double(max(1, totalCh)) * 100)
-    }
+    private var pct: Double { min(100, max(0, percentage)) }
 
     var body: some View {
         HStack(spacing: 14) {
@@ -253,9 +319,15 @@ private struct ContinueReadingCard: View {
                     .foregroundStyle(Color.asterionText)
                     .lineLimit(1)
 
-                Text("Ch. \(chapterNum) · \(chapterTitle)")
-                    .font(.asterionMono(11))
-                    .foregroundStyle(Color.asterionDim)
+                if chapterNum > 0 {
+                    Text("Ch. \(chapterNum) · \(chapterTitle)")
+                        .font(.asterionMono(11))
+                        .foregroundStyle(Color.asterionDim)
+                } else {
+                    Text(chapterTitle)
+                        .font(.asterionMono(11))
+                        .foregroundStyle(Color.asterionDim)
+                }
 
                 HStack(spacing: 10) {
                     GeometryReader { geo in

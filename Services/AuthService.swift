@@ -71,4 +71,17 @@ final class AuthService: NSObject, ObservableObject {
             authError = error.localizedDescription
         }
     }
+
+    func syncUserProfileToBackend(using apiClient: APIClient) async {
+        guard let user = currentUser else { return }
+        do {
+            _ = try await apiClient.updateMyProfile(
+                email: user.email,
+                username: user.username,
+                avatarUrl: user.pfpUrl
+            )
+        } catch {
+            authError = "Signed in, but failed to sync profile to backend."
+        }
+    }
 }

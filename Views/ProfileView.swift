@@ -6,25 +6,31 @@ struct ProfileView: View {
     @ObserveInjection var inject
     @EnvironmentObject private var authService: AuthService
     @EnvironmentObject private var apiClient: APIClient
-    @State private var novels: [Novel] = []
+    @State private var libraryNovels: [Novel] = []
     @State private var readingGoal: Int = 30
     @State private var darkMode = true
     @State private var notificationsOn = true
     @State private var fontSizePref: FontSizePref = .medium
     @State private var showAuthSheet = false
+    @State private var cloudProfile: AsterionUserProfile?
+    @State private var cloudBookmarkCount = 0
+    @State private var cloudProgressCount = 0
+    @State private var cloudChaptersRead = 0
+    @State private var cloudSyncError: String?
+    @State private var isApplyingServerPreferences = false
 
     enum FontSizePref: String, CaseIterable { case small, medium, large }
 
-    private var ongoing: Int { novels.filter { $0.status == "Ongoing" }.count }
-    private var completed: Int { novels.filter { $0.status == "Completed" }.count }
+    private var ongoing: Int { libraryNovels.filter { $0.status == "Ongoing" }.count }
+    private var completed: Int { libraryNovels.filter { $0.status == "Completed" }.count }
     private var totalChapters: Int {
-        novels.reduce(0) { sum, n in
+        libraryNovels.reduce(0) { sum, n in
             sum + (Int(n.totalChapters?.filter(\.isNumber) ?? "") ?? 0)
         }
     }
     private var avgRating: String {
-        guard !novels.isEmpty else { return "—" }
-        let avg = novels.compactMap(\.rating).reduce(0, +) / Double(novels.count)
+        guard !libraryNovels.isEmpty else { return "—" }
+        let avg = libraryNovels.compactMap(\.rating).reduce(0, +) / Double(libraryNovels.count)
         return String(format: "%.1f", avg)
     }
 
@@ -42,16 +48,30 @@ struct ProfileView: View {
             .navigationBarTitleDisplayMode(.large)
             .toolbarColorScheme(.dark, for: .navigationBar)
             .task {
-                do { novels = try await apiClient.fetchNovels(limit: 100) } catch {}
+                await loadCloudProfileData()
             }
         }
         .sheet(isPresented: $showAuthSheet, onDismiss: {
             Task {
                 await authService.syncClerkSession()
                 apiClient.setSessionToken(authService.sessionToken)
+                await authService.syncUserProfileToBackend(using: apiClient)
+                await loadCloudProfileData()
             }
         }) {
             AuthView()
+        }
+        .onChange(of: readingGoal) { _, _ in
+            Task { await pushPreferencesToCloud() }
+        }
+        .onChange(of: darkMode) { _, _ in
+            Task { await pushPreferencesToCloud() }
+        }
+        .onChange(of: notificationsOn) { _, _ in
+            Task { await pushPreferencesToCloud() }
+        }
+        .onChange(of: fontSizePref) { _, _ in
+            Task { await pushPreferencesToCloud() }
         }
         .enableInjection()
     }
@@ -130,6 +150,15 @@ struct ProfileView: View {
                     .padding(.top, 12)
             }
 
+            if let cloudSyncError {
+                Text(cloudSyncError)
+                    .font(.asterionMono(10))
+                    .foregroundStyle(.orange.opacity(0.9))
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 10)
+                    .padding(.horizontal, 20)
+            }
+
             Spacer().frame(height: 60)
         }
         .frame(maxWidth: .infinity)
@@ -167,7 +196,7 @@ struct ProfileView: View {
                     .stroke(Color.asterionBorder, lineWidth: 1)
                     .frame(width: 80, height: 80)
 
-                if let pfp = authService.currentUser?.pfpUrl, let url = URL(string: pfp) {
+                if let pfp = cloudProfile?.avatarUrl ?? authService.currentUser?.pfpUrl, let url = URL(string: pfp) {
                     AsyncImage(url: url) { image in
                         image
                             .resizable()
@@ -196,18 +225,18 @@ struct ProfileView: View {
             }
             .padding(.bottom, 16)
 
-            Text(authService.currentUser?.username ?? "Reader")
+            Text(cloudProfile?.username ?? authService.currentUser?.username ?? "Reader")
                 .font(.asterionSerif(22))
                 .foregroundStyle(Color.asterionText)
 
-            if let email = authService.currentUser?.email {
+            if let email = cloudProfile?.email ?? authService.currentUser?.email {
                 Text(email)
                     .font(.asterionMono(11))
                     .foregroundStyle(Color.asterionDim)
                     .padding(.top, 2)
             }
 
-            Text("Member since 2024")
+            Text(memberSinceLabel)
                 .font(.asterionMono(11))
                 .foregroundStyle(Color.asterionDim)
                 .padding(.top, 4)
@@ -217,8 +246,16 @@ struct ProfileView: View {
     }
 
     private var initials: String {
-        guard let name = authService.currentUser?.username, !name.isEmpty else { return "A" }
+        let name = cloudProfile?.username ?? authService.currentUser?.username
+        guard let name, !name.isEmpty else { return "A" }
         return String(name.prefix(1)).uppercased()
+    }
+
+    private var memberSinceLabel: String {
+        guard let createdAt = cloudProfile?.createdAt else { return "Member since —" }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy"
+        return "Member since \(formatter.string(from: createdAt))"
     }
 
     // MARK: - Account
@@ -252,12 +289,73 @@ struct ProfileView: View {
 
     private var statsGrid: some View {
         HStack(spacing: 10) {
-            statCard(value: "\(novels.count)", label: "Novels")
-            statCard(value: totalChapters.formatted(), label: "Chapters")
-            statCard(value: avgRating, label: "Avg Rating")
+            statCard(
+                value: authService.isSignedIn ? "\(cloudProgressCount)" : "\(libraryNovels.count)",
+                label: authService.isSignedIn ? "In Progress" : "Novels"
+            )
+            statCard(value: authService.isSignedIn ? "\(cloudChaptersRead)" : totalChapters.formatted(), label: authService.isSignedIn ? "Chapters Read" : "Chapters")
+            statCard(value: authService.isSignedIn ? "\(libraryNovels.count)" : avgRating, label: authService.isSignedIn ? "In Library" : "Avg Rating")
         }
         .padding(.horizontal, 24)
         .padding(.bottom, 32)
+    }
+
+    private func loadCloudProfileData() async {
+        guard authService.isSignedIn else {
+            cloudProfile = nil
+            cloudBookmarkCount = 0
+            cloudProgressCount = 0
+            cloudChaptersRead = 0
+            libraryNovels = []
+            cloudSyncError = nil
+            return
+        }
+
+        do {
+            async let profileFetch = apiClient.fetchMyProfile()
+            async let statsFetch = apiClient.fetchMyStats()
+            async let prefsFetch = apiClient.fetchMyPreferences()
+            async let libraryFetch = apiClient.fetchMyLibrary()
+            async let allNovelsFetch = apiClient.fetchNovels(limit: 500, search: "")
+
+            cloudProfile = try await profileFetch
+            let stats = try await statsFetch
+            let prefs = try await prefsFetch
+            let libraryItems = try await libraryFetch
+            let allNovels = try await allNovelsFetch
+
+            cloudBookmarkCount = stats.bookmarks
+            cloudProgressCount = stats.novelsInProgress
+            cloudChaptersRead = stats.chaptersRead
+
+            let libraryIds = Set(libraryItems.map(\.novelId))
+            libraryNovels = allNovels.filter { libraryIds.contains($0.id) }
+
+            isApplyingServerPreferences = true
+            readingGoal = prefs.readingGoal
+            darkMode = prefs.darkMode
+            notificationsOn = prefs.notificationsOn
+            fontSizePref = FontSizePref(rawValue: prefs.fontSizePref) ?? .medium
+            isApplyingServerPreferences = false
+            cloudSyncError = nil
+        } catch {
+            cloudSyncError = "Signed in, but cloud sync failed. Check USER_API_BASE_URL / backend server."
+        }
+    }
+
+    private func pushPreferencesToCloud() async {
+        guard authService.isSignedIn, !isApplyingServerPreferences else { return }
+        do {
+            _ = try await apiClient.updateMyPreferences(
+                readingGoal: readingGoal,
+                darkMode: darkMode,
+                notificationsOn: notificationsOn,
+                fontSizePref: fontSizePref.rawValue
+            )
+            cloudSyncError = nil
+        } catch {
+            cloudSyncError = "Couldn't save reading preferences to cloud."
+        }
     }
 
     private func statCard(value: String, label: String) -> some View {
@@ -307,15 +405,15 @@ struct ProfileView: View {
                     }
                 }
 
-                if !novels.isEmpty {
+                if !libraryNovels.isEmpty {
                     GeometryReader { geo in
                         HStack(spacing: 0) {
                             Rectangle()
                                 .fill(Color(red: 0.353, green: 0.608, blue: 0.478))
-                                .frame(width: geo.size.width * CGFloat(ongoing) / CGFloat(novels.count))
+                                .frame(width: geo.size.width * CGFloat(ongoing) / CGFloat(libraryNovels.count))
                             Rectangle()
                                 .fill(Color.goldAccent)
-                                .frame(width: geo.size.width * CGFloat(completed) / CGFloat(novels.count))
+                                .frame(width: geo.size.width * CGFloat(completed) / CGFloat(libraryNovels.count))
                         }
                     }
                     .frame(height: 4)

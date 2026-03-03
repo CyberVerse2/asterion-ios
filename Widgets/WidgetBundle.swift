@@ -5,5 +5,6 @@ import WidgetKit
 struct AsterionWidgetBundle: WidgetBundle {
     var body: some Widget {
         ReadingWidget()
+        ChapterDownloadLiveActivityWidget()
     }
 }
