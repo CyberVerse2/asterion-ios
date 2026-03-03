@@ -22,7 +22,8 @@ Healthcheck:
 2. Set env vars from `.env.railway.example`.
 3. Deploy this `backend/` directory.
 4. Railway uses `railway.json` to run:
-   - build: `npm ci && npm run build`
+   - builder: `RAILPACK`
+   - build: `npm install && npm run build`
    - start: `npm run db:migrate:deploy && npm run start`
 
 ## Smoke test

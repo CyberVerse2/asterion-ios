@@ -17,6 +17,9 @@
   "author": "",
   "license": "MIT",
   "type": "commonjs",
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
     "@fastify/cors": "^11.2.0",
     "dotenv": "^17.3.1",
