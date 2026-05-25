@@ -16,6 +16,8 @@ const firstDueAt = new Date("2026-05-31T02:15:00+01:00");
 const refreshIntervalMs = 6 * 24 * 60 * 60 * 1000;
 const allowedHours = new Set([8, 9, 10, 11, 12, 13, 14, 15, 16, 17]);
 const resendModulePath = "/Users/thecyberverse/Code/skypadi/backend/node_modules/resend/dist/index.mjs";
+const forceDue = process.env.ASTERION_IPHONE_REFRESH_FORCE_DUE === "1";
+const forceCycleId = process.env.ASTERION_IPHONE_REFRESH_FORCE_CYCLE_ID?.trim();
 
 function parseEnv(contents) {
   const env = {};
@@ -137,14 +139,14 @@ function run(command, args, cwd) {
 
 const state = await loadState();
 const now = new Date();
-const dueAt = nextDueAt(state);
+const dueAt = forceDue ? now : nextDueAt(state);
 
 if (now < dueAt) {
   console.log(`No iPhone refresh due. Next due date: ${dueAt.toISOString()}`);
   process.exit(0);
 }
 
-if (!allowedHours.has(localHour(now))) {
+if (!forceDue && !allowedHours.has(localHour(now))) {
   console.log("iPhone refresh is due, but this run is outside the 08:00-17:00 Africa/Lagos retry window.");
   process.exit(0);
 }
@@ -158,7 +160,7 @@ if (!resendApiKey || !inboundDomain) {
 
 const { Resend } = await import(resendModulePath);
 const resend = new Resend(resendApiKey);
-const cycleId = cycleIdFor(dueAt);
+const cycleId = forceCycleId || cycleIdFor(dueAt);
 const replyTo = `asterion-iphone-refresh-${cycleId}@${inboundDomain}`;
 const from = `Asterion Build Refresh <asterion-iphone-refresh@${inboundDomain}>`;
 
@@ -169,6 +171,7 @@ if (state.promptCycleId !== cycleId) {
     promptCycleId: cycleId,
     promptSentAt: now.toISOString(),
     replyTo,
+    forceTest: forceDue || undefined,
   });
   console.log(`Sent iPhone readiness email to ${recipient}. Waiting for a reply to ${replyTo}.`);
   process.exit(0);
