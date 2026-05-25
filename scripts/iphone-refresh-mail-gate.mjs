@@ -18,6 +18,8 @@ const allowedHours = new Set([8, 9, 10, 11, 12, 13, 14, 15, 16, 17]);
 const resendModulePath = "/Users/thecyberverse/Code/skypadi/backend/node_modules/resend/dist/index.mjs";
 const forceDue = process.env.ASTERION_IPHONE_REFRESH_FORCE_DUE === "1";
 const forceCycleId = process.env.ASTERION_IPHONE_REFRESH_FORCE_CYCLE_ID?.trim();
+const replyPollWindowMs = Number(process.env.ASTERION_IPHONE_REFRESH_REPLY_POLL_MS ?? 12 * 60 * 1000);
+const replyPollIntervalMs = Number(process.env.ASTERION_IPHONE_REFRESH_REPLY_POLL_INTERVAL_MS ?? 20 * 1000);
 
 function parseEnv(contents) {
   const env = {};
@@ -82,6 +84,7 @@ async function sendReadyEmail(resend, from, replyTo, cycleId) {
     "Asterion's iPhone development build refresh is due.",
     "",
     "Please turn on/unlock the iPhone, keep it on the same Wi-Fi as the Mac, and reply to this email with ok when it is ready.",
+    "I will check for your reply immediately for about 12 minutes, then retry on the next scheduled run if needed.",
     "",
     `Reply address: ${replyTo}`,
   ].join("\n");
@@ -92,7 +95,7 @@ async function sendReadyEmail(resend, from, replyTo, cycleId) {
     replyTo,
     subject,
     text,
-    html: `<p>Asterion's iPhone development build refresh is due.</p><p>Please turn on/unlock the iPhone, keep it on the same Wi-Fi as the Mac, and reply to this email with <strong>ok</strong> when it is ready.</p><p>Reply address: ${htmlEscape(replyTo)}</p>`,
+    html: `<p>Asterion's iPhone development build refresh is due.</p><p>Please turn on/unlock the iPhone, keep it on the same Wi-Fi as the Mac, and reply to this email with <strong>ok</strong> when it is ready.</p><p>I will check for your reply immediately for about 12 minutes, then retry on the next scheduled run if needed.</p><p>Reply address: ${htmlEscape(replyTo)}</p>`,
   });
 
   if (error) {
@@ -123,6 +126,20 @@ async function findReply(resend, replyTo, since) {
     return full.data ?? candidate;
   }
 
+  return null;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForReply(resend, replyTo, since) {
+  const deadline = Date.now() + replyPollWindowMs;
+  while (Date.now() <= deadline) {
+    const reply = await findReply(resend, replyTo, since);
+    if (reply) return reply;
+    await sleep(replyPollIntervalMs);
+  }
   return null;
 }
 
@@ -164,8 +181,12 @@ const cycleId = forceCycleId || cycleIdFor(dueAt);
 const replyTo = `asterion-iphone-refresh-${cycleId}@${inboundDomain}`;
 const from = `Asterion Build Refresh <asterion-iphone-refresh@${inboundDomain}>`;
 
+let promptSentAt = new Date(state.promptSentAt ?? now);
+let activeReplyTo = state.replyTo ?? replyTo;
 if (state.promptCycleId !== cycleId) {
   await sendReadyEmail(resend, from, replyTo, cycleId);
+  promptSentAt = now;
+  activeReplyTo = replyTo;
   await saveState({
     ...state,
     promptCycleId: cycleId,
@@ -173,14 +194,12 @@ if (state.promptCycleId !== cycleId) {
     replyTo,
     forceTest: forceDue || undefined,
   });
-  console.log(`Sent iPhone readiness email to ${recipient}. Waiting for a reply to ${replyTo}.`);
-  process.exit(0);
+  console.log(`Sent iPhone readiness email to ${recipient}. Polling for a reply to ${replyTo}.`);
 }
 
-const promptSentAt = new Date(state.promptSentAt ?? now);
-const reply = await findReply(resend, state.replyTo ?? replyTo, promptSentAt);
+const reply = await waitForReply(resend, activeReplyTo, promptSentAt);
 if (!reply) {
-  console.log(`No readiness reply found yet for ${state.replyTo ?? replyTo}.`);
+  console.log(`No readiness reply found yet for ${activeReplyTo}.`);
   process.exit(0);
 }
 
