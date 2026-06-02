@@ -14,7 +14,6 @@ const buildScript = path.join(rootDir, "scripts", "build-install-launch-iphone.s
 const recipient = "ejioforcelestine77@gmail.com";
 const firstDueAt = new Date("2026-05-31T02:15:00+01:00");
 const refreshIntervalMs = 6 * 24 * 60 * 60 * 1000;
-const allowedHours = new Set([8, 9, 10, 11, 12, 13, 14, 15, 16, 17]);
 const resendModulePath = "/Users/thecyberverse/Code/skypadi/backend/node_modules/resend/dist/index.mjs";
 const forceDue = process.env.ASTERION_IPHONE_REFRESH_FORCE_DUE === "1";
 const forceCycleId = process.env.ASTERION_IPHONE_REFRESH_FORCE_CYCLE_ID?.trim();
@@ -59,15 +58,6 @@ function nextDueAt(state) {
 
 function cycleIdFor(date) {
   return date.toISOString().slice(0, 10).replaceAll("-", "");
-}
-
-function localHour(date) {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "Africa/Lagos",
-    hour: "2-digit",
-    hour12: false,
-  }).formatToParts(date);
-  return Number(parts.find((part) => part.type === "hour")?.value);
 }
 
 function htmlEscape(value) {
@@ -160,11 +150,6 @@ const dueAt = forceDue ? now : nextDueAt(state);
 
 if (now < dueAt) {
   console.log(`No iPhone refresh due. Next due date: ${dueAt.toISOString()}`);
-  process.exit(0);
-}
-
-if (!forceDue && !allowedHours.has(localHour(now))) {
-  console.log("iPhone refresh is due, but this run is outside the 08:00-17:00 Africa/Lagos retry window.");
   process.exit(0);
 }
 
