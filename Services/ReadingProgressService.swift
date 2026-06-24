@@ -39,7 +39,10 @@ final class ReadingProgressService: ObservableObject {
             currentProgress = try await apiClient.fetchReadingProgress(novelId: novelId)
             debugLog("Remote progress refreshed for novelId=\(novelId)")
         } catch {
-            // Keep existing local state if remote load fails.
+            if let queued = queuedProgress(for: novelId) {
+                currentProgress = queued
+                debugLog("Using queued local progress for novelId=\(novelId) after remote refresh failure.")
+            }
             debugLog("Remote progress refresh failed for novelId=\(novelId): \(error.localizedDescription)")
         }
     }
@@ -100,6 +103,39 @@ final class ReadingProgressService: ObservableObject {
         queue.removeAll { $0.novelId == payload.novelId }
         queue.append(payload)
         saveQueue(queue)
+    }
+
+    func queuedProgress(for novelId: String) -> ReadingProgress? {
+        guard let payload = loadQueue().last(where: { $0.novelId == novelId }) else {
+            return nil
+        }
+        return ReadingProgress(
+            id: "queued-\(novelId)-\(payload.chapterId)",
+            userId: "local",
+            novelId: payload.novelId,
+            chapterId: payload.chapterId,
+            currentLine: payload.currentLine,
+            totalLines: payload.totalLines,
+            percentage: payload.percentage,
+            updatedAt: payload.queuedAt
+        )
+    }
+
+    func queuedProgressList() -> [ReadingProgress] {
+        loadQueue()
+            .sorted { $0.queuedAt > $1.queuedAt }
+            .map { payload in
+                ReadingProgress(
+                    id: "queued-\(payload.novelId)-\(payload.chapterId)",
+                    userId: "local",
+                    novelId: payload.novelId,
+                    chapterId: payload.chapterId,
+                    currentLine: payload.currentLine,
+                    totalLines: payload.totalLines,
+                    percentage: payload.percentage,
+                    updatedAt: payload.queuedAt
+                )
+            }
     }
 
     private func loadQueue() -> [PendingProgressPayload] {

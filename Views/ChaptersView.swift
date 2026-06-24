@@ -17,13 +17,26 @@ struct ChaptersView: View {
     @State private var search = ""
     @State private var debouncedSearch = ""
     @State private var resolvedTotalCount: Int
+    @State private var searchResultCount: Int?
     @State private var exportingChapterId: String?
+    @State private var downloadedChapterIds = Set<String>()
     @State private var showDownloadAlert = false
     @State private var downloadAlertMessage = ""
 
     private let perPage = 30
-    private var totalPages: Int { max(1, Int(ceil(Double(max(0, resolvedTotalCount)) / Double(perPage)))) }
+    private var activeResultCount: Int { max(0, searchResultCount ?? resolvedTotalCount) }
+    private var totalPages: Int { max(1, Int(ceil(Double(activeResultCount) / Double(perPage)))) }
     private var genreColor: Color { GenreStyle.color(for: novel.genres) }
+    private var isDesktop: Bool {
+        #if targetEnvironment(macCatalyst)
+        true
+        #else
+        false
+        #endif
+    }
+    private var contentMaxWidth: CGFloat { isDesktop ? 920 : .infinity }
+    private var pageHorizontalPadding: CGFloat { isDesktop ? 32 : 24 }
+    private var topButtonPadding: CGFloat { isDesktop ? 18 : 44 }
 
     init(novel: Novel, allChapters: [Chapter], totalCount: Int) {
         self.novel = novel
@@ -42,6 +55,8 @@ struct ChaptersView: View {
                 paginationFooter
             }
             .padding(.bottom, 100)
+            .frame(maxWidth: contentMaxWidth, alignment: .topLeading)
+            .frame(maxWidth: .infinity, alignment: .top)
         }
         .overlay(alignment: .topLeading) {
             Button { dismiss() } label: {
@@ -56,7 +71,7 @@ struct ChaptersView: View {
                             .stroke(Color.asterionBorder, lineWidth: 1)
                     )
             }
-            .padding(.top, 44)
+            .padding(.top, topButtonPadding)
             .padding(.leading, 20)
         }
         .background(Color.asterionBackground.ignoresSafeArea())
@@ -99,15 +114,15 @@ struct ChaptersView: View {
                     .font(.asterionMono(11))
                     .foregroundStyle(Color.asterionDim)
             }
-            .padding(.horizontal, 24)
-            .padding(.top, 88)
+            .padding(.horizontal, pageHorizontalPadding)
+            .padding(.top, isDesktop ? 72 : 88)
             .padding(.bottom, 20)
         }
     }
 
     private var searchSection: some View {
         SearchInputView(text: $search, placeholder: "Search chapters by title or number...")
-            .padding(.horizontal, 24)
+            .padding(.horizontal, pageHorizontalPadding)
             .padding(.top, 12)
             .padding(.bottom, 16)
     }
@@ -142,7 +157,7 @@ struct ChaptersView: View {
                     .disabled(page >= totalPages - 1)
                 }
             }
-            .padding(.horizontal, 24)
+            .padding(.horizontal, pageHorizontalPadding)
             .padding(.bottom, 12)
         }
     }
@@ -183,7 +198,8 @@ struct ChaptersView: View {
                             ReaderView(
                                 initialChapter: chapter,
                                 novel: novel,
-                                allChapters: allChapters.isEmpty ? chapters : allChapters
+                                allChapters: navigationChapterContext(for: chapter),
+                                shouldAutoResumeFromSavedProgress: false
                             )
                         } label: {
                             HStack(spacing: 10) {
@@ -216,6 +232,10 @@ struct ChaptersView: View {
                                     ProgressView()
                                         .tint(Color.goldAccent)
                                         .scaleEffect(0.8)
+                                } else if downloadedChapterIds.contains(chapter.id) {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundStyle(Color(red: 0.353, green: 0.608, blue: 0.478))
                                 } else {
                                     Image(systemName: "arrow.down.doc")
                                         .font(.system(size: 13))
@@ -243,7 +263,7 @@ struct ChaptersView: View {
                     .stroke(Color.asterionBorder, lineWidth: 1)
             )
             .clipShape(RoundedRectangle(cornerRadius: 14))
-            .padding(.horizontal, 24)
+            .padding(.horizontal, pageHorizontalPadding)
         }
     }
 
@@ -289,6 +309,20 @@ struct ChaptersView: View {
         error = nil
         defer { loading = false }
         do {
+            if !searchTerm.isEmpty {
+                let allChapters = try await fetchAllChaptersForSearch()
+                let q = searchTerm.lowercased()
+                let filtered = allChapters.filter {
+                    $0.title.lowercased().contains(q) || String($0.chapterNumber).contains(q)
+                }
+                searchResultCount = filtered.count
+                let start = min(pg * perPage, filtered.count)
+                let end = min(start + perPage, filtered.count)
+                chapters = Array(filtered[start..<end])
+                await refreshDownloadedChapterState()
+                return
+            }
+
             let response = try await apiClient.fetchChapters(
                 novelId: novel.id,
                 limit: perPage,
@@ -297,6 +331,7 @@ struct ChaptersView: View {
             await OfflineChapterStore.shared.saveChapterList(novelId: novel.id, chapters: response.data, mergeWithExisting: true)
             resolvedTotalCount = response.meta?.total
                 ?? (resolvedTotalCount > 0 ? resolvedTotalCount : max(totalCount, response.data.count))
+            searchResultCount = nil
             if searchTerm.isEmpty {
                 chapters = response.data
             } else {
@@ -305,10 +340,14 @@ struct ChaptersView: View {
                     $0.title.lowercased().contains(q) || String($0.chapterNumber).contains(q)
                 }
             }
+            await refreshDownloadedChapterState()
         } catch {
             let cachedAll = await OfflineChapterStore.shared.loadChapterList(novelId: novel.id)
             if !cachedAll.isEmpty {
-                resolvedTotalCount = cachedAll.count
+                if searchTerm.isEmpty {
+                    resolvedTotalCount = cachedAll.count
+                    searchResultCount = nil
+                }
                 let filtered: [Chapter]
                 if searchTerm.isEmpty {
                     filtered = cachedAll
@@ -317,14 +356,58 @@ struct ChaptersView: View {
                     filtered = cachedAll.filter {
                         $0.title.lowercased().contains(q) || String($0.chapterNumber).contains(q)
                     }
+                    searchResultCount = filtered.count
                 }
                 let start = min(pg * perPage, filtered.count)
                 let end = min(start + perPage, filtered.count)
                 chapters = Array(filtered[start..<end])
                 self.error = nil
+                await refreshDownloadedChapterState()
             } else {
                 self.error = error.localizedDescription
             }
+        }
+    }
+
+    private func fetchAllChaptersForSearch() async throws -> [Chapter] {
+        let cached = await OfflineChapterStore.shared.loadChapterList(novelId: novel.id)
+        let expectedTotal = max(resolvedTotalCount, totalCount)
+        if !cached.isEmpty, expectedTotal > 0, cached.count >= expectedTotal {
+            return cached
+        }
+
+        let fetched = try await apiClient.fetchAllChapters(novelId: novel.id)
+        if !fetched.isEmpty {
+            await OfflineChapterStore.shared.saveChapterList(
+                novelId: novel.id,
+                chapters: fetched,
+                mergeWithExisting: true
+            )
+            resolvedTotalCount = max(
+                resolvedTotalCount,
+                totalCount,
+                fetched.count
+            )
+            return fetched
+        }
+
+        return cached
+    }
+
+    private func navigationChapterContext(for chapter: Chapter) -> [Chapter] {
+        var merged: [Chapter] = []
+        var seen = Set<String>()
+
+        for item in ([chapter] + allChapters + chapters) where !seen.contains(item.id) {
+            merged.append(item)
+            seen.insert(item.id)
+        }
+
+        return merged.sorted { lhs, rhs in
+            if lhs.chapterNumber == rhs.chapterNumber {
+                return lhs.id < rhs.id
+            }
+            return lhs.chapterNumber < rhs.chapterNumber
         }
     }
 
@@ -359,11 +442,27 @@ struct ChaptersView: View {
                 chapterTitle: fullChapter.title,
                 content: content
             )
+            downloadedChapterIds.insert(chapter.id)
             downloadAlertMessage = "Saved to \(fileURL.deletingLastPathComponent().lastPathComponent)"
             showDownloadAlert = true
         } catch {
             downloadAlertMessage = "Couldn't save chapter to local folder."
             showDownloadAlert = true
         }
+    }
+
+    private func refreshDownloadedChapterState() async {
+        var downloaded = Set<String>()
+        for chapter in chapters {
+            let exists = await OfflineChapterStore.shared.isChapterDownloaded(
+                novelTitle: novel.title,
+                chapterNumber: chapter.chapterNumber,
+                chapterTitle: chapter.title
+            )
+            if exists {
+                downloaded.insert(chapter.id)
+            }
+        }
+        downloadedChapterIds = downloaded
     }
 }

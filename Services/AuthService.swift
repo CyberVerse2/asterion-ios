@@ -13,6 +13,7 @@ final class AuthService: NSObject, ObservableObject {
     private let tokenKey = "asterion.session.token"
     private let userIdKey = "asterion.user.id"
     private let logger = Logger(subsystem: "Asterion", category: "Auth")
+    private var clerkEventsTask: Task<Void, Never>?
 
     private func debugPrint(_ message: String) {
         #if DEBUG
@@ -22,6 +23,46 @@ final class AuthService: NSObject, ObservableObject {
 
     var isSignedIn: Bool {
         currentUser != nil
+    }
+
+    func startClerkSessionObserver(using apiClient: APIClient) {
+        guard clerkEventsTask == nil else { return }
+
+        clerkEventsTask = Task { [weak self, weak apiClient] in
+            for await event in Clerk.shared.auth.events {
+                guard let self else { return }
+
+                switch event {
+                case .signInCompleted, .signUpCompleted:
+                    await self.syncClerkSession()
+                    apiClient?.setSessionToken(self.sessionToken)
+                    if let apiClient {
+                        await self.syncUserProfileToBackend(using: apiClient)
+                    }
+
+                case .sessionChanged(_, let newSession):
+                    if newSession?.status == .active {
+                        await self.syncClerkSession()
+                        apiClient?.setSessionToken(self.sessionToken)
+                        if let apiClient {
+                            await self.syncUserProfileToBackend(using: apiClient)
+                        }
+                    } else if newSession == nil {
+                        self.clearLocalSession()
+                        apiClient?.setSessionToken(nil)
+                    }
+
+                case .tokenRefreshed(let token):
+                    sessionToken = token
+                    keychain.save(key: tokenKey, value: token)
+                    apiClient?.setSessionToken(token)
+
+                case .signedOut, .accountDeleted:
+                    clearLocalSession()
+                    apiClient?.setSessionToken(nil)
+                }
+            }
+        }
     }
 
     func restoreSession() async {
@@ -35,10 +76,7 @@ final class AuthService: NSObject, ObservableObject {
         Task {
             try? await Clerk.shared.auth.signOut()
         }
-        currentUser = nil
-        sessionToken = nil
-        keychain.delete(key: tokenKey)
-        keychain.delete(key: userIdKey)
+        clearLocalSession()
     }
 
     func persistSession(token: String, user: User) {
@@ -52,6 +90,10 @@ final class AuthService: NSObject, ObservableObject {
 
     func syncClerkSession() async {
         let clerk = Clerk.shared
+        if clerk.user == nil {
+            _ = try? await clerk.refreshClient()
+        }
+
         guard let clerkUser = clerk.user else {
             logger.info("No Clerk user found during session sync.")
             debugPrint("No Clerk user found during session sync.")
@@ -114,5 +156,12 @@ final class AuthService: NSObject, ObservableObject {
             authError = "Signed in, but failed to sync profile to backend."
             debugPrint("Backend profile sync failed for userId: \(user.id): \(error.localizedDescription)")
         }
+    }
+
+    private func clearLocalSession() {
+        currentUser = nil
+        sessionToken = nil
+        keychain.delete(key: tokenKey)
+        keychain.delete(key: userIdKey)
     }
 }

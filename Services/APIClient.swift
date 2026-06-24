@@ -104,6 +104,33 @@ final class APIClient: ObservableObject {
         return wrapper.data
     }
 
+    func fetchAllNovels(pageSize: Int = 100, search: String = "") async throws -> [Novel] {
+        let normalizedPageSize = max(1, pageSize)
+        var offset = 0
+        var novels: [Novel] = []
+
+        while true {
+            let page = try await fetchNovels(
+                limit: normalizedPageSize,
+                offset: offset,
+                search: search
+            )
+            if page.isEmpty {
+                break
+            }
+
+            novels.append(contentsOf: page)
+
+            if page.count < normalizedPageSize {
+                break
+            }
+
+            offset += normalizedPageSize
+        }
+
+        return novels
+    }
+
     func fetchNovel(id: String) async throws -> Novel {
         let url = contentBaseURL.appending(path: "/novels/\(id)")
         let wrapper: DataWrapper<Novel> = try await request(url: url)
@@ -118,6 +145,37 @@ final class APIClient: ObservableObject {
             URLQueryItem(name: "offset", value: "\(offset)")
         ])
         return try await request(url: url)
+    }
+
+    func fetchAllChapters(novelId: String, pageSize: Int = 100) async throws -> [Chapter] {
+        let normalizedPageSize = max(1, pageSize)
+        var offset = 0
+        var chapters: [Chapter] = []
+
+        while true {
+            let response = try await fetchChapters(
+                novelId: novelId,
+                limit: normalizedPageSize,
+                offset: offset
+            )
+            if response.data.isEmpty {
+                break
+            }
+
+            chapters.append(contentsOf: response.data)
+
+            let total = response.meta?.total ?? response.meta?.count ?? 0
+            if total > 0, chapters.count >= total {
+                break
+            }
+            if response.data.count < normalizedPageSize {
+                break
+            }
+
+            offset += normalizedPageSize
+        }
+
+        return chapters
     }
 
     func fetchChapter(id: String) async throws -> Chapter {

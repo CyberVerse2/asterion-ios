@@ -6,8 +6,7 @@ import WidgetKit
 
 struct ReadingEntry: TimelineEntry {
     let date: Date
-    let novelTitle: String
-    let progress: Double
+    let snapshot: ContinueReadingSnapshot?
 }
 
 struct ReadingTimelineProvider: AppIntentTimelineProvider {
@@ -15,15 +14,26 @@ struct ReadingTimelineProvider: AppIntentTimelineProvider {
     typealias Intent = ReadingWidgetIntent
 
     func placeholder(in context: Context) -> ReadingEntry {
-        ReadingEntry(date: .now, novelTitle: "Asterion", progress: 0.42)
+        ReadingEntry(
+            date: .now,
+            snapshot: ContinueReadingSnapshot(
+                novelId: "preview-novel",
+                novelTitle: "Asterion",
+                chapterId: "preview-chapter",
+                chapterTitle: "The Threshold",
+                chapterNumber: 12,
+                progress: 0.42,
+                updatedAt: .now
+            )
+        )
     }
 
     func snapshot(for configuration: ReadingWidgetIntent, in context: Context) async -> ReadingEntry {
-        ReadingEntry(date: .now, novelTitle: "Current Novel", progress: 0.57)
+        ReadingEntry(date: .now, snapshot: ContinueReadingStore.loadSnapshot() ?? placeholder(in: context).snapshot)
     }
 
     func timeline(for configuration: ReadingWidgetIntent, in context: Context) async -> Timeline<ReadingEntry> {
-        let entry = ReadingEntry(date: .now, novelTitle: "Current Novel", progress: 0.57)
+        let entry = ReadingEntry(date: .now, snapshot: ContinueReadingStore.loadSnapshot())
         return Timeline(entries: [entry], policy: .after(.now.addingTimeInterval(900)))
     }
 }
@@ -32,19 +42,50 @@ struct ReadingWidgetEntryView: View {
     let entry: ReadingEntry
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Continue Reading")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Text(entry.novelTitle)
-                .font(.headline)
-                .lineLimit(2)
-            ProgressView(value: entry.progress)
-            Text("\(Int(entry.progress * 100))%")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+        Button(intent: ContinueReadingIntent()) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Continue Reading")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if let snapshot = entry.snapshot {
+                    Text(snapshot.novelTitle)
+                        .font(.headline)
+                        .lineLimit(2)
+
+                    if snapshot.chapterNumber > 0 {
+                        Text("Ch. \(snapshot.chapterNumber) · \(snapshot.chapterTitle)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    } else {
+                        Text(snapshot.chapterTitle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+
+                    ProgressView(value: snapshot.progress)
+
+                    Text("\(Int(snapshot.progress * 100))%")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Spacer(minLength: 0)
+                    Text("No saved reading session yet")
+                        .font(.headline)
+                        .lineLimit(2)
+                    Text("Open Asterion and read a chapter to populate this widget.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(3)
+                    Spacer(minLength: 0)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .padding()
         }
-        .padding()
+        .buttonStyle(.plain)
         .containerBackground(.fill.tertiary, for: .widget)
     }
 }
@@ -230,5 +271,109 @@ struct ChapterDownloadLiveActivityWidget: Widget {
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(gold.opacity(0.95))
         }
+    }
+}
+
+struct ReadingSessionLiveActivityWidget: Widget {
+    private let gold = Color(red: 0.91, green: 0.78, blue: 0.39)
+    private let card = Color(red: 0.12, green: 0.1, blue: 0.09)
+
+    var body: some WidgetConfiguration {
+        ActivityConfiguration(for: ReadingSessionActivityAttributes.self) { context in
+            VStack(alignment: .leading, spacing: 10) {
+                Text("READING NOW")
+                    .font(.caption2.weight(.semibold))
+                    .tracking(1)
+                    .foregroundStyle(gold.opacity(0.9))
+                Text(context.attributes.novelTitle)
+                    .font(.headline)
+                    .lineLimit(1)
+                Text(context.state.chapterTitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Color.white.opacity(0.15))
+                        Capsule()
+                            .fill(gold)
+                            .frame(width: geo.size.width * progressFraction(context.state))
+                    }
+                }
+                .frame(height: 4)
+
+                HStack {
+                    Text("Line \(context.state.currentLine)")
+                    Spacer()
+                    Text("\(Int(progressFraction(context.state) * 100))%")
+                        .monospacedDigit()
+                }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            }
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(card.opacity(0.92))
+            )
+            .activityBackgroundTint(card.opacity(0.95))
+            .activitySystemActionForegroundColor(gold)
+        } dynamicIsland: { context in
+            DynamicIsland {
+                DynamicIslandExpandedRegion(.leading) {
+                    Image(systemName: "book.pages")
+                        .foregroundStyle(gold)
+                }
+                DynamicIslandExpandedRegion(.trailing) {
+                    Text("\(Int(progressFraction(context.state) * 100))%")
+                        .font(.caption2.weight(.semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(gold)
+                }
+                DynamicIslandExpandedRegion(.center) {
+                    Text(context.attributes.novelTitle)
+                        .font(.caption)
+                        .lineLimit(1)
+                }
+                DynamicIslandExpandedRegion(.bottom) {
+                    VStack(spacing: 6) {
+                        Text(context.state.chapterTitle)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                        GeometryReader { geo in
+                            ZStack(alignment: .leading) {
+                                Capsule().fill(Color.white.opacity(0.15))
+                                Capsule()
+                                    .fill(gold)
+                                    .frame(width: geo.size.width * progressFraction(context.state))
+                            }
+                        }
+                        .frame(height: 4)
+                    }
+                }
+            } compactLeading: {
+                Image(systemName: "book.pages")
+                    .foregroundStyle(gold)
+            } compactTrailing: {
+                Text("\(Int(progressFraction(context.state) * 100))%")
+                    .font(.caption2.weight(.semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(gold)
+            } minimal: {
+                Image(systemName: "book.pages")
+                    .foregroundStyle(gold)
+            }
+            .keylineTint(gold)
+        }
+    }
+
+    private func progressFraction(_ state: ReadingSessionActivityAttributes.ContentState) -> CGFloat {
+        let total = max(state.totalLines, 1)
+        let current = max(0, min(state.currentLine, total))
+        return CGFloat(Double(current) / Double(total))
     }
 }

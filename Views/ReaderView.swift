@@ -1,5 +1,6 @@
 import Inject
 import SwiftUI
+import WidgetKit
 
 struct ReaderView: View {
     @ObserveInjection var inject
@@ -12,6 +13,7 @@ struct ReaderView: View {
     let initialChapter: Chapter
     let novel: Novel
     let allChapters: [Chapter]
+    let shouldAutoResumeFromSavedProgress: Bool
 
     @State private var currentChapter: Chapter
     @State private var showControls = true
@@ -23,32 +25,90 @@ struct ReaderView: View {
     @State private var paragraphOffsets: [Int: CGFloat] = [:]
     @State private var pendingRestoreLine: Int?
     @State private var progressSyncTask: Task<Void, Never>?
+    @State private var liveActivityUpdateTask: Task<Void, Never>?
     @State private var showDownloadAlert = false
     @State private var downloadAlertMessage = ""
+    @State private var isCurrentChapterDownloaded = false
 
     private var genreColor: Color { GenreStyle.color(for: novel.genres) }
+    private var isDesktop: Bool {
+        #if targetEnvironment(macCatalyst)
+        true
+        #else
+        false
+        #endif
+    }
+
+    private var navigationChapters: [Chapter] {
+        var merged: [Chapter] = []
+        var seen = Set<String>()
+        for chapter in ([currentChapter] + allChapters) where !seen.contains(chapter.id) {
+            merged.append(chapter)
+            seen.insert(chapter.id)
+        }
+        return merged.sorted { lhs, rhs in
+            if lhs.chapterNumber == rhs.chapterNumber {
+                return lhs.id < rhs.id
+            }
+            return lhs.chapterNumber < rhs.chapterNumber
+        }
+    }
+
+    private var totalChapterCountHint: Int? {
+        Int(novel.totalChapters?.filter(\.isNumber) ?? "")
+    }
+
+    private var shouldShowPrevButton: Bool {
+        if currentChapter.chapterNumber > 0 {
+            return currentChapter.chapterNumber > 1
+        }
+        return hasPrev
+    }
+
+    private var canNavigatePrev: Bool {
+        if currentChapter.chapterNumber > 1 { return true }
+        return hasPrev
+    }
+
+    private var canNavigateNext: Bool {
+        if let totalChapterCountHint, currentChapter.chapterNumber > 0 {
+            return currentChapter.chapterNumber < totalChapterCountHint
+        }
+        return hasNext || currentChapter.chapterNumber > 0
+    }
 
     private var currentIndex: Int {
-        allChapters.firstIndex(where: { $0.id == currentChapter.id }) ?? -1
+        navigationChapters.firstIndex(where: { $0.id == currentChapter.id }) ?? -1
     }
     private var hasPrev: Bool { currentIndex > 0 }
-    private var hasNext: Bool { currentIndex >= 0 && currentIndex < allChapters.count - 1 }
+    private var hasNext: Bool { currentIndex >= 0 && currentIndex < navigationChapters.count - 1 }
     private var isLargeIPadLayout: Bool {
+        #if targetEnvironment(macCatalyst)
+        return false
+        #else
         UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
+        #endif
     }
     private var readerHorizontalPadding: CGFloat {
+        if isDesktop { return 40 }
         if horizontalSizeClass == .compact { return 20 }
-        return isLargeIPadLayout ? 56 : 32
+        return isLargeIPadLayout ? 24 : 32
     }
     private var readerMaxContentWidth: CGFloat {
-        isLargeIPadLayout ? 900 : 640
+        if isDesktop { return 780 }
+        if isLargeIPadLayout { return 1120 }
+        return 640
     }
     private var topBarTitleMaxWidth: CGFloat {
-        isLargeIPadLayout ? 280 : 160
+        if isDesktop { return 420 }
+        return isLargeIPadLayout ? 360 : 160
     }
     private var topBarHorizontalPadding: CGFloat {
-        isLargeIPadLayout ? 28 : 20
+        if isDesktop { return 28 }
+        return isLargeIPadLayout ? 20 : 20
     }
+    private var topBarTopPadding: CGFloat { isDesktop ? 18 : 40 }
+    private var bottomBarBottomPadding: CGFloat { isDesktop ? 22 : 34 }
 
     private var paragraphs: [String] {
         currentChapter.plainContent
@@ -59,14 +119,24 @@ struct ReaderView: View {
             .filter { !shouldFilterMetadataLine($0) }
     }
 
-    init(initialChapter: Chapter, novel: Novel, allChapters: [Chapter]) {
+    init(
+        initialChapter: Chapter,
+        novel: Novel,
+        allChapters: [Chapter],
+        shouldAutoResumeFromSavedProgress: Bool = true
+    ) {
         self.initialChapter = initialChapter
         self.novel = novel
         self.allChapters = allChapters
+        self.shouldAutoResumeFromSavedProgress = shouldAutoResumeFromSavedProgress
         self._currentChapter = State(initialValue: initialChapter)
+        #if targetEnvironment(macCatalyst)
+        self._fontSize = State(initialValue: 20)
+        #else
         if UIDevice.current.userInterfaceIdiom == .pad {
             self._fontSize = State(initialValue: 21)
         }
+        #endif
     }
 
     var body: some View {
@@ -111,21 +181,20 @@ struct ReaderView: View {
         .background(Color.asterionBackground.ignoresSafeArea())
         .toolbarVisibility(.hidden, for: .navigationBar)
         .toolbarVisibility(.hidden, for: .tabBar)
-        .statusBarHidden(!showControls)
+        .statusBarHidden(isDesktop ? false : !showControls)
         .onAppear {
             tabBarState.isVisible = false
-            scheduleHideControls()
+            if !isDesktop { scheduleHideControls() }
             Task { await restoreProgressAndLoadChapter() }
+            Task { await refreshCurrentChapterDownloadState() }
+            Task { await updateReadingLiveActivity() }
         }
         .onDisappear { tabBarState.isVisible = true }
         .onDisappear {
             progressSyncTask?.cancel()
-            readingProgressService.updateProgress(
-                novelId: novel.id,
-                chapterId: currentChapter.id,
-                currentLine: currentLine,
-                totalLines: max(1, paragraphs.count)
-            )
+            liveActivityUpdateTask?.cancel()
+            Task { await ReadingLiveActivityManager.shared.end() }
+            syncReadingPosition(reloadWidget: true)
         }
         .alert("Chapter Download", isPresented: $showDownloadAlert) {
             Button("OK", role: .cancel) {}
@@ -138,6 +207,8 @@ struct ReaderView: View {
             withAnimation {
                 scrollProxy?.scrollTo("top", anchor: .top)
             }
+            Task { await refreshCurrentChapterDownloadState() }
+            scheduleReadingLiveActivityUpdate()
         }
         .enableInjection()
     }
@@ -208,13 +279,13 @@ struct ReaderView: View {
                 .padding(.horizontal, readerHorizontalPadding)
 
             HStack(spacing: 16) {
-                if hasPrev {
+                if shouldShowPrevButton {
                     Button {
                         navigateChapter(direction: -1)
                     } label: {
                         Text("← Previous")
                             .font(.asterionSerif(14))
-                            .foregroundStyle(Color.asterionMuted)
+                            .foregroundStyle(canNavigatePrev ? Color.asterionMuted : Color.asterionBorder)
                             .padding(.horizontal, 24)
                             .padding(.vertical, 12)
                             .background(
@@ -223,24 +294,27 @@ struct ReaderView: View {
                                     .stroke(Color.asterionBorder, lineWidth: 1)
                             )
                     }
+                    .disabled(!canNavigatePrev)
                 }
 
-                if hasNext {
-                    Button {
-                        navigateChapter(direction: 1)
-                    } label: {
-                        Text("Next Chapter →")
-                            .font(.asterionSerif(14))
-                            .foregroundStyle(Color.goldAccent)
-                            .padding(.horizontal, 24)
-                            .padding(.vertical, 12)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(Color.asterionCard)
-                                    .stroke(genreColor.opacity(0.3), lineWidth: 1)
-                            )
-                    }
+                Button {
+                    navigateChapter(direction: 1)
+                } label: {
+                    Text("Next Chapter →")
+                        .font(.asterionSerif(14))
+                        .foregroundStyle(canNavigateNext ? Color.goldAccent : Color.asterionBorder)
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color.asterionCard)
+                                .stroke(
+                                    canNavigateNext ? genreColor.opacity(0.3) : Color.asterionBorder,
+                                    lineWidth: 1
+                                )
+                        )
                 }
+                .disabled(!canNavigateNext)
             }
             .padding(.vertical, 40)
         }
@@ -278,9 +352,13 @@ struct ReaderView: View {
                 Button {
                     Task { await downloadCurrentChapterToFolder() }
                 } label: {
-                    Image(systemName: "arrow.down.doc")
+                    Image(systemName: isCurrentChapterDownloaded ? "checkmark.circle.fill" : "arrow.down.doc")
                         .font(.system(size: 14))
-                        .foregroundStyle(Color.asterionMuted)
+                        .foregroundStyle(
+                            isCurrentChapterDownloaded
+                                ? Color(red: 0.353, green: 0.608, blue: 0.478)
+                                : Color.asterionMuted
+                        )
                         .frame(width: 32, height: 32)
                         .overlay(
                             RoundedRectangle(cornerRadius: 8)
@@ -310,7 +388,7 @@ struct ReaderView: View {
             }
         }
         .padding(.horizontal, topBarHorizontalPadding)
-        .padding(.top, 40)
+        .padding(.top, topBarTopPadding)
         .padding(.bottom, 12)
         .background(
             LinearGradient(
@@ -328,11 +406,11 @@ struct ReaderView: View {
 
     private var bottomControlBar: some View {
         HStack(spacing: 24) {
-            if hasPrev {
+            if shouldShowPrevButton {
                 Button { navigateChapter(direction: -1) } label: {
                     Text("◂ Prev")
                         .font(.asterionMono(12))
-                        .foregroundStyle(Color.asterionMuted)
+                        .foregroundStyle(canNavigatePrev ? Color.asterionMuted : Color.asterionBorder)
                         .padding(.horizontal, 20)
                         .padding(.vertical, 8)
                         .background(
@@ -341,23 +419,26 @@ struct ReaderView: View {
                                 .stroke(Color.asterionBorder, lineWidth: 1)
                         )
                 }
+                .disabled(!canNavigatePrev)
             }
-            if hasNext {
-                Button { navigateChapter(direction: 1) } label: {
-                    Text("Next ▸")
-                        .font(.asterionMono(12))
-                        .foregroundStyle(Color.goldAccent)
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 8)
-                        .background(
-                            Capsule()
-                                .fill(Color.asterionCard)
-                                .stroke(genreColor.opacity(0.5), lineWidth: 1)
-                        )
-                }
+            Button { navigateChapter(direction: 1) } label: {
+                Text("Next ▸")
+                    .font(.asterionMono(12))
+                    .foregroundStyle(canNavigateNext ? Color.goldAccent : Color.asterionBorder)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 8)
+                    .background(
+                        Capsule()
+                            .fill(Color.asterionCard)
+                            .stroke(
+                                canNavigateNext ? genreColor.opacity(0.5) : Color.asterionBorder,
+                                lineWidth: 1
+                            )
+                    )
             }
+            .disabled(!canNavigateNext)
         }
-        .padding(.bottom, 34)
+        .padding(.bottom, bottomBarBottomPadding)
         .padding(.top, 16)
         .frame(maxWidth: .infinity)
         .background(
@@ -375,11 +456,13 @@ struct ReaderView: View {
     // MARK: - Actions
 
     private func toggleControls() {
+        guard !isDesktop else { return }
         showControls.toggle()
         if showControls { scheduleHideControls() }
     }
 
     private func scheduleHideControls() {
+        guard !isDesktop else { return }
         controlTimer?.cancel()
         controlTimer = Task {
             try? await Task.sleep(for: .seconds(3.5))
@@ -389,13 +472,20 @@ struct ReaderView: View {
     }
 
     private func navigateChapter(direction: Int) {
-        let nextIdx = currentIndex + direction
-        guard nextIdx >= 0 && nextIdx < allChapters.count else { return }
-        let target = allChapters[nextIdx]
-
         loadingChapter = true
         Task {
             defer { loadingChapter = false }
+
+            let target: Chapter?
+            let nextIdx = currentIndex + direction
+            if nextIdx >= 0 && nextIdx < navigationChapters.count {
+                target = navigationChapters[nextIdx]
+            } else {
+                target = await fetchAdjacentChapterFallback(direction: direction)
+            }
+
+            guard let target else { return }
+
             do {
                 let full = try await apiClient.fetchChapter(id: target.id)
                 currentChapter = full
@@ -407,14 +497,41 @@ struct ReaderView: View {
                     currentChapter = target
                 }
             }
-            readingProgressService.updateProgress(
-                novelId: novel.id,
-                chapterId: currentChapter.id,
-                currentLine: currentLine,
-                totalLines: max(1, paragraphs.count)
-            )
+            syncReadingPosition()
             scheduleHideControls()
         }
+    }
+
+    private func fetchAdjacentChapterFallback(direction: Int) async -> Chapter? {
+        guard currentChapter.chapterNumber > 0 else { return nil }
+        let targetNumber = currentChapter.chapterNumber + direction
+        guard targetNumber > 0 else { return nil }
+
+        if let totalChapterCountHint, targetNumber > totalChapterCountHint {
+            return nil
+        }
+
+        do {
+            // API is offset-based and chapter order is ascending.
+            let response = try await apiClient.fetchChapters(
+                novelId: novel.id,
+                limit: 1,
+                offset: max(0, targetNumber - 1)
+            )
+            if let chapter = response.data.first {
+                await OfflineChapterStore.shared.saveChapterList(
+                    novelId: novel.id,
+                    chapters: response.data,
+                    mergeWithExisting: true
+                )
+                return chapter
+            }
+        } catch {
+            // Fall through to offline cache fallback.
+        }
+
+        let cached = await OfflineChapterStore.shared.loadChapterList(novelId: novel.id)
+        return cached.first(where: { $0.chapterNumber == targetNumber })
     }
 
     private func loadInitialChapter() async {
@@ -423,33 +540,43 @@ struct ReaderView: View {
         do {
             currentChapter = try await apiClient.fetchChapter(id: currentChapter.id)
             await OfflineChapterStore.shared.cacheChapter(currentChapter)
-            readingProgressService.updateProgress(
-                novelId: novel.id,
-                chapterId: currentChapter.id,
-                currentLine: currentLine,
-                totalLines: max(1, paragraphs.count)
-            )
+            syncReadingPosition()
         } catch {
             if let cached = await OfflineChapterStore.shared.chapter(id: currentChapter.id) {
                 currentChapter = cached
             }
-            readingProgressService.updateProgress(
-                novelId: novel.id,
-                chapterId: currentChapter.id,
-                currentLine: currentLine,
-                totalLines: max(1, paragraphs.count)
-            )
+            syncReadingPosition()
         }
     }
 
     private func restoreProgressAndLoadChapter() async {
-        await readingProgressService.refreshRemoteProgress(novelId: novel.id)
-        if let remoteProgress = readingProgressService.currentProgress,
-           remoteProgress.novelId == novel.id,
-           let savedChapter = allChapters.first(where: { $0.id == remoteProgress.chapterId })
-        {
-            currentChapter = savedChapter
-            pendingRestoreLine = remoteProgress.currentLine
+        if shouldAutoResumeFromSavedProgress {
+            await readingProgressService.refreshRemoteProgress(novelId: novel.id)
+            let bestProgress = readingProgressService.currentProgress?.novelId == novel.id
+                ? readingProgressService.currentProgress
+                : readingProgressService.queuedProgress(for: novel.id)
+
+            if let bestProgress {
+                if let savedChapter = navigationChapters.first(where: { $0.id == bestProgress.chapterId }) {
+                    currentChapter = savedChapter
+                    pendingRestoreLine = bestProgress.currentLine
+                    currentLine = bestProgress.currentLine
+                } else if let cachedChapter = await OfflineChapterStore.shared.chapter(id: bestProgress.chapterId) {
+                    currentChapter = cachedChapter
+                    pendingRestoreLine = bestProgress.currentLine
+                    currentLine = bestProgress.currentLine
+                } else {
+                    do {
+                        let fetched = try await apiClient.fetchChapter(id: bestProgress.chapterId)
+                        currentChapter = fetched
+                        pendingRestoreLine = bestProgress.currentLine
+                        currentLine = bestProgress.currentLine
+                        await OfflineChapterStore.shared.cacheChapter(fetched)
+                    } catch {
+                        // Keep initial chapter when saved chapter cannot be loaded.
+                    }
+                }
+            }
         }
         await loadInitialChapter()
         await MainActor.run {
@@ -467,6 +594,7 @@ struct ReaderView: View {
         guard clamped != currentLine else { return }
         currentLine = clamped
         scheduleProgressSync()
+        scheduleReadingLiveActivityUpdate()
     }
 
     private func scheduleProgressSync() {
@@ -474,12 +602,53 @@ struct ReaderView: View {
         progressSyncTask = Task {
             try? await Task.sleep(for: .seconds(1.5))
             guard !Task.isCancelled else { return }
-            readingProgressService.updateProgress(
+            syncReadingPosition()
+        }
+    }
+
+    private func scheduleReadingLiveActivityUpdate() {
+        liveActivityUpdateTask?.cancel()
+        liveActivityUpdateTask = Task {
+            try? await Task.sleep(for: .seconds(0.75))
+            guard !Task.isCancelled else { return }
+            await updateReadingLiveActivity()
+        }
+    }
+
+    private func updateReadingLiveActivity() async {
+        await ReadingLiveActivityManager.shared.startOrUpdate(
+            novelTitle: novel.title,
+            chapterTitle: currentChapter.title,
+            currentLine: currentLine,
+            totalLines: max(1, paragraphs.count)
+        )
+    }
+
+    private func syncReadingPosition(reloadWidget: Bool = false) {
+        let totalLines = max(1, paragraphs.count)
+        let percentage = totalLines > 0 ? min(1, Double(currentLine) / Double(totalLines)) : 0
+
+        readingProgressService.updateProgress(
+            novelId: novel.id,
+            chapterId: currentChapter.id,
+            currentLine: currentLine,
+            totalLines: totalLines
+        )
+
+        ContinueReadingStore.saveSnapshot(
+            ContinueReadingSnapshot(
                 novelId: novel.id,
+                novelTitle: novel.title,
                 chapterId: currentChapter.id,
-                currentLine: currentLine,
-                totalLines: max(1, paragraphs.count)
+                chapterTitle: currentChapter.title,
+                chapterNumber: currentChapter.chapterNumber,
+                progress: percentage,
+                updatedAt: Date()
             )
+        )
+
+        if reloadWidget {
+            WidgetCenter.shared.reloadTimelines(ofKind: "ReadingWidget")
         }
     }
 
@@ -519,12 +688,21 @@ struct ReaderView: View {
                 chapterTitle: currentChapter.title,
                 content: content
             )
+            isCurrentChapterDownloaded = true
             downloadAlertMessage = "Saved to \(fileURL.deletingLastPathComponent().lastPathComponent)"
             showDownloadAlert = true
         } catch {
             downloadAlertMessage = "Couldn't save chapter to local folder."
             showDownloadAlert = true
         }
+    }
+
+    private func refreshCurrentChapterDownloadState() async {
+        isCurrentChapterDownloaded = await OfflineChapterStore.shared.isChapterDownloaded(
+            novelTitle: novel.title,
+            chapterNumber: currentChapter.chapterNumber,
+            chapterTitle: currentChapter.title
+        )
     }
 
     private func shouldFilterMetadataLine(_ line: String) -> Bool {

@@ -120,6 +120,43 @@ final class OfflineChapterStore {
         return fileURL
     }
 
+    func isChapterDownloaded(
+        novelTitle: String,
+        chapterNumber: Int,
+        chapterTitle: String
+    ) async -> Bool {
+        let fileManager = FileManager.default
+        return fileManager.fileExists(
+            atPath: downloadedChapterURL(
+                novelTitle: novelTitle,
+                chapterNumber: chapterNumber,
+                chapterTitle: chapterTitle
+            ).path
+        )
+    }
+
+    private func downloadedChapterURL(
+        novelTitle: String,
+        chapterNumber: Int,
+        chapterTitle: String
+    ) -> URL {
+        let fileManager = FileManager.default
+        let documents = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first
+            ?? baseDirectory
+        let rootFolder = documents.appendingPathComponent("Asterion Downloads", isDirectory: true)
+        let novelFolderName = sanitizeFilenameComponent(novelTitle).isEmpty
+            ? "novel"
+            : sanitizeFilenameComponent(novelTitle)
+        let novelFolder = rootFolder.appendingPathComponent(novelFolderName, isDirectory: true)
+
+        let chapterPrefix = chapterNumber > 0 ? String(format: "ch-%04d", chapterNumber) : "chapter"
+        let chapterSlug = sanitizeFilenameComponent(chapterTitle).isEmpty
+            ? "untitled"
+            : sanitizeFilenameComponent(chapterTitle)
+        let fileName = "\(chapterPrefix)-\(chapterSlug).txt"
+        return novelFolder.appendingPathComponent(fileName)
+    }
+
     private func sanitizeFilenameComponent(_ value: String) -> String {
         value
             .lowercased()

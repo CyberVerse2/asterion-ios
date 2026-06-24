@@ -1,13 +1,18 @@
 import Inject
 import SwiftUI
+import Combine
 
 struct NovelDetailView: View {
     @ObserveInjection var inject
     @EnvironmentObject private var apiClient: APIClient
     @EnvironmentObject private var authService: AuthService
+    @EnvironmentObject private var networkMonitor: NetworkMonitor
+    @EnvironmentObject private var readingProgressService: ReadingProgressService
     @EnvironmentObject private var tabBarState: TabBarState
     @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var downloadStore = NovelDownloadProgressStore.shared
     let novel: Novel
+    var onBack: (() -> Void)?
 
     @State private var chapters: [Chapter] = []
     @State private var totalChapters = 0
@@ -27,6 +32,14 @@ struct NovelDetailView: View {
 
     private let previewCount = 5
     private var genreColor: Color { GenreStyle.color(for: novel.genres) }
+    private var isDesktop: Bool {
+        #if targetEnvironment(macCatalyst)
+        true
+        #else
+        false
+        #endif
+    }
+    private var topBarTopPadding: CGFloat { isDesktop ? 18 : 44 }
 
     private var similarNovels: [Novel] {
         allNovels
@@ -37,16 +50,20 @@ struct NovelDetailView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                heroSection
-                metaStatsSection
-                genrePillsSection
-                synopsisSection
-                startReadingButton
-                chapterPreviewSection
-                similarNovelsSection
+            if isDesktop {
+                desktopContent
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    heroSection
+                    metaStatsSection
+                    genrePillsSection
+                    synopsisSection
+                    startReadingButton
+                    chapterPreviewSection
+                    similarNovelsSection
+                }
+                .padding(.bottom, 100)
             }
-            .padding(.bottom, 100)
         }
         .overlay(alignment: .top) {
             topNavigationBar
@@ -57,8 +74,60 @@ struct NovelDetailView: View {
         .task { await loadInitialData() }
         .onAppear { tabBarState.isVisible = false }
         .onDisappear { tabBarState.isVisible = true }
-        .edgeSwipeToDismiss { dismiss() }
+        .edgeSwipeToDismiss { performBack() }
         .enableInjection()
+    }
+
+    private var desktopContent: some View {
+        HStack(alignment: .top, spacing: 36) {
+            desktopBookPanel
+                .frame(width: 320)
+
+            VStack(alignment: .leading, spacing: 0) {
+                metaStatsSection
+                genrePillsSection
+                synopsisSection
+                startReadingButton
+                chapterPreviewSection
+                similarNovelsSection
+            }
+            .frame(maxWidth: 720, alignment: .topLeading)
+        }
+        .padding(.top, 82)
+        .padding(.horizontal, 36)
+        .padding(.bottom, 80)
+        .frame(maxWidth: 1180)
+        .frame(maxWidth: .infinity)
+    }
+
+    private var desktopBookPanel: some View {
+        VStack(spacing: 18) {
+            CoverImageView(novel: novel, size: .lg)
+                .scaleEffect(1.08)
+                .padding(.bottom, 6)
+                .overlay(alignment: .bottomTrailing) {
+                    libraryBadge
+                        .offset(x: 22, y: 12)
+                }
+
+            Text(novel.title)
+                .font(.asterionSerif(30, weight: .medium))
+                .foregroundStyle(Color.asterionText)
+                .multilineTextAlignment(.center)
+                .lineLimit(4)
+
+            Text(novel.author ?? "Unknown")
+                .font(.asterionMono(13))
+                .foregroundStyle(Color.asterionMuted)
+        }
+        .padding(.top, 28)
+        .padding(.horizontal, 28)
+        .padding(.bottom, 30)
+        .background(
+            RoundedRectangle(cornerRadius: 18)
+                .fill(Color.asterionCard.opacity(0.58))
+                .stroke(genreColor.opacity(0.22), lineWidth: 1)
+        )
     }
 
     // MARK: - Hero
@@ -193,7 +262,7 @@ struct NovelDetailView: View {
 
     private var topNavigationBar: some View {
         HStack(spacing: 12) {
-            Button { dismiss() } label: {
+            Button { performBack() } label: {
                 Text("← Back")
                     .font(.asterionMono(13))
                     .foregroundStyle(Color.asterionMuted)
@@ -210,7 +279,7 @@ struct NovelDetailView: View {
             Spacer()
 
             Button {
-                if !isDownloadingAllChapters {
+                if !effectiveIsDownloading {
                     Task { await downloadAllChapters() }
                 }
             } label: {
@@ -220,7 +289,7 @@ struct NovelDetailView: View {
                             .stroke(Color.asterionBorder, lineWidth: 2)
                             .frame(width: 28, height: 28)
 
-                        if isDownloadingAllChapters {
+                        if effectiveIsDownloading {
                             Circle()
                                 .trim(from: 0, to: downloadProgress)
                                 .stroke(
@@ -250,10 +319,19 @@ struct NovelDetailView: View {
                 )
             }
             .buttonStyle(.plain)
-            .disabled(isDownloadingAllChapters && downloadTotalCount == 0)
+            .disabled((effectiveIsDownloading && effectiveTotalCount == 0) || (!networkMonitor.isConnected && !effectiveIsDownloading))
+            .opacity(!networkMonitor.isConnected && !effectiveIsDownloading ? 0.55 : 1)
         }
-        .padding(.top, 44)
+        .padding(.top, topBarTopPadding)
         .padding(.horizontal, 20)
+    }
+
+    private func performBack() {
+        if let onBack {
+            onBack()
+        } else {
+            dismiss()
+        }
     }
 
     // MARK: - Start Reading
@@ -284,7 +362,8 @@ struct NovelDetailView: View {
                 }
             }
             .buttonStyle(.plain)
-            .disabled(libraryActionInFlight)
+            .disabled(libraryActionInFlight || !networkMonitor.isConnected)
+            .opacity(!networkMonitor.isConnected ? 0.55 : 1)
         }
     }
 
@@ -338,13 +417,35 @@ struct NovelDetailView: View {
         return "Continue Reading"
     }
 
+    private var persistedDownloadSnapshot: NovelDownloadProgressStore.Snapshot? {
+        downloadStore.snapshot(for: novel.id)
+    }
+
+    private var effectiveIsDownloading: Bool {
+        isDownloadingAllChapters || persistedDownloadSnapshot?.isActive == true
+    }
+
+    private var effectivePreparedCount: Int {
+        if let snapshot = persistedDownloadSnapshot {
+            return snapshot.completed
+        }
+        return downloadPreparedCount
+    }
+
+    private var effectiveTotalCount: Int {
+        if let snapshot = persistedDownloadSnapshot {
+            return snapshot.total
+        }
+        return downloadTotalCount
+    }
+
     private var downloadProgress: CGFloat {
-        guard downloadTotalCount > 0 else { return 0 }
-        return min(1, CGFloat(downloadPreparedCount) / CGFloat(downloadTotalCount))
+        guard effectiveTotalCount > 0 else { return 0 }
+        return min(1, CGFloat(effectivePreparedCount) / CGFloat(effectiveTotalCount))
     }
 
     private var downloadIndicatorIconName: String {
-        if isDownloadingAllChapters { return "arrow.down" }
+        if effectiveIsDownloading { return "arrow.down" }
         if isNovelAvailableOffline { return "checkmark" }
         return "arrow.down.doc"
     }
@@ -354,8 +455,8 @@ struct NovelDetailView: View {
     }
 
     private var downloadStatusLabel: String {
-        if isDownloadingAllChapters {
-            return "Downloading \(downloadPreparedCount)/\(max(downloadTotalCount, 1))"
+        if effectiveIsDownloading {
+            return "Downloading \(effectivePreparedCount)/\(max(effectiveTotalCount, 1))"
         }
         if isNovelAvailableOffline {
             return "Available Offline"
@@ -406,7 +507,8 @@ struct NovelDetailView: View {
                             ReaderView(
                                 initialChapter: chapter,
                                 novel: novel,
-                                allChapters: chapters
+                                allChapters: chapters,
+                                shouldAutoResumeFromSavedProgress: false
                             )
                         } label: {
                             HStack(spacing: 10) {
@@ -567,7 +669,7 @@ struct NovelDetailView: View {
 
     private func loadAllNovels() async {
         do {
-            allNovels = try await apiClient.fetchNovels(limit: 100)
+            allNovels = try await apiClient.fetchAllNovels()
             await OfflineChapterStore.shared.saveCatalog(allNovels)
         } catch {
             allNovels = await OfflineChapterStore.shared.loadCatalog()
@@ -577,13 +679,43 @@ struct NovelDetailView: View {
     private func loadProgress() async {
         do {
             readingProgress = try await apiClient.fetchReadingProgress(novelId: novel.id)
-            guard let progress = readingProgress else {
-                continueChapter = nil
-                return
-            }
-            continueChapter = try await apiClient.fetchChapter(id: progress.chapterId)
         } catch {
+            readingProgress = nil
+        }
+
+        let bestProgress = readingProgressService.currentProgress?.novelId == novel.id
+            ? readingProgressService.currentProgress
+            : (readingProgress ?? readingProgressService.queuedProgress(for: novel.id))
+
+        guard let bestProgress else {
             continueChapter = nil
+            return
+        }
+
+        readingProgress = bestProgress
+        continueChapter = await resolveContinueChapter(for: bestProgress)
+    }
+
+    private func resolveContinueChapter(for progress: ReadingProgress) async -> Chapter? {
+        do {
+            let chapter = try await apiClient.fetchChapter(id: progress.chapterId)
+            await OfflineChapterStore.shared.cacheChapter(chapter)
+            return chapter
+        } catch {
+            if let cached = await OfflineChapterStore.shared.chapter(id: progress.chapterId) {
+                return cached
+            }
+
+            let cachedChapters = await OfflineChapterStore.shared.loadChapterList(novelId: novel.id)
+            if let listed = cachedChapters.first(where: { $0.id == progress.chapterId }) {
+                return listed
+            }
+
+            if let listed = chapters.first(where: { $0.id == progress.chapterId }) {
+                return listed
+            }
+
+            return nil
         }
     }
 
@@ -618,7 +750,7 @@ struct NovelDetailView: View {
     }
 
     private func downloadAllChapters() async {
-        guard !isDownloadingAllChapters else { return }
+        guard !effectiveIsDownloading else { return }
         isDownloadingAllChapters = true
         downloadError = nil
         downloadPreparedCount = 0
@@ -629,10 +761,17 @@ struct NovelDetailView: View {
             let chapterList = try await fetchAllChaptersForDownload()
             if chapterList.isEmpty {
                 downloadError = "No chapters available to download."
+                downloadStore.fail(
+                    novelId: novel.id,
+                    completed: 0,
+                    total: 1,
+                    message: "No chapters available to download."
+                )
                 DownloadLiveActivityManager.shared.end(success: false, completed: 0, total: 1)
                 return
             }
             downloadTotalCount = chapterList.count
+            downloadStore.start(novelId: novel.id, total: chapterList.count)
             await DownloadLiveActivityManager.shared.start(
                 novelTitle: novel.title,
                 novelImageURL: novel.imageUrl,
@@ -676,6 +815,12 @@ struct NovelDetailView: View {
                     content: fileBody
                 )
                 downloadPreparedCount += 1
+                downloadStore.update(
+                    novelId: novel.id,
+                    completed: downloadPreparedCount,
+                    total: chapterList.count,
+                    statusText: "Downloading"
+                )
                 DownloadLiveActivityManager.shared.update(
                     completed: downloadPreparedCount,
                     total: chapterList.count
@@ -683,6 +828,11 @@ struct NovelDetailView: View {
             }
 
             isNovelAvailableOffline = true
+            downloadStore.finish(
+                novelId: novel.id,
+                completed: chapterList.count,
+                total: chapterList.count
+            )
             DownloadLiveActivityManager.shared.end(
                 success: true,
                 completed: chapterList.count,
@@ -690,6 +840,12 @@ struct NovelDetailView: View {
             )
         } catch {
             downloadError = "Couldn't prepare novel download."
+            downloadStore.fail(
+                novelId: novel.id,
+                completed: downloadPreparedCount,
+                total: max(downloadTotalCount, 1),
+                message: "Download failed."
+            )
             DownloadLiveActivityManager.shared.end(
                 success: false,
                 completed: downloadPreparedCount,
@@ -699,24 +855,7 @@ struct NovelDetailView: View {
     }
 
     private func fetchAllChaptersForDownload() async throws -> [Chapter] {
-        var offset = 0
-        let pageSize = 100
-        var results: [Chapter] = []
-
-        while true {
-            let response = try await apiClient.fetchChapters(novelId: novel.id, limit: pageSize, offset: offset)
-            if response.data.isEmpty { break }
-            results.append(contentsOf: response.data)
-
-            let total = response.meta?.total ?? response.meta?.count ?? 0
-            if total > 0, results.count >= total {
-                break
-            }
-            if response.data.count < pageSize {
-                break
-            }
-            offset += pageSize
-        }
+        let results = try await apiClient.fetchAllChapters(novelId: novel.id)
 
         if results.isEmpty, !chapters.isEmpty {
             return chapters
@@ -749,5 +888,59 @@ struct NovelDetailView: View {
             }
         }
         isNovelAvailableOffline = true
+    }
+}
+
+@MainActor
+private final class NovelDownloadProgressStore: ObservableObject {
+    static let shared = NovelDownloadProgressStore()
+
+    struct Snapshot {
+        let completed: Int
+        let total: Int
+        let statusText: String
+        let isActive: Bool
+    }
+
+    @Published private var state: [String: Snapshot] = [:]
+
+    func snapshot(for novelId: String) -> Snapshot? {
+        state[novelId]
+    }
+
+    func start(novelId: String, total: Int) {
+        state[novelId] = Snapshot(
+            completed: 0,
+            total: max(total, 1),
+            statusText: "Preparing",
+            isActive: true
+        )
+    }
+
+    func update(novelId: String, completed: Int, total: Int, statusText: String) {
+        state[novelId] = Snapshot(
+            completed: max(0, min(completed, max(total, 1))),
+            total: max(total, 1),
+            statusText: statusText,
+            isActive: true
+        )
+    }
+
+    func finish(novelId: String, completed: Int, total: Int) {
+        state[novelId] = Snapshot(
+            completed: max(0, min(completed, max(total, 1))),
+            total: max(total, 1),
+            statusText: "Completed",
+            isActive: false
+        )
+    }
+
+    func fail(novelId: String, completed: Int, total: Int, message: String) {
+        state[novelId] = Snapshot(
+            completed: max(0, min(completed, max(total, 1))),
+            total: max(total, 1),
+            statusText: message,
+            isActive: false
+        )
     }
 }

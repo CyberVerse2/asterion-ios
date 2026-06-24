@@ -11,6 +11,16 @@ struct LibraryView: View {
     @State private var search = ""
     @State private var debouncedSearch = ""
     @State private var sortOption: SortOption = .lastRead
+    @State private var navigationPath: [Novel] = []
+    private var isDesktop: Bool {
+        #if targetEnvironment(macCatalyst)
+        true
+        #else
+        false
+        #endif
+    }
+    private var contentMaxWidth: CGFloat { isDesktop ? 1120 : .infinity }
+    private var pageHorizontalPadding: CGFloat { isDesktop ? 46 : 24 }
 
     enum SortOption: String, CaseIterable {
         case lastRead = "Last Read"
@@ -46,12 +56,12 @@ struct LibraryView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $navigationPath) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     pageTitleSection
                     SearchInputView(text: $search, placeholder: "Search by title or author...")
-                        .padding(.horizontal, 24)
+                        .padding(.horizontal, pageHorizontalPadding)
                         .padding(.bottom, 12)
 
                     if authService.isSignedIn && !items.isEmpty {
@@ -110,16 +120,20 @@ struct LibraryView: View {
                                 Divider().overlay(Color.asterionCard)
                             }
                         }
-                        .padding(.horizontal, 24)
+                        .padding(.horizontal, pageHorizontalPadding)
                     }
                 }
                 .padding(.bottom, 24)
+                .frame(maxWidth: contentMaxWidth, alignment: .topLeading)
+                .frame(maxWidth: .infinity, alignment: .top)
             }
             .refreshable { await loadLibrary() }
             .background(Color.asterionBackground.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: Novel.self) { novel in
-                NovelDetailView(novel: novel)
+                NovelDetailView(novel: novel) {
+                    popNovelPath()
+                }
             }
             .task { await loadLibrary() }
             .debounceSearch(text: $search, debouncedText: $debouncedSearch)
@@ -127,13 +141,18 @@ struct LibraryView: View {
         .enableInjection()
     }
 
+    private func popNovelPath() {
+        guard !navigationPath.isEmpty else { return }
+        navigationPath.removeLast()
+    }
+
     private var pageTitleSection: some View {
         Text("Library")
-            .font(.asterionSerif(42, weight: .semibold))
+            .font(.asterionSerif(isDesktop ? 58 : 42, weight: .semibold))
             .foregroundStyle(Color.asterionText)
-            .padding(.horizontal, 24)
-            .padding(.top, 14)
-            .padding(.bottom, 8)
+            .padding(.horizontal, pageHorizontalPadding)
+            .padding(.top, isDesktop ? 26 : 14)
+            .padding(.bottom, isDesktop ? 16 : 8)
     }
 
     private var sortPicker: some View {
@@ -156,7 +175,7 @@ struct LibraryView: View {
             }
             Spacer()
         }
-        .padding(.horizontal, 24)
+        .padding(.horizontal, pageHorizontalPadding)
         .padding(.bottom, 16)
     }
 
@@ -171,7 +190,7 @@ struct LibraryView: View {
         do {
             async let libraryFetch = apiClient.fetchMyLibrary()
             async let progressFetch = apiClient.fetchAllReadingProgress()
-            async let novelsFetch = apiClient.fetchNovels(limit: 500, search: "")
+            async let novelsFetch = apiClient.fetchAllNovels()
 
             let libraryItems = try await libraryFetch
             let progressList = try await progressFetch

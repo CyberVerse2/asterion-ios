@@ -1,6 +1,8 @@
-import ActivityKit
 import Foundation
 import UIKit
+
+#if canImport(ActivityKit) && os(iOS) && !targetEnvironment(macCatalyst)
+import ActivityKit
 
 @MainActor
 final class DownloadLiveActivityManager {
@@ -9,8 +11,14 @@ final class DownloadLiveActivityManager {
     private var activity: Activity<ChapterDownloadActivityAttributes>?
 
     func start(novelTitle: String, novelImageURL: String?, total: Int) async {
-        guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
-        guard #available(iOS 16.1, *) else { return }
+        guard #available(iOS 16.1, *) else {
+            debugLog("Live Activities unavailable on this iOS version.")
+            return
+        }
+        guard ActivityAuthorizationInfo().areActivitiesEnabled else {
+            debugLog("Live Activities are disabled by system/user settings.")
+            return
+        }
 
         if let existing = activity {
             Task {
@@ -22,28 +30,47 @@ final class DownloadLiveActivityManager {
                     dismissalPolicy: .immediate
                 )
             }
+            debugLog("Ended existing live activity before starting a new one.")
         }
 
+        let normalizedURL = normalizedImageURLString(novelImageURL)
+        let imageData = await fetchTinyThumbnailData(from: normalizedURL, maxBytes: 3500)
+        let state = ChapterDownloadActivityAttributes.ContentState(
+            completed: 0,
+            total: max(total, 1),
+            statusText: "Preparing"
+        )
+
         do {
-            let normalizedURL = normalizedImageURLString(novelImageURL)
-            let imageData = await fetchThumbnailData(from: normalizedURL)
             let attrs = ChapterDownloadActivityAttributes(
                 novelTitle: novelTitle,
                 novelImageURL: normalizedURL,
                 novelImageData: imageData
-            )
-            let state = ChapterDownloadActivityAttributes.ContentState(
-                completed: 0,
-                total: max(total, 1),
-                statusText: "Preparing"
             )
             activity = try Activity.request(
                 attributes: attrs,
                 content: ActivityContent(state: state, staleDate: nil),
                 pushType: nil
             )
+            debugLog("Started live activity. imageDataBytes=\(imageData?.count ?? 0)")
         } catch {
-            activity = nil
+            debugLog("Live activity start failed with image payload: \(String(describing: error))")
+            do {
+                let fallbackAttrs = ChapterDownloadActivityAttributes(
+                    novelTitle: novelTitle,
+                    novelImageURL: normalizedURL,
+                    novelImageData: nil
+                )
+                activity = try Activity.request(
+                    attributes: fallbackAttrs,
+                    content: ActivityContent(state: state, staleDate: nil),
+                    pushType: nil
+                )
+                debugLog("Started live activity using URL-only fallback.")
+            } catch {
+                activity = nil
+                debugLog("Live activity fallback start also failed: \(String(describing: error))")
+            }
         }
     }
 
@@ -67,24 +94,32 @@ final class DownloadLiveActivityManager {
         return encoded
     }
 
-    private func fetchThumbnailData(from normalizedURL: String?) async -> Data? {
+    private func fetchTinyThumbnailData(from normalizedURL: String?, maxBytes: Int) async -> Data? {
         guard let normalizedURL, let url = URL(string: normalizedURL) else { return nil }
         do {
             let (data, response) = try await URLSession.shared.data(from: url)
             guard let http = response as? HTTPURLResponse, 200..<300 ~= http.statusCode else { return nil }
             guard !data.isEmpty else { return nil }
 
-            // Keep payload modest for Activity attributes.
-            if data.count <= 240_000 {
-                return data
+            guard let image = UIImage(data: data) else { return nil }
+            let maxSide: CGFloat = 64
+            let scale = min(maxSide / max(image.size.width, 1), maxSide / max(image.size.height, 1), 1)
+            let targetSize = CGSize(
+                width: max(1, floor(image.size.width * scale)),
+                height: max(1, floor(image.size.height * scale))
+            )
+
+            let renderer = UIGraphicsImageRenderer(size: targetSize)
+            let reduced = renderer.image { _ in
+                image.draw(in: CGRect(origin: .zero, size: targetSize))
             }
 
-            guard let image = UIImage(data: data),
-                  let compressed = image.jpegData(compressionQuality: 0.5)
-            else {
-                return nil
+            for quality in [0.65, 0.45, 0.3, 0.2, 0.12] {
+                if let candidate = reduced.jpegData(compressionQuality: quality), candidate.count <= maxBytes {
+                    return candidate
+                }
             }
-            return compressed.count <= 240_000 ? compressed : nil
+            return nil
         } catch {
             return nil
         }
@@ -122,4 +157,87 @@ final class DownloadLiveActivityManager {
         }
         self.activity = nil
     }
+
+    private func debugLog(_ message: String) {
+        print("[LiveActivity] \(message)")
+    }
 }
+
+@MainActor
+final class ReadingLiveActivityManager {
+    static let shared = ReadingLiveActivityManager()
+
+    private var activity: Activity<ReadingSessionActivityAttributes>?
+
+    func startOrUpdate(
+        novelTitle: String,
+        chapterTitle: String,
+        currentLine: Int,
+        totalLines: Int
+    ) async {
+        guard #available(iOS 16.1, *) else { return }
+        guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
+
+        let state = ReadingSessionActivityAttributes.ContentState(
+            chapterTitle: chapterTitle,
+            currentLine: max(0, currentLine),
+            totalLines: max(totalLines, 1)
+        )
+
+        if let activity {
+            await activity.update(ActivityContent(state: state, staleDate: nil))
+            return
+        }
+
+        do {
+            let attributes = ReadingSessionActivityAttributes(novelTitle: novelTitle)
+            activity = try Activity.request(
+                attributes: attributes,
+                content: ActivityContent(state: state, staleDate: nil),
+                pushType: nil
+            )
+        } catch {
+            #if DEBUG
+            print("[ReadingLiveActivity] Failed to start: \(error.localizedDescription)")
+            #endif
+        }
+    }
+
+    func end() async {
+        guard #available(iOS 16.1, *) else {
+            activity = nil
+            return
+        }
+        guard let activity else { return }
+        let finalState = activity.content.state
+        await activity.end(
+            ActivityContent(state: finalState, staleDate: nil),
+            dismissalPolicy: .immediate
+        )
+        self.activity = nil
+    }
+}
+#else
+@MainActor
+final class DownloadLiveActivityManager {
+    static let shared = DownloadLiveActivityManager()
+
+    func start(novelTitle: String, novelImageURL: String?, total: Int) async {}
+    func update(completed: Int, total: Int) {}
+    func end(success: Bool, completed: Int, total: Int) {}
+}
+
+@MainActor
+final class ReadingLiveActivityManager {
+    static let shared = ReadingLiveActivityManager()
+
+    func startOrUpdate(
+        novelTitle: String,
+        chapterTitle: String,
+        currentLine: Int,
+        totalLines: Int
+    ) async {}
+
+    func end() async {}
+}
+#endif

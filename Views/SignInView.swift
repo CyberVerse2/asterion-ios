@@ -1,3 +1,4 @@
+import ClerkKit
 import ClerkKitUI
 import SwiftUI
 
@@ -81,6 +82,7 @@ struct SignInView: View {
         }
         .sheet(isPresented: $showAuth) {
             AuthView()
+                .environment(Clerk.shared)
         }
     }
 }

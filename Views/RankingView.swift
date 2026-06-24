@@ -8,6 +8,16 @@ struct RankingView: View {
     @State private var loading = false
     @State private var failed = false
     @State private var sortBy: SortOption = .rank
+    @State private var navigationPath: [Novel] = []
+    private var isDesktop: Bool {
+        #if targetEnvironment(macCatalyst)
+        true
+        #else
+        false
+        #endif
+    }
+    private var contentMaxWidth: CGFloat { isDesktop ? 1120 : .infinity }
+    private var pageHorizontalPadding: CGFloat { isDesktop ? 46 : 24 }
 
     enum SortOption: String, CaseIterable {
         case rank = "By Rank"
@@ -19,7 +29,7 @@ struct RankingView: View {
         switch sortBy {
         case .rank:
             return novels.sorted {
-                (Int($0.rank ?? "") ?? 9999) < (Int($1.rank ?? "") ?? 9999)
+                parsedInteger($0.rank, fallback: Int.max) < parsedInteger($1.rank, fallback: Int.max)
             }
         case .rating:
             return novels.sorted { ($0.rating ?? 0) > ($1.rating ?? 0) }
@@ -31,12 +41,48 @@ struct RankingView: View {
     }
 
     private func parseViews(_ v: String?) -> Int {
-        guard let v else { return 0 }
-        return Int(v.filter(\.isNumber)) ?? 0
+        parsedInteger(v, fallback: 0)
+    }
+
+    private func parsedInteger(_ raw: String?, fallback: Int) -> Int {
+        guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+            return fallback
+        }
+
+        // Handles formats like:
+        // - "12345"
+        // - "12,345"
+        // - "1.2K", "3.4M", "1.1B"
+        // - "987 views"
+        let compact = raw
+            .replacingOccurrences(of: "views", with: "", options: .caseInsensitive)
+            .replacingOccurrences(of: "rank", with: "", options: .caseInsensitive)
+            .replacingOccurrences(of: "#", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .uppercased()
+
+        if let suffix = compact.last, ["K", "M", "B"].contains(suffix) {
+            let numberPart = String(compact.dropLast())
+                .replacingOccurrences(of: ",", with: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let value = Double(numberPart) else { return fallback }
+            let multiplier: Double
+            switch suffix {
+            case "K": multiplier = 1_000
+            case "M": multiplier = 1_000_000
+            case "B": multiplier = 1_000_000_000
+            default: multiplier = 1
+            }
+            return Int(value * multiplier)
+        }
+
+        let digitsOnly = compact.filter { $0.isNumber || $0 == "," }
+            .replacingOccurrences(of: ",", with: "")
+        return Int(digitsOnly) ?? fallback
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $navigationPath) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     pageTitleSection
@@ -76,27 +122,36 @@ struct RankingView: View {
                     }
                 }
                 .padding(.bottom, 24)
+                .frame(maxWidth: contentMaxWidth, alignment: .topLeading)
+                .frame(maxWidth: .infinity, alignment: .top)
             }
             .refreshable { await loadNovels() }
             .background(Color.asterionBackground.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: Novel.self) { novel in
-                NovelDetailView(novel: novel)
+                NovelDetailView(novel: novel) {
+                    popNovelPath()
+                }
             }
             .task { await loadNovels() }
         }
         .enableInjection()
     }
 
+    private func popNovelPath() {
+        guard !navigationPath.isEmpty else { return }
+        navigationPath.removeLast()
+    }
+
     // MARK: - Sort Pills
 
     private var pageTitleSection: some View {
         Text("Rankings")
-            .font(.asterionSerif(42, weight: .semibold))
+            .font(.asterionSerif(isDesktop ? 58 : 42, weight: .semibold))
             .foregroundStyle(Color.asterionText)
-            .padding(.horizontal, 24)
-            .padding(.top, 14)
-            .padding(.bottom, 6)
+            .padding(.horizontal, pageHorizontalPadding)
+            .padding(.top, isDesktop ? 26 : 14)
+            .padding(.bottom, isDesktop ? 16 : 6)
     }
 
     private var sortPillsSection: some View {
@@ -122,7 +177,7 @@ struct RankingView: View {
                     }
                 }
             }
-            .padding(.horizontal, 24)
+            .padding(.horizontal, pageHorizontalPadding)
         }
         .padding(.top, 4)
         .padding(.bottom, 16)
@@ -136,7 +191,7 @@ struct RankingView: View {
                 NavigationLink(value: novel) {
                     RankingRow(
                         novel: novel,
-                        rank: index + 1
+                        rankLabel: rankLabel(for: novel, position: index + 1)
                     )
                 }
                 .buttonStyle(.plain)
@@ -146,7 +201,7 @@ struct RankingView: View {
                 }
             }
         }
-        .padding(.horizontal, 24)
+        .padding(.horizontal, pageHorizontalPadding)
     }
 
     // MARK: - Data
@@ -155,7 +210,7 @@ struct RankingView: View {
         loading = true
         defer { loading = false }
         do {
-            novels = try await apiClient.fetchNovels(limit: 100)
+            novels = try await apiClient.fetchAllNovels()
             await OfflineChapterStore.shared.saveCatalog(novels)
             failed = false
         } catch {
@@ -168,17 +223,24 @@ struct RankingView: View {
             }
         }
     }
+
+    private func rankLabel(for novel: Novel, position: Int) -> String {
+        if sortBy == .rank, let rank = novel.rank, parsedInteger(rank, fallback: Int.max) != Int.max {
+            return "#\(parsedInteger(rank, fallback: position))"
+        }
+        return "\(position)"
+    }
 }
 
 // MARK: - Ranking Row
 
 private struct RankingRow: View {
     let novel: Novel
-    let rank: Int
+    let rankLabel: String
 
     var body: some View {
         HStack(spacing: 14) {
-            Text("\(rank)")
+            Text(rankLabel)
                 .font(.asterionMono(11))
                 .foregroundStyle(Color.asterionBorderHover)
                 .frame(width: 36)

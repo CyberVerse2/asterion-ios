@@ -2,7 +2,7 @@ import Inject
 import SwiftUI
 
 enum CoverSize {
-    case sm, md, lg, tile
+    case sm, md, lg, tile, desktopTile
 
     var width: CGFloat {
         switch self {
@@ -10,6 +10,7 @@ enum CoverSize {
         case .md:   return 52
         case .lg:   return 140
         case .tile: return 48
+        case .desktopTile: return 92
         }
     }
 
@@ -19,12 +20,14 @@ enum CoverSize {
         case .md:   return 70
         case .lg:   return 190
         case .tile: return 64
+        case .desktopTile: return 124
         }
     }
 
     var cornerRadius: CGFloat {
         switch self {
         case .sm, .md, .tile: return 6
+        case .desktopTile:    return 10
         case .lg:             return 12
         }
     }
@@ -35,6 +38,7 @@ enum CoverSize {
         case .md:   return 24
         case .lg:   return 56
         case .tile: return 22
+        case .desktopTile: return 34
         }
     }
 }
