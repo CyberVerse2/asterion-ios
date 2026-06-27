@@ -597,8 +597,8 @@ final class APIClient: ObservableObject {
         }
 
         #if DEBUG
-        print("[APIClient] USER_API_BASE_URL not found. Falling back to production.")
+        print("[APIClient] USER_API_BASE_URL not found. Falling back to default API host.")
         #endif
-        return URL(string: "https://asterion-ios-production.up.railway.app")!
+        return URL(string: "https://asterion-api.cyberverse.cloud/")!
     }
 }
