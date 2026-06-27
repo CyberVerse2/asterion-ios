@@ -70,7 +70,7 @@ struct PaginatedResponse<T: Decodable>: Decodable {
 
 @MainActor
 final class APIClient: ObservableObject {
-    private let contentBaseURL = URL(string: "https://scraper-production-8f07.up.railway.app")!
+    private let contentBaseURL = URL(string: "https://asterion-api.cyberverse.cloud")!
     private let userBaseURL: URL = APIClient.resolveUserBaseURL()
     private var sessionToken: String?
 
