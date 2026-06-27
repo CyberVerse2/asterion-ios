@@ -3,9 +3,9 @@ set -euo pipefail
 
 PROJECT_PATH="Asterion.xcodeproj"
 SCHEME="Asterion"
-DEVICE_ID="00008150-00110911366A401C"
+DEVICE_ID="${ASTERION_DEVICE_ID:-00008150-00110911366A401C}"
 BUNDLE_ID="cyberverse.Asterion"
-DERIVED_DATA_PATH=".build/ios-device"
+DERIVED_DATA_PATH="${ASTERION_DERIVED_DATA_PATH:-.build/ios-device}"
 APP_PATH="${DERIVED_DATA_PATH}/Build/Products/Debug-iphoneos/Asterion.app"
 
 xcodebuild \

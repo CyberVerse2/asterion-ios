@@ -9,16 +9,27 @@ const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const skypadiEnvPath = "/Users/thecyberverse/Code/skypadi/backend/.env";
 const stateDir = path.join(rootDir, ".codex");
 const statePath = path.join(stateDir, "iphone-build-refresh-state.json");
-const buildScript = path.join(rootDir, "scripts", "build-install-launch-iphone.sh");
-
 const recipient = "ejioforcelestine77@gmail.com";
-const firstDueAt = new Date("2026-05-31T02:15:00+01:00");
 const refreshIntervalMs = 6 * 24 * 60 * 60 * 1000;
 const resendModulePath = "/Users/thecyberverse/Code/skypadi/backend/node_modules/resend/dist/index.mjs";
 const forceDue = process.env.ASTERION_IPHONE_REFRESH_FORCE_DUE === "1";
 const forceCycleId = process.env.ASTERION_IPHONE_REFRESH_FORCE_CYCLE_ID?.trim();
 const replyPollWindowMs = Number(process.env.ASTERION_IPHONE_REFRESH_REPLY_POLL_MS ?? 12 * 60 * 1000);
 const replyPollIntervalMs = Number(process.env.ASTERION_IPHONE_REFRESH_REPLY_POLL_INTERVAL_MS ?? 20 * 1000);
+const devices = [
+  {
+    key: "iphone",
+    label: "iPhone",
+    firstDueAt: new Date("2026-05-31T02:15:00+01:00"),
+    buildScript: path.join(rootDir, "scripts", "build-install-launch-iphone.sh"),
+  },
+  {
+    key: "ipad",
+    label: "iPad",
+    firstDueAt: new Date("2026-06-27T00:00:00+01:00"),
+    buildScript: path.join(rootDir, "scripts", "build-install-launch-ipad.sh"),
+  },
+];
 
 function parseEnv(contents) {
   const env = {};
@@ -51,9 +62,22 @@ async function saveState(state) {
   await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`);
 }
 
-function nextDueAt(state) {
-  if (!state.lastSuccessAt) return firstDueAt;
-  return new Date(new Date(state.lastSuccessAt).getTime() + refreshIntervalMs);
+function legacyStateToDevices(state) {
+  if (state.devices && typeof state.devices === "object") {
+    return state.devices;
+  }
+
+  return {
+    iphone: {
+      lastSuccessAt: state.lastSuccessAt ?? null,
+      lastReplyId: state.lastReplyId ?? null,
+    },
+  };
+}
+
+function nextDueAt(deviceState, firstDueAt) {
+  if (!deviceState?.lastSuccessAt) return firstDueAt;
+  return new Date(new Date(deviceState.lastSuccessAt).getTime() + refreshIntervalMs);
 }
 
 function cycleIdFor(date) {
@@ -68,12 +92,13 @@ function htmlEscape(value) {
     .replaceAll('"', "&quot;");
 }
 
-async function sendReadyEmail(resend, from, replyTo, cycleId) {
-  const subject = `Asterion iPhone refresh due [${cycleId}]`;
+async function sendReadyEmail(resend, from, replyTo, cycleId, dueDeviceLabels) {
+  const deviceSummary = dueDeviceLabels.join(" and ");
+  const subject = `Asterion ${deviceSummary} refresh due [${cycleId}]`;
   const text = [
-    "Asterion's iPhone development build refresh is due.",
+    `Asterion's ${deviceSummary} development build refresh is due.`,
     "",
-    "Please turn on/unlock the iPhone, keep it on the same Wi-Fi as the Mac, and reply to this email with ok when it is ready.",
+    `Please turn on/unlock the ${deviceSummary}, keep ${dueDeviceLabels.length > 1 ? "them" : "it"} on the same Wi-Fi as the Mac, and reply to this email with ok when ${dueDeviceLabels.length > 1 ? "they are" : "it is"} ready.`,
     "I will check for your reply immediately for about 12 minutes, then retry on the next scheduled run if needed.",
     "",
     `Reply address: ${replyTo}`,
@@ -85,7 +110,7 @@ async function sendReadyEmail(resend, from, replyTo, cycleId) {
     replyTo,
     subject,
     text,
-    html: `<p>Asterion's iPhone development build refresh is due.</p><p>Please turn on/unlock the iPhone, keep it on the same Wi-Fi as the Mac, and reply to this email with <strong>ok</strong> when it is ready.</p><p>I will check for your reply immediately for about 12 minutes, then retry on the next scheduled run if needed.</p><p>Reply address: ${htmlEscape(replyTo)}</p>`,
+    html: `<p>Asterion's ${htmlEscape(deviceSummary)} development build refresh is due.</p><p>Please turn on/unlock the ${htmlEscape(deviceSummary)}, keep ${dueDeviceLabels.length > 1 ? "them" : "it"} on the same Wi-Fi as the Mac, and reply to this email with <strong>ok</strong> when ${dueDeviceLabels.length > 1 ? "they are" : "it is"} ready.</p><p>I will check for your reply immediately for about 12 minutes, then retry on the next scheduled run if needed.</p><p>Reply address: ${htmlEscape(replyTo)}</p>`,
   });
 
   if (error) {
@@ -146,10 +171,20 @@ function run(command, args, cwd) {
 
 const state = await loadState();
 const now = new Date();
-const dueAt = forceDue ? now : nextDueAt(state);
+const deviceState = legacyStateToDevices(state);
+const dueDevices = devices.filter((device) => {
+  const dueAt = forceDue ? now : nextDueAt(deviceState[device.key], device.firstDueAt);
+  return now >= dueAt;
+});
 
-if (now < dueAt) {
-  console.log(`No iPhone refresh due. Next due date: ${dueAt.toISOString()}`);
+if (dueDevices.length === 0) {
+  const nextDueDevice = devices
+    .map((device) => ({
+      label: device.label,
+      dueAt: nextDueAt(deviceState[device.key], device.firstDueAt),
+    }))
+    .sort((left, right) => left.dueAt - right.dueAt)[0];
+  console.log(`No device refresh due. Next due: ${nextDueDevice.label} at ${nextDueDevice.dueAt.toISOString()}`);
   process.exit(0);
 }
 
@@ -162,24 +197,30 @@ if (!resendApiKey || !inboundDomain) {
 
 const { Resend } = await import(resendModulePath);
 const resend = new Resend(resendApiKey);
-const cycleId = forceCycleId || cycleIdFor(dueAt);
+const cycleBasis = dueDevices
+  .map((device) => nextDueAt(deviceState[device.key], device.firstDueAt))
+  .sort((left, right) => left - right)[0];
+const cycleId = forceCycleId || cycleIdFor(forceDue ? now : cycleBasis);
 const replyTo = `asterion-iphone-refresh-${cycleId}@${inboundDomain}`;
 const from = `Asterion Build Refresh <asterion-iphone-refresh@${inboundDomain}>`;
+const dueDeviceLabels = dueDevices.map((device) => device.label);
 
 let promptSentAt = new Date(state.promptSentAt ?? now);
 let activeReplyTo = state.replyTo ?? replyTo;
 if (state.promptCycleId !== cycleId) {
-  await sendReadyEmail(resend, from, replyTo, cycleId);
+  await sendReadyEmail(resend, from, replyTo, cycleId, dueDeviceLabels);
   promptSentAt = now;
   activeReplyTo = replyTo;
   await saveState({
     ...state,
+    devices: deviceState,
     promptCycleId: cycleId,
     promptSentAt: now.toISOString(),
     replyTo,
+    dueDevices: dueDevices.map((device) => device.key),
     forceTest: forceDue || undefined,
   });
-  console.log(`Sent iPhone readiness email to ${recipient}. Polling for a reply to ${replyTo}.`);
+  console.log(`Sent ${dueDeviceLabels.join(" + ")} readiness email to ${recipient}. Polling for a reply to ${replyTo}.`);
 }
 
 const reply = await waitForReply(resend, activeReplyTo, promptSentAt);
@@ -188,10 +229,25 @@ if (!reply) {
   process.exit(0);
 }
 
-console.log(`Readiness reply found (${reply.id ?? "unknown id"}). Running iPhone build/install/launch.`);
-await run(buildScript, [], rootDir);
+console.log(`Readiness reply found (${reply.id ?? "unknown id"}). Running ${dueDeviceLabels.join(" + ")} build/install/launch.`);
+for (const device of dueDevices) {
+  await run(device.buildScript, [], rootDir);
+  deviceState[device.key] = {
+    ...(deviceState[device.key] ?? {}),
+    lastSuccessAt: new Date().toISOString(),
+    lastReplyId: reply.id ?? null,
+  };
+  await saveState({
+    ...state,
+    devices: deviceState,
+    lastSuccessAt: deviceState.iphone?.lastSuccessAt ?? null,
+    lastReplyId: deviceState.iphone?.lastReplyId ?? null,
+  });
+}
 await saveState({
-  lastSuccessAt: new Date().toISOString(),
-  lastReplyId: reply.id ?? null,
+  ...state,
+  devices: deviceState,
+  lastSuccessAt: deviceState.iphone?.lastSuccessAt ?? null,
+  lastReplyId: deviceState.iphone?.lastReplyId ?? null,
 });
-console.log("iPhone refresh completed successfully.");
+console.log(`${dueDeviceLabels.join(" + ")} refresh completed successfully.`);
