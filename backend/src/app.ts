@@ -2,7 +2,6 @@ import cors from "@fastify/cors";
 import Fastify from "fastify";
 import type { FastifyError } from "fastify";
 import { env } from "./config/env";
-import { ensureUserSchema } from "./lib/users";
 import { healthRoutes } from "./routes/health";
 import { contentRoutes } from "./routes/content";
 import { authPlugin } from "./plugins/auth";
@@ -35,10 +34,6 @@ export function buildApp() {
   app.register(healthRoutes);
   app.register(contentRoutes);
   app.register(meRoutes);
-
-  app.addHook("onReady", async () => {
-    await ensureUserSchema();
-  });
 
   app.setErrorHandler((error: FastifyError, request, reply) => {
     request.log.error(
