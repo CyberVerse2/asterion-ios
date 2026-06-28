@@ -3,6 +3,7 @@ import Fastify from "fastify";
 import type { FastifyError } from "fastify";
 import { env } from "./config/env";
 import { healthRoutes } from "./routes/health";
+import { contentRoutes } from "./routes/content";
 import { authPlugin } from "./plugins/auth";
 import { meRoutes } from "./routes/me";
 
@@ -31,6 +32,7 @@ export function buildApp() {
 
   app.register(authPlugin);
   app.register(healthRoutes);
+  app.register(contentRoutes);
   app.register(meRoutes);
 
   app.setErrorHandler((error: FastifyError, request, reply) => {
