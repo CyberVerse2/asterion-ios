@@ -1,0 +1,9 @@
+# Xcode and packaging output
+/.build/
+/build/
+*.ipa
+*.dmg
+
+# Generated export artifacts
+/output/
+/tmp/
