@@ -47,19 +47,17 @@
     <li>Make Profile a reading dashboard: identity and activity occupy the main pane, while account management and sync status stay in the inspector.</li>
     <li>Keep every content surface scrollable with trackpad, mouse wheel, and keyboard while hiding persistent scroll indicators across the app.</li>
     <li>Keep primary navigation visible in both modes: the sidebar compacts to a narrow icon rail instead of disappearing or surrendering its navigation state.</li>
-    <li>Put the current chapter number directly in the Continue Reading button and keep the progress row limited to its bar and percentage.</li>
+    <li>Label reading progress with the reader’s current chapter number and title, not only a percentage.</li>
     <li>Open each novel with a sentence-aware synopsis preview; reveal the complete synopsis only on request.</li>
     <li>In fullscreen, let the split columns fill the window while capping the catalog, profile, and detail content measures so covers and reading text remain composed.</li>
-    <li>Use one floating-shell geometry: the sidebar, catalog, and detail pane sit on a graphite canvas with 12-point gutters, consistent continuous corners, and no shared sharp edges. Catalog controls live inside the middle panel header.</li>
   </ol>
 
   <h2>System map</h2>
   <div class="panel">
     <ul>
-      <li><code>Theme.swift</code> owns the Graphite &amp; Crimson colors, the cool-gray structural canvas behind floating surfaces, Literata display and reading roles, SF Pro utility text, and bundled-font registration.</li>
+      <li><code>Theme.swift</code> owns the Graphite &amp; Crimson colors, Literata display and reading roles, SF Pro utility text, and bundled-font registration.</li>
       <li><code>Motion.swift</code> owns the shared press, hover, reveal, and navigation timing plus Reduce Motion behavior.</li>
-      <li><code>ContentView</code> applies the shared 18-point panel shell around every split-view column. The section title, refresh action, and search field live in the middle panel header; the main scene uses a hidden titlebar so there is no competing top strip.</li>
-      <li><code>SidebarView</code> owns app-area navigation, signed-in identity, and the expanded-to-icon-rail compact mode. Its toggle lives in the footer, away from the brand and primary navigation; SwiftUI owns compact state while a narrow AppKit window-frame adjustment preserves the ordinary windowed workspace. In fullscreen or a zoomed window, AppKit frame mutation is disabled and only the split columns respond.</li>
+      <li><code>SidebarView</code> owns app-area navigation, signed-in identity, and the expanded-to-icon-rail compact mode. Its toggle lives in the footer, away from the brand and primary navigation; SwiftUI owns compact state while a narrow AppKit window-frame adjustment preserves the ordinary windowed workspace. In fullscreen or a zoomed window, AppKit frame mutation is disabled and only the split columns respond. The main window uses a distinct titlebar content boundary so the toolbar never overlays the compact rail or catalog.</li>
       <li><code>Resources/Brand/AsterionMark.png</code> is the generated celestial-book symbol used by the sidebar lockup; Literata keeps the wordmark editable and sharp at every scale.</li>
       <li><code>Resources/AppIcon.icns</code> is the Finder icon: the same celestial-book symbol, placed on the Graphite and Crimson app-icon field. The packaging script emits <code>dist/Asterion.app</code> and removes the obsolete bundle.</li>
       <li><code>EditorialCatalogView</code> owns cover shelves, rankings, library grids, selection, progress tiles, and the centered 920-point fullscreen content measure.</li>
@@ -74,14 +72,14 @@
   <h2>Graphite &amp; Crimson color system</h2>
   <div class="tokens">
     <div class="token"><div class="swatch" style="background:#f2f3f5"></div><code>Cool gray</code><br>#F2F3F5</div>
-    <div class="token"><div class="swatch" style="background:#dde1e7"></div><code>Structural canvas</code><br>#DDE1E7</div>
+    <div class="token"><div class="swatch" style="background:#1b1c20"></div><code>Graphite</code><br>#1B1C20</div>
     <div class="token"><div class="swatch" style="background:#ffffff"></div><code>Surface</code><br>#FFFFFF</div>
     <div class="token"><div class="swatch" style="background:#1a1b1f"></div><code>Ink</code><br>#1A1B1F</div>
     <div class="token"><div class="swatch" style="background:#9c2335"></div><code>Logo crimson</code><br>#9C2335</div>
     <div class="token"><div class="swatch" style="background:#555c66"></div><code>Slate</code><br>#555C66</div>
     <div class="token"><div class="swatch" style="background:#c9ced5"></div><code>Structure</code><br>#C9CED5</div>
   </div>
-  <p>Graphite anchors typography and brand assets, cool gray separates the floating workspace from white content surfaces, Ink and Slate own text hierarchy, and the logo’s crimson is the only interactive accent. The palette contains no yellow, cream, blue, or competing brand color. Primary text, accent text, accent buttons, sidebar text, and sidebar supporting text exceed enhanced 7:1 contrast; Slate on white remains above 6.7:1 and comfortably exceeds AA.</p>
+  <p>Graphite anchors navigation, cool gray separates the workspace from white content surfaces, Ink and Slate own text hierarchy, and the logo’s crimson is the only interactive accent. The palette contains no yellow, cream, blue, or competing brand color. Primary text, accent text, accent buttons, sidebar text, and sidebar supporting text exceed enhanced 7:1 contrast; Slate on white remains above 6.7:1 and comfortably exceeds AA.</p>
 
   <h2>Typography pairing</h2>
   <div class="panel">
@@ -96,7 +94,7 @@
   </div>
 
   <h2>Verification</h2>
-  <p>Verification covers decoding and cleanup tests, debug and release compilation, signed <code>Asterion.app</code> launch, Finder icon inspection, bundled Literata registration and display rendering, animated navigation and cover selection, expanded and compact sidebar states, footer toggle placement, stable windowed and fullscreen three-column layouts, the middle-panel catalog header, visible graphite gutters around every surface, compact synopsis preview and expansion, visible navigation and search controls, a cover-to-detail selection path, a full-text reader window, profile layout at the standard three-column window size, direct Continue behavior, the compact branded Clerk authentication window, the Clerk account-management sheet, hidden scroll indicators, and continued trackpad scrolling. Visual QA compares the supplied Rankings screen with the implementation at the same viewport and verifies the floating shell in both sidebar states.</p>
+  <p>Verification covers decoding and cleanup tests, debug and release compilation, signed <code>Asterion.app</code> launch, Finder icon inspection, bundled Literata registration and display rendering, animated navigation and cover selection, expanded and compact sidebar states, footer toggle placement, stable windowed and fullscreen three-column layouts, compact synopsis preview and expansion, visible navigation and search controls, a cover-to-detail selection path, a full-text reader window, profile layout at the standard three-column window size, direct Continue behavior, the compact branded Clerk authentication window, the Clerk account-management sheet, hidden scroll indicators, and continued trackpad scrolling. Visual QA compares the selected concept and implementation at the same Discover state and records the Profile before/after states.</p>
 
   <h2>Quiz</h2>
   <div class="quiz" data-answer="covers">

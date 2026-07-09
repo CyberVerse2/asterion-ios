@@ -56,6 +56,7 @@ struct AccountSummaryView: View {
             }
         }
         .background(Color.asterionBackground)
+        .navigationTitle("Profile")
     }
 
     private func signedInProfile(_ user: AppModel.SignedInUser) -> some View {

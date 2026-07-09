@@ -1,61 +1,63 @@
-# Floating Shell Design QA
+# Asterion macOS Editorial Redesign QA
 
-**Source visual truth**
+- Source visual truth: `docs/design/selected-option-2.png`
+- Implementation screenshot: `docs/design/implementation-final-discover.png`
+- Combined comparison: `docs/design/design-qa-comparison.png`
+- Reader screenshot: `docs/design/reader-final.png`
+- Viewport: 1411 × 964 points (2822 × 1928 Retina capture)
+- State: Discover, guest session, first Featured novel selected
 
-- `/var/folders/61/_gpbs9bd52vgc9hwvjtng_pm0000gn/T/codex-clipboard-df52cc90-feee-475f-9e75-b62ac262cb9a.png`
-- The source establishes the real Rankings content and the inconsistent shell geometry to correct. The intended transformation is a detached, consistently curved toolbar, sidebar, catalog pane, and detail pane.
+## Full-view comparison evidence
 
-**Implementation evidence**
+The implementation matches the source’s three-region composition: restrained sidebar, cover-led editorial catalog, and inspector-width novel detail. Both use warm paper surfaces, dark serif editorial type, oxblood selection and primary action, real cover imagery, lightweight metadata, a readable synopsis, and a five-row chapter preview.
 
-- `/var/folders/61/_gpbs9bd52vgc9hwvjtng_pm0000gn/T/com.openai.sky.CUAService/Asterion Screenshot 2026-07-09 at 11.42.57 PM.jpeg`
-- Combined comparison inspected at `/tmp/asterion-floating-shell-comparison.jpg`.
-- Viewport: 1223 × 768 points after normalizing the source to the implementation capture.
-- State: Rankings selected, expanded sidebar, Shadow Slave detail visible.
+The source mock shows an authenticated profile and a Continue Reading shelf. The captured implementation is intentionally a guest session, so those server-backed states are not shown. The production view renders Continue Reading only from authenticated progress records; no mock or alternate data path was introduced for QA.
 
-**Full-view comparison evidence**
+## Focused-region comparison evidence
 
-- The source uses a flush rectangular toolbar, a partially rounded sidebar, and sharp shared boundaries between catalog and detail.
-- The implementation preserves the same information architecture, content density, imagery, typography, and Crimson interaction color while placing all three workspace surfaces on a soft cool-gray canvas.
-- Twelve-point outer and inter-panel gutters remain visible on every edge. Workspace panes use a consistent 18-point continuous radius, and catalog controls are contained by the middle panel header.
-- Expanded and compact sidebar states were exercised in the running app. Neither state overlaps the toolbar, catalog, or detail pane, and the graphite gap remains stable.
+A separate crop was not needed because the original-resolution combined comparison keeps sidebar icons, cover crops, button treatment, synopsis typography, dividers, and chapter-row alignment readable. The reader was inspected separately because it is a distinct window and state.
 
-**Focused region comparison evidence**
+## Required fidelity surfaces
 
-- A separate crop was unnecessary because the normalized full-view comparison renders every outer corner and inter-panel boundary clearly. The requested change concerns shell geometry rather than small asset or typography fidelity.
+- Fonts and typography: Literary content uses the system serif family with native sans-serif controls. Hierarchy, wrapping, optical weights, and reader measure match the concept’s editorial intent.
+- Spacing and layout rhythm: Sidebar and detail proportions match after constraining the detail column. Shelves maintain a four-cover row at the captured width and reduce responsively without orphan rows or horizontal scrollbars.
+- Colors and visual tokens: Paper, surface, ink, muted metadata, border, progress, soft selection, and oxblood action tokens consistently map to the source.
+- Image quality and asset fidelity: All visible books use live catalog cover art with correct portrait crops, subtle borders, and restrained shadows. No placeholder art or code-drawn image substitutes are visible.
+- Copy and content: Section labels and supporting copy are concise and product-native. Dynamic title, author, synopsis, progress, and chapter content come from the live API.
+- Icons and affordances: SF Symbols provide one consistent native icon family. Primary, secondary, selected, disabled, search, and navigation states are visually distinct.
+- Accessibility and behavior: Sidebar items, covers, search, chapter rows, reader navigation, text sizing, and export are keyboard/accessibility actions. Text remains selectable in detail and reader surfaces.
 
-**Required fidelity surfaces**
+## Comparison history
 
-- Fonts and typography: Literata hierarchy and SF Pro utility text are unchanged; no new wrapping or truncation was introduced.
-- Spacing and layout rhythm: panel gutters, radii, and outer insets are consistent; catalog and detail measures remain bounded in fullscreen.
-- Colors and visual tokens: the existing white, cool-gray, and Crimson palette is preserved; a slightly deeper cool gray provides structural separation without introducing a dark-shell theme.
-- Image quality and asset fidelity: supplied cover art, logo mark, and avatar assets remain unchanged, correctly scaled, and clipped by their existing components.
-- Copy and content: navigation, search, metadata, synopsis, chapters, and actions are unchanged. Reading progress remains runtime data and may differ between captures.
+### Pass 1 — blocked
 
-**Findings**
+- [P1] The detail pane occupied too much width, compressing the cover shelves and changing the source’s primary hierarchy.
+- [P2] Horizontal shelf scrollbars and wrapped orphan tiles made the catalog feel more utilitarian than editorial.
+- [P0] Reader opened cached chapter metadata without full chapter text.
 
-- No actionable P0, P1, or P2 issues remain.
+Fixes:
 
-**Open Questions**
+- Constrained the detail column to a 400–520 point inspector-like width.
+- Replaced scrolling grids with responsive three/four-cover rows.
+- Changed the chapter cache to satisfy reader requests only when full content is present.
 
-- None.
+### Pass 2 — passed
 
-**Implementation Checklist**
+- Post-fix evidence: `docs/design/implementation-final-discover.png`
+- The catalog regained the four-cover rhythm, the detail pane matches the selected concept’s proportion, shelf scrollbars are gone, and the reader displays full live chapter text.
 
-- [x] Move section, refresh, and search controls into the middle panel header.
-- [x] Give sidebar, catalog, and detail their own consistent rounded shells.
-- [x] Expose cool-gray gutters between every surface and around the window perimeter.
-- [x] Verify expanded and compact sidebar states in the running app.
-- [x] Preserve navigation, refresh, search, selection, scrolling, and account actions.
+## Interaction checks
 
-**Comparison history**
+- Discover and Rankings sidebar navigation
+- Search for “Shadow Slave” and single-result state
+- Featured selection updates the detail pane
+- Start Reading opens an independent reader window
+- Reader loads complete chapter content
+- Previous/next chapter, text-size, and export controls are exposed
+- Signed bundle launches and presents a visible main window
 
-- Initial source finding: mixed rounded and sharp edges made the sidebar and panes feel attached inconsistently.
-- First implementation finding: a window-wide toolbar and black structural canvas created a second, overly dark visual language.
-- Fix: moved section, refresh, and search controls into the middle panel; replaced the black canvas with the existing cool-gray family; removed the native top bar.
-- Post-fix evidence: the final normalized side-by-side comparison and live compact/expanded captures show complete surface separation, a cohesive light palette, and no overlap or clipped corners.
+## Follow-up polish
 
-**Follow-up Polish**
-
-- No blocking follow-up polish identified.
+- [P3] Capture the authenticated Continue Reading and profile-footer states when a test account is available.
 
 final result: passed

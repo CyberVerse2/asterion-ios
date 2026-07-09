@@ -66,6 +66,17 @@ struct EditorialCatalogView: View {
             }
         }
         .background(Color.asterionBackground)
+        .navigationTitle(section.title)
+        .toolbar {
+            ToolbarItem {
+                Button {
+                    Task { await model.loadCatalog() }
+                } label: {
+                    Label("Refresh Catalog", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(AsterionPressButtonStyle())
+            }
+        }
     }
 
     private func shelf(

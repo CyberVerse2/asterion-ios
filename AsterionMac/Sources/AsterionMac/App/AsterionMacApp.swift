@@ -21,12 +21,12 @@ final class AsterionAppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.async {
             NSApp.activate(ignoringOtherApps: true)
             NSApp.windows.first?.makeKeyAndOrderFront(nil)
-            self.removeSidebarToggles()
+            self.configureWindowChrome()
         }
     }
 
     @objc private func windowToolbarDidChange(_ notification: Notification) {
-        removeSidebarToggles()
+        configureWindowChrome()
     }
 
     @objc private func toolbarWillAddItem(_ notification: Notification) {
@@ -43,6 +43,19 @@ final class AsterionAppDelegate: NSObject, NSApplicationDelegate {
                 if containsSidebarToggle(item) {
                     toolbar.removeItem(at: index)
                 }
+            }
+        }
+    }
+
+    private func configureWindowChrome() {
+        removeSidebarToggles()
+
+        for window in NSApp.windows where window.identifier?.rawValue.hasPrefix("main-") == true {
+            if window.titlebarAppearsTransparent {
+                window.titlebarAppearsTransparent = false
+            }
+            if window.styleMask.contains(.fullSizeContentView) {
+                window.styleMask.remove(.fullSizeContentView)
             }
         }
     }
@@ -94,7 +107,6 @@ struct AsterionApp: App {
                 .task { await model.start() }
         }
         .defaultSize(width: 1240, height: 780)
-        .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentMinSize)
         .commands {
             CommandGroup(replacing: .sidebar) {}
