@@ -158,20 +158,13 @@ struct NovelDetailView: View {
             }
 
             if let progress {
-                VStack(alignment: .leading, spacing: 7) {
-                    HStack(spacing: 8) {
-                        Text(progressChapterLabel)
-                            .font(.caption)
-                            .foregroundStyle(Color.asterionMuted)
-                            .lineLimit(1)
-                        Spacer(minLength: 8)
-                        Text("\(Int(progress.percentage))%")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(Color.asterionMuted)
-                    }
+                HStack(spacing: 10) {
                     ProgressView(value: min(1, max(0, progress.percentage / 100)))
                         .tint(Color.asterionAccent)
                         .animation(reduceMotion ? nil : AsterionMotion.reveal, value: progress.percentage)
+                    Text("\(Int(progress.percentage))%")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(Color.asterionMuted)
                 }
             }
         }
@@ -265,16 +258,11 @@ struct NovelDetailView: View {
     }
 
     private var readButtonTitle: String {
-        progress == nil ? "Start Reading" : "Continue Reading"
-    }
-
-    private var progressChapterLabel: String {
-        guard let progress,
-              let chapter = chapters.first(where: { $0.id == progress.chapterId })
-        else {
-            return "Chapter progress"
+        guard let progress else { return "Start Reading" }
+        guard let chapter = chapters.first(where: { $0.id == progress.chapterId }) else {
+            return "Continue Reading"
         }
-        return "Chapter \(chapter.chapterNumber) · \(chapter.title)"
+        return "Continue Reading · Chapter \(chapter.chapterNumber)"
     }
 
     private var chapterCountLabel: String? {
