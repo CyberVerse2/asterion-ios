@@ -25,6 +25,19 @@ enum AsterionClerkTheme {
                 shadow: .black,
                 border: .asterionBorder
             ),
+            fonts: .init(
+                largeTitle: .asterionDisplay(30, weight: .semibold),
+                title: .asterionDisplay(26, weight: .semibold),
+                title2: .asterionDisplay(22, weight: .semibold),
+                title3: .asterionDisplay(19, weight: .semibold),
+                headline: .system(size: 15, weight: .semibold),
+                subheadline: .system(size: 13),
+                body: .system(size: 14),
+                callout: .system(size: 13),
+                footnote: .system(size: 11),
+                caption: .system(size: 10),
+                caption2: .system(size: 9)
+            ),
             design: .init(borderRadius: 10)
         )
     }
@@ -53,9 +66,11 @@ struct AccountSummaryView: View {
                 readingStats
                 currentlyReading
             }
+            .frame(maxWidth: 900, alignment: .leading)
             .padding(.horizontal, 30)
             .padding(.top, 28)
             .padding(.bottom, 48)
+            .frame(maxWidth: .infinity, alignment: .top)
         }
         .hidingScrollIndicators()
     }
@@ -207,7 +222,9 @@ struct AccountSummaryView: View {
                         .stroke(Color.asterionBorder)
                 }
             }
+            .frame(maxWidth: 900, alignment: .leading)
             .padding(34)
+            .frame(maxWidth: .infinity, alignment: .top)
         }
         .hidingScrollIndicators()
     }
@@ -234,9 +251,11 @@ struct AccountView: View {
                     signedOutAccount
                 }
             }
+            .frame(maxWidth: 540, alignment: .leading)
             .padding(.horizontal, 28)
             .padding(.top, 30)
             .padding(.bottom, 44)
+            .frame(maxWidth: .infinity, alignment: .top)
         }
         .hidingScrollIndicators()
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -368,13 +387,54 @@ struct AccountView: View {
 }
 
 struct AsterionAuthenticationView: View {
+    @Environment(Clerk.self) private var clerk
+    @Environment(\.dismissWindow) private var dismissWindow
+
     var body: some View {
-        AuthView()
-            .environment(Clerk.shared)
-            .environment(\.clerkTheme, AsterionClerkTheme.make())
-            .hidingScrollIndicators()
-            .frame(minWidth: 460, minHeight: 620)
-            .background(Color.asterionSurface)
+        VStack(spacing: 18) {
+            HStack(spacing: 8) {
+                Image("AsterionMark", bundle: .module)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 21, height: 27)
+                Text("ASTERION")
+                    .font(.asterionDisplay(15, weight: .semibold))
+                    .tracking(2.2)
+                    .foregroundStyle(Color.asterionText)
+                Spacer()
+                Text("YOUR READING LIFE")
+                    .font(.asterionMono(9, weight: .semibold))
+                    .tracking(1.2)
+                    .foregroundStyle(Color.asterionAccent)
+            }
+            .padding(.horizontal, 2)
+
+            AuthView(isDismissible: false)
+                .environment(Clerk.shared)
+                .environment(\.clerkTheme, AsterionClerkTheme.make())
+                .hidingScrollIndicators()
+                .frame(width: 390, height: 430)
+                .background(Color.asterionSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(Color.asterionBorder)
+                }
+                .shadow(color: .black.opacity(0.08), radius: 18, y: 8)
+
+            Text("Your saved stories and reading position stay synced across Asterion.")
+                .font(.caption)
+                .foregroundStyle(Color.asterionMuted)
+                .multilineTextAlignment(.center)
+        }
+        .padding(24)
+        .frame(width: 438, height: 548)
+        .background(Color.asterionBackground)
+        .onChange(of: clerk.user?.id) {
+            if clerk.user != nil {
+                dismissWindow(id: "authentication")
+            }
+        }
     }
 }
 

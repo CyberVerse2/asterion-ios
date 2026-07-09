@@ -21,12 +21,12 @@ final class AsterionAppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.async {
             NSApp.activate(ignoringOtherApps: true)
             NSApp.windows.first?.makeKeyAndOrderFront(nil)
-            self.removeSidebarToggles()
+            self.configureWindowChrome()
         }
     }
 
     @objc private func windowToolbarDidChange(_ notification: Notification) {
-        removeSidebarToggles()
+        configureWindowChrome()
     }
 
     @objc private func toolbarWillAddItem(_ notification: Notification) {
@@ -43,6 +43,19 @@ final class AsterionAppDelegate: NSObject, NSApplicationDelegate {
                 if containsSidebarToggle(item) {
                     toolbar.removeItem(at: index)
                 }
+            }
+        }
+    }
+
+    private func configureWindowChrome() {
+        removeSidebarToggles()
+
+        for window in NSApp.windows where window.identifier?.rawValue.hasPrefix("main-") == true {
+            if window.titlebarAppearsTransparent {
+                window.titlebarAppearsTransparent = false
+            }
+            if window.styleMask.contains(.fullSizeContentView) {
+                window.styleMask.remove(.fullSizeContentView)
             }
         }
     }
@@ -111,9 +124,10 @@ struct AsterionApp: App {
 
         WindowGroup("Sign In to Asterion", id: "authentication") {
             AsterionAuthenticationView()
+                .environment(Clerk.shared)
                 .preferredColorScheme(.light)
         }
-        .defaultSize(width: 520, height: 700)
+        .defaultSize(width: 438, height: 548)
         .windowResizability(.contentMinSize)
 
         Settings {

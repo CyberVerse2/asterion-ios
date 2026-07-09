@@ -56,9 +56,11 @@ struct EditorialCatalogView: View {
                             )
                         }
                     }
+                    .frame(maxWidth: 920, alignment: .leading)
                     .padding(.horizontal, 28)
                     .padding(.top, 24)
                     .padding(.bottom, 48)
+                    .frame(maxWidth: .infinity, alignment: .top)
                 }
                 .hidingScrollIndicators()
             }

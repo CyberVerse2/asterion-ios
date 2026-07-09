@@ -61,9 +61,11 @@ struct NovelDetailView: View {
                     chapterList
                 }
             }
+            .frame(maxWidth: 560, alignment: .leading)
             .padding(.horizontal, 30)
             .padding(.top, 28)
             .padding(.bottom, 44)
+            .frame(maxWidth: .infinity, alignment: .top)
         }
         .hidingScrollIndicators()
         .scrollPosition(id: $scrollPosition, anchor: .top)

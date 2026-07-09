@@ -65,6 +65,11 @@ struct SidebarView: View {
 
             Spacer(minLength: 20)
 
+            compactToggle
+                .frame(maxWidth: .infinity, alignment: isCompact ? .center : .trailing)
+                .padding(.horizontal, 14)
+                .padding(.bottom, model.signedInUser == nil ? 16 : 8)
+
             if let user = model.signedInUser {
                 HStack(spacing: isCompact ? 0 : 10) {
                     AsyncImage(url: user.imageURL) { phase in
@@ -106,23 +111,15 @@ struct SidebarView: View {
     @ViewBuilder
     private var sidebarHeader: some View {
         if isCompact {
-            VStack(spacing: 5) {
-                logoMark
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 18, height: 23)
-                compactToggle
-            }
+            logoMark
+                .resizable()
+                .scaledToFit()
+                .frame(width: 18, height: 23)
             .frame(maxWidth: .infinity)
-            .padding(.top, 12)
-            .padding(.bottom, 14)
+            .padding(.top, 16)
+            .padding(.bottom, 18)
         } else {
-            HStack(spacing: 6) {
-                brand
-                    .layoutPriority(1)
-                Spacer(minLength: 0)
-                compactToggle
-            }
+            brand
             .padding(.horizontal, 14)
             .padding(.top, 18)
             .padding(.bottom, 22)
@@ -177,6 +174,7 @@ struct SidebarView: View {
 
         DispatchQueue.main.async {
             guard let window = NSApp.keyWindow else { return }
+            guard !window.styleMask.contains(.fullScreen), !window.isZoomed else { return }
             let delta: CGFloat = 156
             var frame = window.frame
             frame.origin.x += compacting ? delta : -delta

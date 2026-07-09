@@ -49,6 +49,7 @@
     <li>Keep primary navigation visible in both modes: the sidebar compacts to a narrow icon rail instead of disappearing or surrendering its navigation state.</li>
     <li>Label reading progress with the reader’s current chapter number and title, not only a percentage.</li>
     <li>Open each novel with a sentence-aware synopsis preview; reveal the complete synopsis only on request.</li>
+    <li>In fullscreen, let the split columns fill the window while capping the catalog, profile, and detail content measures so covers and reading text remain composed.</li>
   </ol>
 
   <h2>System map</h2>
@@ -56,11 +57,11 @@
     <ul>
       <li><code>Theme.swift</code> owns the Graphite &amp; Crimson colors, Literata display and reading roles, SF Pro utility text, and bundled-font registration.</li>
       <li><code>Motion.swift</code> owns the shared press, hover, reveal, and navigation timing plus Reduce Motion behavior.</li>
-      <li><code>SidebarView</code> owns app-area navigation, signed-in identity, and the expanded-to-icon-rail compact mode; SwiftUI owns compact state while a narrow AppKit window-frame adjustment preserves the reading workspace.</li>
+      <li><code>SidebarView</code> owns app-area navigation, signed-in identity, and the expanded-to-icon-rail compact mode. Its toggle lives in the footer, away from the brand and primary navigation; SwiftUI owns compact state while a narrow AppKit window-frame adjustment preserves the ordinary windowed workspace. In fullscreen or a zoomed window, AppKit frame mutation is disabled and only the split columns respond. The main window uses a distinct titlebar content boundary so the toolbar never overlays the compact rail or catalog.</li>
       <li><code>Resources/Brand/AsterionMark.png</code> is the generated celestial-book symbol used by the sidebar lockup; Literata keeps the wordmark editable and sharp at every scale.</li>
       <li><code>Resources/AppIcon.icns</code> is the Finder icon: the same celestial-book symbol, placed on the Graphite and Crimson app-icon field. The packaging script emits <code>dist/Asterion.app</code> and removes the obsolete bundle.</li>
-      <li><code>EditorialCatalogView</code> owns cover shelves, rankings, library grids, selection, and progress tiles.</li>
-      <li><code>NovelDetailView</code> owns the selected story’s reading action, metadata, collapsible synopsis preview, and recent chapters.</li>
+      <li><code>EditorialCatalogView</code> owns cover shelves, rankings, library grids, selection, progress tiles, and the centered 920-point fullscreen content measure.</li>
+      <li><code>NovelDetailView</code> owns the selected story’s reading action, metadata, collapsible synopsis preview, recent chapters, and a readable 560-point maximum detail measure.</li>
       <li><code>AccountSummaryView</code> owns the reader identity, library metrics, active stories, and direct Continue actions; <code>AccountView</code> owns Clerk profile management, sync status, and sign-out. <code>AsterionAuthenticationView</code> hosts Clerk sign-in in a dedicated, correctly sized macOS window.</li>
       <li><code>ScrollIndicatorHider</code> is the narrow AppKit bridge that disables <code>NSScrollView</code> scrollers even when macOS is configured to always show them; SwiftUI still owns every scrolling surface.</li>
       <li><code>ReaderView</code> owns the distraction-free reading window and its per-user typography preferences.</li>
@@ -93,7 +94,7 @@
   </div>
 
   <h2>Verification</h2>
-  <p>Verification covers decoding and cleanup tests, debug and release compilation, signed <code>Asterion.app</code> launch, Finder icon inspection, bundled Literata registration and display rendering, animated navigation and cover selection, expanded and compact sidebar states, stable three-column visibility, compact synopsis preview and expansion, visible navigation and search controls, a cover-to-detail selection path, a full-text reader window, profile layout at the standard three-column window size, direct Continue behavior, the dedicated Clerk authentication window, the Clerk account-management sheet, hidden scroll indicators, and continued trackpad scrolling. Visual QA compares the selected concept and implementation at the same Discover state and records the Profile before/after states.</p>
+  <p>Verification covers decoding and cleanup tests, debug and release compilation, signed <code>Asterion.app</code> launch, Finder icon inspection, bundled Literata registration and display rendering, animated navigation and cover selection, expanded and compact sidebar states, footer toggle placement, stable windowed and fullscreen three-column layouts, compact synopsis preview and expansion, visible navigation and search controls, a cover-to-detail selection path, a full-text reader window, profile layout at the standard three-column window size, direct Continue behavior, the compact branded Clerk authentication window, the Clerk account-management sheet, hidden scroll indicators, and continued trackpad scrolling. Visual QA compares the selected concept and implementation at the same Discover state and records the Profile before/after states.</p>
 
   <h2>Quiz</h2>
   <div class="quiz" data-answer="covers">

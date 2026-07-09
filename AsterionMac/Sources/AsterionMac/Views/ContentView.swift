@@ -34,7 +34,7 @@ struct ContentView: View {
         } content: {
             if section.wrappedValue == .account {
                 AccountSummaryView()
-                    .navigationSplitViewColumnWidth(min: 520, ideal: 650, max: 760)
+                    .navigationSplitViewColumnWidth(min: 520, ideal: 680, max: 1_200)
             } else {
                 EditorialCatalogView(
                     section: section.wrappedValue,
@@ -43,19 +43,19 @@ struct ContentView: View {
                     selectedNovelID: $selectedNovelID
                 )
                 .id(section.wrappedValue)
-                .navigationSplitViewColumnWidth(min: 520, ideal: 650, max: 760)
+                .navigationSplitViewColumnWidth(min: 520, ideal: 680, max: 1_200)
             }
         } detail: {
             if section.wrappedValue == .account {
                 AccountView()
-                    .navigationSplitViewColumnWidth(min: 400, ideal: 480, max: 520)
+                    .navigationSplitViewColumnWidth(min: 400, ideal: 500, max: 800)
             } else if let selectedNovel {
                 NovelDetailView(novel: selectedNovel)
                     .id(selectedNovel.id)
-                    .navigationSplitViewColumnWidth(min: 400, ideal: 480, max: 520)
+                    .navigationSplitViewColumnWidth(min: 400, ideal: 500, max: 800)
             } else {
                 detailPlaceholder
-                    .navigationSplitViewColumnWidth(min: 400, ideal: 480, max: 520)
+                    .navigationSplitViewColumnWidth(min: 400, ideal: 500, max: 800)
             }
         }
         .navigationSplitViewStyle(.balanced)
@@ -67,6 +67,7 @@ struct ContentView: View {
         .focusedSceneValue(\.asterionSection, section)
         .tint(.asterionAccent)
         .background(Color.asterionBackground)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .preferredColorScheme(.light)
         .onAppear {
             restoreAllColumns()
