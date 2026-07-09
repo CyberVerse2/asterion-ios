@@ -7,7 +7,7 @@
 
 **Implementation evidence**
 
-- `/var/folders/61/_gpbs9bd52vgc9hwvjtng_pm0000gn/T/com.openai.sky.CUAService/Asterion Screenshot 2026-07-09 at 11.51.59 PM.jpeg`
+- `/var/folders/61/_gpbs9bd52vgc9hwvjtng_pm0000gn/T/com.openai.sky.CUAService/Asterion Screenshot 2026-07-09 at 11.42.57 PM.jpeg`
 - Combined comparison inspected at `/tmp/asterion-floating-shell-comparison.jpg`.
 - Viewport: 1223 × 768 points after normalizing the source to the implementation capture.
 - State: Rankings selected, expanded sidebar, Shadow Slave detail visible.
@@ -51,8 +51,8 @@
 
 - Initial source finding: mixed rounded and sharp edges made the sidebar and panes feel attached inconsistently.
 - First implementation finding: a window-wide toolbar and black structural canvas created a second, overly dark visual language.
-- Fix: moved section, refresh, and search controls into the middle panel; replaced the black canvas with the existing cool-gray family; removed the native top bar; expanded the workspace into the released top safe area.
-- Post-fix evidence: the final live capture and compact/expanded checks show complete surface separation, a cohesive light palette, full use of the window, and no overlap or clipped corners.
+- Fix: moved section, refresh, and search controls into the middle panel; replaced the black canvas with the existing cool-gray family; removed the native top bar.
+- Post-fix evidence: the final normalized side-by-side comparison and live compact/expanded captures show complete surface separation, a cohesive light palette, and no overlap or clipped corners.
 
 **Follow-up Polish**
 

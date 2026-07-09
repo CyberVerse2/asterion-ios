@@ -28,7 +28,6 @@ struct ContentView: View {
             Color.asterionCanvas.ignoresSafeArea()
             floatingWorkspace
                 .padding(12)
-                .ignoresSafeArea(.container, edges: .top)
         }
         .toolbar(removing: .sidebarToggle)
         .focusedSceneValue(\.asterionSection, section)
