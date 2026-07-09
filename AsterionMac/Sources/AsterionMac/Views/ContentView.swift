@@ -7,7 +7,6 @@ struct ContentView: View {
     @State private var searchText = ""
     @State private var columnVisibility = NavigationSplitViewVisibility.all
     @State private var isSidebarCompact = false
-    @State private var availableWidth: CGFloat = 0
 
     private var section: Binding<AppSection> {
         Binding(
@@ -27,30 +26,17 @@ struct ContentView: View {
     var body: some View {
         ZStack {
             Color.asterionCanvas.ignoresSafeArea()
-
-            GeometryReader { geometry in
-                floatingWorkspace
-                    .padding(12)
-                    .frame(
-                        width: geometry.size.width,
-                        height: geometry.size.height + geometry.safeAreaInsets.top,
-                        alignment: .top
-                    )
-                    .offset(y: -geometry.safeAreaInsets.top)
-                    .onAppear {
-                        adaptColumns(for: geometry.size.width)
-                    }
-                    .onChange(of: geometry.size.width) { _, width in
-                        adaptColumns(for: width)
-                    }
-            }
+            floatingWorkspace
+                .padding(12)
+                .ignoresSafeArea(.container, edges: .top)
         }
-        .toolbar(.hidden, for: .windowToolbar)
+        .toolbar(removing: .sidebarToggle)
         .focusedSceneValue(\.asterionSection, section)
         .tint(.asterionAccent)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .preferredColorScheme(.light)
         .onAppear {
+            restoreAllColumns()
             if selectedNovelID.isEmpty {
                 selectFirstNovel(in: section.wrappedValue)
             } else {
@@ -70,31 +56,23 @@ struct ContentView: View {
         .onChange(of: searchText) {
             ensureSelection()
         }
+        .onChange(of: columnVisibility) {
+            restoreAllColumns()
+        }
     }
 
     private var floatingWorkspace: some View {
-        let narrowSidebar = availableWidth > 0 && availableWidth < 700 && !isSidebarCompact
-        let sidebarWidth = narrowSidebar
-            ? max(190, availableWidth - 24)
-            : (isSidebarCompact ? 64 : 220)
-
-        return NavigationSplitView(columnVisibility: $columnVisibility) {
-            FloatingPane(
-                surface: .asterionSidebar,
-                insets: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 6)
-            ) {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            FloatingPane(insets: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 6)) {
                 SidebarView(selection: section, isCompact: $isSidebarCompact)
             }
             .navigationSplitViewColumnWidth(
-                min: narrowSidebar ? sidebarWidth : (isSidebarCompact ? 64 : 190),
-                ideal: sidebarWidth,
-                max: narrowSidebar ? sidebarWidth : (isSidebarCompact ? 64 : 240)
+                min: isSidebarCompact ? 64 : 190,
+                ideal: isSidebarCompact ? 64 : 220,
+                max: isSidebarCompact ? 64 : 240
             )
         } content: {
-            FloatingPane(
-                surface: .asterionBackground,
-                insets: EdgeInsets(top: 0, leading: 6, bottom: 0, trailing: 6)
-            ) {
+            FloatingPane(insets: EdgeInsets(top: 0, leading: 6, bottom: 0, trailing: 6)) {
                 VStack(spacing: 0) {
                     middleHeader
 
@@ -116,10 +94,7 @@ struct ContentView: View {
             }
             .navigationSplitViewColumnWidth(min: 520, ideal: 680, max: 1_200)
         } detail: {
-            FloatingPane(
-                surface: .asterionSurface,
-                insets: EdgeInsets(top: 0, leading: 6, bottom: 0, trailing: 0)
-            ) {
+            FloatingPane(insets: EdgeInsets(top: 0, leading: 6, bottom: 0, trailing: 0)) {
                 if section.wrappedValue == .account {
                     AccountView()
                 } else if let selectedNovel {
@@ -259,35 +234,22 @@ struct ContentView: View {
         }
     }
 
-    private func adaptColumns(for width: CGFloat) {
-        availableWidth = width
-        let target: NavigationSplitViewVisibility = if width < 700 {
-            .doubleColumn
-        } else if width < 1_100 {
-            .doubleColumn
-        } else {
-            .all
-        }
-
-        guard columnVisibility != target else { return }
+    private func restoreAllColumns() {
+        guard columnVisibility != .all else { return }
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) {
-            columnVisibility = target
+            columnVisibility = .all
         }
     }
 }
 
 private struct FloatingPane<Content: View>: View {
-    let surface: Color
     let insets: EdgeInsets
     @ViewBuilder let content: () -> Content
 
     var body: some View {
-        ZStack {
-            surface
-            content()
-        }
+        content()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             .overlay {
