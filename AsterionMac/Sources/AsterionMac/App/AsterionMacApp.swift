@@ -21,12 +21,12 @@ final class AsterionAppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.async {
             NSApp.activate(ignoringOtherApps: true)
             NSApp.windows.first?.makeKeyAndOrderFront(nil)
-            self.removeSidebarToggles()
+            self.configureWindowChrome()
         }
     }
 
     @objc private func windowToolbarDidChange(_ notification: Notification) {
-        removeSidebarToggles()
+        configureWindowChrome()
     }
 
     @objc private func toolbarWillAddItem(_ notification: Notification) {
@@ -36,34 +36,30 @@ final class AsterionAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func removeSidebarToggles() {
-        for window in NSApp.windows {
+        for window in NSApp.windows where window.identifier?.rawValue.hasPrefix("main-") == true {
             guard let toolbar = window.toolbar else { continue }
             for index in toolbar.items.indices.reversed() {
-                let item = toolbar.items[index]
-                if containsSidebarToggle(item) {
-                    toolbar.removeItem(at: index)
-                }
+                toolbar.removeItem(at: index)
             }
         }
     }
 
-    private func containsSidebarToggle(_ item: NSToolbarItem) -> Bool {
-        if item.itemIdentifier == .toggleSidebar {
-            return true
+    private func configureWindowChrome() {
+        removeSidebarToggles()
+
+        for window in NSApp.windows where window.identifier?.rawValue.hasPrefix("main-") == true {
+            if !window.styleMask.contains(.fullSizeContentView) {
+                window.styleMask.insert(.fullSizeContentView)
+            }
+            if !window.titlebarAppearsTransparent {
+                window.titlebarAppearsTransparent = true
+            }
+            if window.titleVisibility != .hidden {
+                window.titleVisibility = .hidden
+            }
         }
-        if let group = item as? NSToolbarItemGroup,
-           group.subitems.contains(where: containsSidebarToggle) {
-            return true
-        }
-        let action = item.action.map(NSStringFromSelector) ?? ""
-        return [
-            item.itemIdentifier.rawValue,
-            item.label,
-            item.paletteLabel,
-            item.toolTip ?? "",
-            action,
-        ].joined(separator: " ").localizedCaseInsensitiveContains("sidebar")
     }
+
 }
 
 @main
