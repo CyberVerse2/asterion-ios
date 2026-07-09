@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>The Asterion macOS Port</title>
+  <style>
+    :root { color-scheme: dark; font-family: ui-sans-serif, system-ui, sans-serif; background: #0d0c0b; color: #e8dcc8; }
+    body { max-width: 920px; margin: 0 auto; padding: 48px 24px 80px; line-height: 1.65; }
+    h1, h2 { font-family: Georgia, serif; } a, button { color: #d5b655; }
+    code { color: #e1c96f; } pre, .panel { padding: 18px; border-radius: 12px; border: 1px solid #2a2722; background: #1a1816; overflow: auto; }
+    .flow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 18px 0; }
+    .flow div { padding: 14px; text-align: center; border-radius: 10px; background: #1a1816; border: 1px solid #4a4024; }
+    .quiz button { display: block; width: 100%; text-align: left; margin: 8px 0; padding: 10px 12px; border: 1px solid #4a4640; border-radius: 8px; background: #1a1816; }
+    .feedback { min-height: 1.5em; color: #c4a44a; }
+    @media (max-width: 680px) { .flow { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <p><a href="index.html">← Learning docs</a></p>
+  <h1>The native macOS port</h1>
+
+  <h2>System map</h2>
+  <p><code>AsterionMac</code> is an independent SwiftPM GUI app targeting macOS 15. The iOS target remains unchanged. The desktop app talks directly to the same production content and user API and uses Clerk's macOS-capable Swift SDK for authentication.</p>
+  <div class="flow" aria-label="Data flow">
+    <div>SwiftUI window</div><div>AppModel</div><div>APIClient actor</div><div>Asterion API</div>
+  </div>
+
+  <h2>Responsibility and ownership</h2>
+  <div class="panel">
+    <ul>
+      <li><code>AsterionMacApp</code> owns app-wide services and declares main, reader, and settings scenes.</li>
+      <li><code>AsterionAppDelegate</code> is the only AppKit bridge; it activates the staged SwiftPM app bundle and brings its SwiftUI window forward.</li>
+      <li><code>ContentView</code> owns window-scoped sidebar and novel selection with <code>@SceneStorage</code>.</li>
+      <li><code>AppModel</code> owns the catalog, Clerk session, server library, and chapter cache.</li>
+      <li><code>APIClient</code> is an actor, so token and request state are serialized away from view code.</li>
+      <li><code>ReaderView</code> owns each reader window's active chapter, visible line, export, and preference bindings.</li>
+    </ul>
+  </div>
+
+  <h2>Desktop decisions</h2>
+  <p>The mobile tab bar and push stacks were replaced with a stable three-column <code>NavigationSplitView</code>. A novel stays selected while the user moves between the list and detail surface. Reading opens in a value-driven <code>WindowGroup</code>, allowing multiple books or chapters to remain open without hiding catalog context. Account preferences live in the system Settings scene, while account identity remains an app section.</p>
+
+  <h2>Behavior walkthrough</h2>
+  <ol>
+    <li>Launch starts catalog loading and Clerk session restoration concurrently.</li>
+    <li>Sidebar selection chooses a catalog projection: alphabetical, ranked, or saved.</li>
+    <li>Selecting a novel renders its metadata and lazily fetches its complete chapter list.</li>
+    <li>Read opens a new reader window using the novel and chapter identifiers as the route.</li>
+    <li>The reader debounces visible-line changes before syncing authenticated progress.</li>
+  </ol>
+
+  <h2>Verification</h2>
+  <p><code>swift build</code> proves source and current dependency compatibility. <code>swift test</code> verifies backend decoding, rank normalization, and chapter HTML cleanup. <code>./script/build_and_run.sh --verify</code> stages a real <code>.app</code> bundle—including SwiftPM dependency resource bundles—and proves the macOS process launches.</p>
+
+  <h2>Quiz</h2>
+  <div class="quiz" data-answer="reader">
+    <p>Where should state that differs between two open reading windows live?</p>
+    <button data-value="model">In the app-wide AppModel</button>
+    <button data-value="reader">In each ReaderView scene</button>
+    <button data-value="api">Inside APIClient</button>
+    <p class="feedback" aria-live="polite"></p>
+  </div>
+  <div class="quiz" data-answer="scene">
+    <p>Why is the selected novel stored with <code>@SceneStorage</code>?</p>
+    <button data-value="scene">Each main window keeps its own selection</button>
+    <button data-value="global">Every window must always share one selection</button>
+    <button data-value="server">The selection must be sent to the backend</button>
+    <p class="feedback" aria-live="polite"></p>
+  </div>
+  <div class="quiz" data-answer="verify">
+    <p>Which check proves the staged GUI bundle actually launches?</p>
+    <button data-value="build"><code>swift build</code></button>
+    <button data-value="test"><code>swift test</code></button>
+    <button data-value="verify"><code>./script/build_and_run.sh --verify</code></button>
+    <p class="feedback" aria-live="polite"></p>
+  </div>
+  <script>
+    document.querySelectorAll('.quiz').forEach((quiz) => {
+      quiz.querySelectorAll('button').forEach((button) => {
+        button.addEventListener('click', () => {
+          const correct = button.dataset.value === quiz.dataset.answer;
+          quiz.querySelector('.feedback').textContent = correct ? 'Correct.' : 'Not quite—trace which owner has the narrowest lifetime for that state.';
+        });
+      });
+    });
+  </script>
+</body>
+</html>

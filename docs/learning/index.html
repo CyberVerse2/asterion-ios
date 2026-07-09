@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Asterion Learning Docs</title>
+  <style>
+    :root { color-scheme: dark; font-family: ui-sans-serif, system-ui, sans-serif; background: #0d0c0b; color: #e8dcc8; }
+    body { max-width: 880px; margin: 0 auto; padding: 48px 24px; line-height: 1.6; }
+    a { color: #d5b655; } .card { border: 1px solid #2a2722; border-radius: 14px; padding: 20px; background: #1a1816; }
+    code { color: #e1c96f; } h1, h2 { font-family: Georgia, serif; }
+  </style>
+</head>
+<body>
+  <header>
+    <p>ASTERION · LEARNING DOCS</p>
+    <h1>Codebase map</h1>
+    <p>Asterion contains the original SwiftUI iOS app, its Node backend, and a standalone native macOS port.</p>
+  </header>
+  <main>
+    <section class="card">
+      <h2>Recommended reading path</h2>
+      <ol>
+        <li>Read <a href="macos-port.html">The native macOS port</a> for scene ownership, data flow, and verification.</li>
+        <li>Open <code>AsterionMac/Sources/AsterionMac/App</code> to see the window and command model.</li>
+        <li>Follow <code>ContentView → AppModel → APIClient</code> to trace user intent to the backend.</li>
+        <li>Review <code>ReaderView</code> for independent window state and progress sync.</li>
+      </ol>
+    </section>
+  </main>
+</body>
+</html>
