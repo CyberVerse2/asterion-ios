@@ -51,8 +51,8 @@ final class AsterionAppDelegate: NSObject, NSApplicationDelegate {
 
 @main
 @MainActor
-struct AsterionMacApp: App {
-    private static let clerkKeychainService = "cloud.cyberverse.AsterionMac.clerk"
+struct AsterionApp: App {
+    private static let clerkKeychainService = "cloud.cyberverse.Asterion.clerk"
 
     @NSApplicationDelegateAdaptor(AsterionAppDelegate.self) private var appDelegate
     @StateObject private var model = AppModel()

@@ -2,8 +2,8 @@
 set -euo pipefail
 
 MODE="${1:-run}"
-APP_NAME="AsterionMac"
-BUNDLE_ID="cloud.cyberverse.AsterionMac"
+APP_NAME="Asterion"
+BUNDLE_ID="cloud.cyberverse.Asterion"
 MIN_SYSTEM_VERSION="15.0"
 CODE_SIGN_IDENTITY="${ASTERION_CODE_SIGN_IDENTITY:-}"
 
@@ -31,6 +31,7 @@ if [[ -z "$CODE_SIGN_IDENTITY" ]]; then
 fi
 
 pkill -x "$APP_NAME" >/dev/null 2>&1 || true
+pkill -x "AsterionMac" >/dev/null 2>&1 || true
 
 cd "$ROOT_DIR"
 swift build
@@ -55,7 +56,7 @@ chmod +x "$SIGNED_BINARY"
   -R="identifier \"$BUNDLE_ID\" and anchor apple generic" \
   "$SIGNED_BINARY"
 
-rm -rf "$APP_BUNDLE"
+rm -rf "$APP_BUNDLE" "$DIST_DIR/AsterionMac.app"
 mkdir -p "$APP_MACOS" "$APP_RESOURCES"
 mv "$SIGNED_BINARY" "$APP_BINARY"
 

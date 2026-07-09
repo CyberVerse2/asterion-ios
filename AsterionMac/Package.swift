@@ -3,12 +3,12 @@
 import PackageDescription
 
 let package = Package(
-    name: "AsterionMac",
+    name: "Asterion",
     platforms: [
         .macOS(.v15),
     ],
     products: [
-        .executable(name: "AsterionMac", targets: ["AsterionMac"]),
+        .executable(name: "Asterion", targets: ["AsterionMac"]),
     ],
     dependencies: [
         .package(url: "https://github.com/clerk/clerk-ios", from: "1.2.0"),
