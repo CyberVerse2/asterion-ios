@@ -5,6 +5,7 @@ struct ContentView: View {
     @SceneStorage("selectedSection") private var selectedSectionRaw = AppSection.discover.rawValue
     @SceneStorage("selectedNovelID") private var selectedNovelID = ""
     @State private var searchText = ""
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
     private var section: Binding<AppSection> {
         Binding(
@@ -22,38 +23,47 @@ struct ContentView: View {
     }
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarView(selection: section)
-                .navigationSplitViewColumnWidth(min: 180, ideal: 210, max: 260)
+                .navigationSplitViewColumnWidth(min: 190, ideal: 220, max: 240)
         } content: {
             if section.wrappedValue == .account {
                 AccountSummaryView()
                     .navigationSplitViewColumnWidth(min: 250, ideal: 280, max: 340)
             } else {
-                NovelListView(
+                EditorialCatalogView(
                     section: section.wrappedValue,
                     novels: model.novels(for: section.wrappedValue, search: searchText),
+                    isSearching: !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                     selectedNovelID: $selectedNovelID
                 )
-                .navigationSplitViewColumnWidth(min: 290, ideal: 340, max: 420)
-                .searchable(text: $searchText, prompt: "Title, author, or genre")
+                .navigationSplitViewColumnWidth(min: 520, ideal: 650, max: 760)
             }
         } detail: {
             if section.wrappedValue == .account {
                 AccountView()
+                    .navigationSplitViewColumnWidth(min: 400, ideal: 480, max: 520)
             } else if let selectedNovel {
                 NovelDetailView(novel: selectedNovel)
                     .id(selectedNovel.id)
+                    .navigationSplitViewColumnWidth(min: 400, ideal: 480, max: 520)
             } else {
                 detailPlaceholder
+                    .navigationSplitViewColumnWidth(min: 400, ideal: 480, max: 520)
             }
         }
+        .navigationSplitViewStyle(.balanced)
+        .searchable(text: $searchText, prompt: "Search titles, authors, or genres")
         .focusedSceneValue(\.asterionSection, section)
         .tint(.asterionGold)
         .background(Color.asterionBackground)
+        .preferredColorScheme(.light)
         .onAppear {
+            columnVisibility = .all
             if selectedNovelID.isEmpty {
                 selectFirstNovel(in: section.wrappedValue)
+            } else {
+                ensureSelection()
             }
         }
         .onChange(of: model.novels) {
@@ -62,6 +72,9 @@ struct ContentView: View {
         .onChange(of: model.libraryNovelIDs) {
             guard section.wrappedValue == .library else { return }
             ensureSelection()
+        }
+        .onChange(of: selectedSectionRaw) {
+            selectFirstNovel(in: section.wrappedValue)
         }
         .onChange(of: searchText) {
             ensureSelection()
@@ -95,17 +108,32 @@ struct ContentView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.asterionBackground)
+        .background(Color.asterionSurface)
     }
 
     private func selectFirstNovel(in section: AppSection) {
-        selectedNovelID = model.novels(for: section, search: searchText).first?.id ?? ""
+        if section == .discover, searchText.isEmpty {
+            selectedNovelID = model.featuredNovels.first?.id ?? ""
+        } else {
+            selectedNovelID = model.novels(for: section, search: searchText).first?.id ?? ""
+        }
     }
 
     private func ensureSelection() {
         let visible = model.novels(for: section.wrappedValue, search: searchText)
-        if !visible.contains(where: { $0.id == selectedNovelID }) {
-            selectedNovelID = visible.first?.id ?? ""
+        let visibleIDs: Set<String>
+        if section.wrappedValue == .discover, searchText.isEmpty {
+            visibleIDs = Set(
+                model.featuredNovels.map(\.id)
+                    + model.trendingNovels.map(\.id)
+                    + model.continueReadingEntries.map(\.novel.id)
+            )
+        } else {
+            visibleIDs = Set(visible.map(\.id))
+        }
+
+        if !visibleIDs.contains(selectedNovelID) {
+            selectFirstNovel(in: section.wrappedValue)
         }
     }
 }

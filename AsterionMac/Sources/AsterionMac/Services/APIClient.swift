@@ -183,6 +183,11 @@ actor APIClient {
         return envelope.data
     }
 
+    func fetchAllProgress() async throws -> [ReadingProgress] {
+        let envelope: DataEnvelope<[ReadingProgress]> = try await request(path: "/me/progress")
+        return envelope.data
+    }
+
     func saveProgress(
         novelID: String,
         chapterID: String,

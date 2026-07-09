@@ -7,7 +7,7 @@ struct ReaderView: View {
 
     @AppStorage("readerFontSize") private var fontSize = 19.0
     @AppStorage("readerLineSpacing") private var lineSpacing = 8.0
-    @AppStorage("readerColumnWidth") private var columnWidth = 700.0
+    @AppStorage("readerColumnWidth") private var columnWidth = 640.0
 
     @State private var novel: Novel?
     @State private var chapters: [Chapter] = []
@@ -38,12 +38,13 @@ struct ReaderView: View {
         }
         .frame(minWidth: 560, minHeight: 560)
         .background(Color.asterionBackground)
+        .preferredColorScheme(.light)
         .navigationTitle(chapter?.title ?? "Reader")
         .safeAreaInset(edge: .bottom) {
             if let error = model.accountError {
                 Label(error, systemImage: "exclamationmark.triangle.fill")
                     .font(.callout)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(Color.asterionGold)
                     .padding(10)
                     .frame(maxWidth: .infinity)
                     .background(.ultraThinMaterial)
@@ -74,11 +75,11 @@ struct ReaderView: View {
                 LazyVStack(alignment: .leading, spacing: lineSpacing) {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(novel?.title.uppercased() ?? "ASTERION")
-                            .font(.asterionMono(10, weight: .medium))
-                            .tracking(2)
+                            .font(.caption.weight(.medium))
+                            .tracking(1.5)
                             .foregroundStyle(Color.asterionGold)
                         Text(chapter.title)
-                            .font(.asterionSerif(34, weight: .semibold))
+                            .font(.asterionSerif(32, weight: .semibold))
                             .foregroundStyle(Color.asterionText)
                             .textSelection(.enabled)
                     }
@@ -110,7 +111,8 @@ struct ReaderView: View {
                 }
                 .frame(maxWidth: columnWidth, alignment: .leading)
                 .padding(.horizontal, 48)
-                .padding(.vertical, 44)
+                .padding(.top, 52)
+                .padding(.bottom, 64)
                 .frame(maxWidth: .infinity)
             }
             .onChange(of: chapter.id) {

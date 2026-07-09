@@ -24,21 +24,17 @@ struct CoverView: View {
         .clipShape(RoundedRectangle(cornerRadius: max(6, width * 0.06), style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: max(6, width * 0.06), style: .continuous)
-                .stroke(genreColor.opacity(0.35), lineWidth: 1)
+                .stroke(Color.asterionBorder, lineWidth: 1)
         }
-        .shadow(color: genreColor.opacity(0.22), radius: width * 0.14, y: width * 0.08)
+        .shadow(color: Color.black.opacity(0.10), radius: width * 0.08, y: width * 0.035)
     }
 
     private var fallback: some View {
-        LinearGradient(
-            colors: [genreColor.opacity(0.55), Color.asterionCard],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
+        Color.asterionCard
         .overlay {
             Image(systemName: "book.closed.fill")
                 .font(.system(size: width * 0.25, weight: .light))
-                .foregroundStyle(Color.asterionText.opacity(0.7))
+                .foregroundStyle(genreColor.opacity(0.7))
         }
     }
 }

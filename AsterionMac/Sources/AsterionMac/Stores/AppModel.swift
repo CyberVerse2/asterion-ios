@@ -3,6 +3,13 @@ import Foundation
 
 @MainActor
 final class AppModel: ObservableObject {
+    struct ContinueReadingEntry: Identifiable {
+        let novel: Novel
+        let progress: ReadingProgress
+
+        var id: String { novel.id }
+    }
+
     struct SignedInUser: Equatable {
         let id: String
         let name: String
@@ -12,6 +19,7 @@ final class AppModel: ObservableObject {
 
     @Published private(set) var novels: [Novel] = []
     @Published private(set) var libraryNovelIDs: Set<String> = []
+    @Published private(set) var progressByNovelID: [String: ReadingProgress] = [:]
     @Published private(set) var signedInUser: SignedInUser?
     @Published private(set) var isLoadingCatalog = false
     @Published private(set) var isUpdatingLibrary = false
@@ -26,6 +34,42 @@ final class AppModel: ObservableObject {
     private var authEventsTask: Task<Void, Never>?
 
     var isSignedIn: Bool { signedInUser != nil }
+
+    var featuredNovels: [Novel] {
+        Array(
+            novels
+                .sorted {
+                    if $0.numericRank == $1.numericRank {
+                        return ($0.rating ?? 0) > ($1.rating ?? 0)
+                    }
+                    return $0.numericRank < $1.numericRank
+                }
+                .prefix(4)
+        )
+    }
+
+    var trendingNovels: [Novel] {
+        Array(
+            novels
+                .sorted {
+                    if ($0.rating ?? 0) == ($1.rating ?? 0) {
+                        return $0.numericRank < $1.numericRank
+                    }
+                    return ($0.rating ?? 0) > ($1.rating ?? 0)
+                }
+                .prefix(8)
+        )
+    }
+
+    var continueReadingEntries: [ContinueReadingEntry] {
+        progressByNovelID.values
+            .sorted { ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast) }
+            .compactMap { progress in
+                novel(id: progress.novelId).map {
+                    ContinueReadingEntry(novel: $0, progress: progress)
+                }
+            }
+    }
 
     func start() async {
         guard !hasStarted else { return }
@@ -93,13 +137,17 @@ final class AppModel: ObservableObject {
         let chapters = try await api.fetchAllChapters(novelID: novelID)
         chaptersByNovelID[novelID] = chapters
         for chapter in chapters {
-            chapterByID[chapter.id] = chapter
+            if chapter.content?.isEmpty == false {
+                chapterByID[chapter.id] = chapter
+            }
         }
         return chapters
     }
 
     func chapter(id: String) async throws -> Chapter {
-        if let cached = chapterByID[id] { return cached }
+        if let cached = chapterByID[id], cached.content?.isEmpty == false {
+            return cached
+        }
         let chapter = try await api.fetchChapter(id: id)
         chapterByID[id] = chapter
         return chapter
@@ -135,12 +183,13 @@ final class AppModel: ObservableObject {
     func saveProgress(novelID: String, chapterID: String, currentLine: Int, totalLines: Int) async {
         guard isSignedIn else { return }
         do {
-            _ = try await api.saveProgress(
+            let saved = try await api.saveProgress(
                 novelID: novelID,
                 chapterID: chapterID,
                 currentLine: currentLine,
                 totalLines: totalLines
             )
+            progressByNovelID[novelID] = saved
         } catch {
             accountError = "Reading progress could not be synced: \(error.localizedDescription)"
         }
@@ -166,6 +215,7 @@ final class AppModel: ObservableObject {
         guard let clerkUser = Clerk.shared.user else {
             signedInUser = nil
             libraryNovelIDs = []
+            progressByNovelID = [:]
             await api.setToken(nil)
             return
         }
@@ -194,6 +244,8 @@ final class AppModel: ObservableObject {
             )
             let records = try await api.fetchLibrary()
             libraryNovelIDs = Set(records.map(\.novelId))
+            let progress = try await api.fetchAllProgress()
+            progressByNovelID = Dictionary(uniqueKeysWithValues: progress.map { ($0.novelId, $0) })
             accountError = nil
         } catch {
             accountError = error.localizedDescription

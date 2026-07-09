@@ -39,4 +39,14 @@ struct DomainModelTests {
 
         #expect([unranked, ranked].sorted { $0.numericRank < $1.numericRank }.first?.id == ranked.id)
     }
+
+    @Test func malformedAuthorMarkupIsNormalized() {
+        let novel = Novel(
+            id: "1", title: "Lord of Mysteries", author: #"Editor:+CK/" class="a1" title="Cuttlefish That Loves DivingEditor: CK"&gt;Cuttlefish"#,
+            rank: nil, totalChapters: nil, views: nil, bookmarks: nil, status: nil,
+            genres: nil, summary: nil, imageURL: nil, rating: nil
+        )
+
+        #expect(novel.authorDisplayName == "Cuttlefish That Loves Diving")
+    }
 }

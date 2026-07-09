@@ -19,7 +19,20 @@ struct Novel: Identifiable, Codable, Hashable, Sendable {
     }
 
     var authorDisplayName: String {
-        let cleaned = author?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        var cleaned = author?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if let titleRange = cleaned.range(of: "title=\"") {
+            let remainder = cleaned[titleRange.upperBound...]
+            if let closingQuote = remainder.firstIndex(of: "\"") {
+                cleaned = String(remainder[..<closingQuote])
+            }
+        }
+        if let editorRange = cleaned.range(of: "Editor:", options: .caseInsensitive) {
+            cleaned = String(cleaned[..<editorRange.lowerBound])
+        }
+        cleaned = cleaned
+            .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "&gt;", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         return cleaned.isEmpty || cleaned == "Latest Release：" ? "Unknown author" : cleaned
     }
 

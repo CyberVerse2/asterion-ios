@@ -9,137 +9,137 @@ struct NovelDetailView: View {
     @State private var progress: ReadingProgress?
     @State private var isLoading = false
     @State private var errorMessage: String?
+    @State private var scrollPosition: String?
 
     private var isInLibrary: Bool {
         model.libraryNovelIDs.contains(novel.id)
     }
 
+    private var visibleChapters: [Chapter] {
+        Array(chapters.suffix(5).reversed())
+    }
+
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
+            VStack(alignment: .leading, spacing: 25) {
                 hero
-                metadata
+                    .id("detail-top")
+                actions
+                Divider().overlay(Color.asterionBorder)
 
-                if let summary = novel.summary, !summary.isEmpty {
-                    section(title: "Synopsis") {
-                        Text(summary)
-                            .font(.asterionSerif(16))
+                if !cleanSummary.isEmpty {
+                    detailSection(title: "Synopsis") {
+                        Text(cleanSummary)
+                            .font(.asterionSerif(15))
                             .foregroundStyle(Color.asterionReaderText)
                             .lineSpacing(5)
                             .textSelection(.enabled)
                     }
                 }
 
-                section(title: "Chapters") {
+                Divider().overlay(Color.asterionBorder)
+
+                detailSection(title: "Chapters", trailing: chapterCountLabel) {
                     chapterList
                 }
             }
-            .frame(maxWidth: 860, alignment: .leading)
-            .padding(36)
-            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 30)
+            .padding(.top, 28)
+            .padding(.bottom, 44)
         }
-        .background(Color.asterionBackground)
+        .scrollPosition(id: $scrollPosition, anchor: .top)
+        .background(Color.asterionSurface)
         .navigationTitle(novel.title)
-        .safeAreaInset(edge: .bottom) {
-            if let error = model.accountError {
-                Label(error, systemImage: "exclamationmark.triangle.fill")
-                    .font(.callout)
-                    .foregroundStyle(.red)
-                    .padding(10)
-                    .frame(maxWidth: .infinity)
-                    .background(.ultraThinMaterial)
-            }
+        .safeAreaInset(edge: .bottom) { accountErrorBar }
+        .task(id: novel.id) {
+            scrollPosition = "detail-top"
+            await load()
+            scrollPosition = "detail-top"
         }
-        .toolbar {
-            ToolbarItemGroup {
-                Button {
-                    Task { await model.toggleLibrary(novelID: novel.id) }
-                } label: {
-                    Label(
-                        isInLibrary ? "Remove from Library" : "Add to Library",
-                        systemImage: isInLibrary ? "books.vertical.fill" : "books.vertical"
-                    )
-                }
-                .disabled(!model.isSignedIn || model.isUpdatingLibrary)
-
-                Button("Read", systemImage: "book.pages") {
-                    openPreferredChapter()
-                }
-                .keyboardShortcut(.return, modifiers: .command)
-                .disabled(chapters.isEmpty)
-            }
-        }
-        .task(id: novel.id) { await load() }
     }
 
     private var hero: some View {
-        HStack(alignment: .top, spacing: 28) {
-            CoverView(novel: novel, width: 170, height: 238)
+        HStack(alignment: .top, spacing: 24) {
+            CoverView(novel: novel, width: 156, height: 224)
 
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 13) {
                 Text(novel.title)
-                    .font(.asterionSerif(34, weight: .semibold))
+                    .font(.asterionSerif(28, weight: .semibold))
                     .foregroundStyle(Color.asterionText)
+                    .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
 
                 Text(novel.authorDisplayName)
-                    .font(.title3)
-                    .foregroundStyle(.secondary)
+                    .font(.asterionSerif(16, weight: .medium))
+                    .foregroundStyle(Color.asterionText)
 
-                if let genres = novel.genres, !genres.isEmpty {
-                    ScrollView(.horizontal) {
-                        HStack(spacing: 7) {
-                            ForEach(genres, id: \.self) { genre in
-                                Text(genre.uppercased())
-                                    .font(.asterionMono(10, weight: .medium))
-                                    .padding(.horizontal, 9)
-                                    .padding(.vertical, 5)
-                                    .background(GenreStyle.color(for: [genre]).opacity(0.2), in: Capsule())
-                                    .foregroundStyle(Color.asterionText)
-                            }
-                        }
-                    }
-                    .scrollIndicators(.hidden)
+                VStack(alignment: .leading, spacing: 9) {
+                    MetadataLine(
+                        icon: "book.closed",
+                        value: novel.genres?.first ?? "Fiction"
+                    )
+                    MetadataLine(
+                        icon: "text.page",
+                        value: "\(novel.totalChapters ?? String(chapters.count)) chapters"
+                    )
+                    MetadataLine(icon: "eye", value: "\(novel.views ?? "—") views")
+                    MetadataLine(
+                        icon: "star",
+                        value: novel.rating.map { String(format: "%.1f rating", $0) } ?? "Not yet rated"
+                    )
                 }
-
-                HStack(spacing: 12) {
-                    Button {
-                        openPreferredChapter()
-                    } label: {
-                        Label(readButtonTitle, systemImage: "book.pages.fill")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.asterionGold)
-                    .disabled(chapters.isEmpty)
-
-                    Button {
-                        Task { await model.toggleLibrary(novelID: novel.id) }
-                    } label: {
-                        Label(isInLibrary ? "Saved" : "Save", systemImage: isInLibrary ? "checkmark" : "plus")
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(!model.isSignedIn || model.isUpdatingLibrary)
-                }
+                .padding(.top, 5)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    private var metadata: some View {
-        HStack(spacing: 0) {
-            Metric(value: novel.rating.map { String(format: "%.1f", $0) } ?? "—", label: "Rating")
-            Divider().frame(height: 38)
-            Metric(value: novel.totalChapters ?? String(chapters.count), label: "Chapters")
-            Divider().frame(height: 38)
-            Metric(value: novel.views ?? "—", label: "Views")
-            Divider().frame(height: 38)
-            Metric(value: novel.status ?? "Unknown", label: "Status")
-        }
-        .padding(.vertical, 16)
-        .background(Color.asterionCard, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color.asterionBorder)
+    private var actions: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                Button {
+                    openPreferredChapter()
+                } label: {
+                    Label(readButtonTitle, systemImage: "book.pages")
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 11)
+                        .foregroundStyle(.white)
+                        .background(Color.asterionGold, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut(.return, modifiers: .command)
+                .disabled(chapters.isEmpty)
+
+                Button {
+                    Task { await model.toggleLibrary(novelID: novel.id) }
+                } label: {
+                    Label(isInLibrary ? "Saved" : "Save", systemImage: isInLibrary ? "bookmark.fill" : "bookmark")
+                        .frame(minWidth: 76)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .foregroundStyle(Color.asterionText)
+                        .background(Color.asterionSurface, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .stroke(Color.asterionBorder)
+                        }
+                }
+                .buttonStyle(.plain)
+                .disabled(!model.isSignedIn || model.isUpdatingLibrary)
+            }
+
+            if let progress {
+                HStack(spacing: 8) {
+                    Text("Chapter progress")
+                        .font(.caption)
+                        .foregroundStyle(Color.asterionMuted)
+                    ProgressView(value: min(1, max(0, progress.percentage / 100)))
+                        .tint(Color.asterionGold)
+                    Text("\(Int(progress.percentage))%")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(Color.asterionMuted)
+                }
+            }
         }
     }
 
@@ -147,7 +147,7 @@ struct NovelDetailView: View {
     private var chapterList: some View {
         if isLoading {
             ProgressView("Loading chapters…")
-                .frame(maxWidth: .infinity, minHeight: 120)
+                .frame(maxWidth: .infinity, minHeight: 100)
         } else if let errorMessage {
             ContentUnavailableView {
                 Label("Chapters unavailable", systemImage: "exclamationmark.triangle")
@@ -160,42 +160,75 @@ struct NovelDetailView: View {
             ContentUnavailableView("No chapters", systemImage: "text.page")
         } else {
             LazyVStack(spacing: 0) {
-                ForEach(chapters.prefix(40)) { chapter in
+                ForEach(visibleChapters) { chapter in
                     Button {
                         open(chapter)
                     } label: {
-                        HStack {
+                        HStack(spacing: 14) {
                             Text(String(chapter.chapterNumber))
                                 .font(.caption.monospacedDigit())
-                                .foregroundStyle(.secondary)
-                                .frame(width: 50, alignment: .trailing)
+                                .foregroundStyle(Color.asterionMuted)
+                                .frame(width: 34, alignment: .trailing)
                             Text(chapter.title)
+                                .font(.asterionSerif(14, weight: .medium))
                                 .foregroundStyle(Color.asterionText)
                                 .lineLimit(1)
                             Spacer()
-                            Image(systemName: "arrow.up.right.square")
-                                .foregroundStyle(.tertiary)
+                            Image(systemName: "arrow.up.right")
+                                .font(.caption)
+                                .foregroundStyle(Color.asterionMuted)
                         }
-                        .padding(.vertical, 9)
+                        .padding(.vertical, 11)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     Divider().overlay(Color.asterionBorder)
                 }
             }
-            .padding(.horizontal, 14)
-            .background(Color.asterionCard.opacity(0.55), in: RoundedRectangle(cornerRadius: 12))
-
-            if chapters.count > 40 {
-                Text("Showing the first 40 of \(chapters.count) chapters. Open the reader to continue through the full list.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
         }
+    }
+
+    @ViewBuilder
+    private var accountErrorBar: some View {
+        if let error = model.accountError {
+            Label(error, systemImage: "exclamationmark.triangle.fill")
+                .font(.callout)
+                .foregroundStyle(Color.asterionGold)
+                .padding(10)
+                .frame(maxWidth: .infinity)
+                .background(.regularMaterial)
+        }
+    }
+
+    private var cleanSummary: String {
+        let cleaned = (novel.summary ?? "")
+            .replacingOccurrences(of: "Show More", with: "")
+            .replacingOccurrences(
+                of: "\\s+on [A-Z][a-z]+ \\d{1,2}, \\d{4}.*$",
+                with: "",
+                options: .regularExpression
+            )
+            .replacingOccurrences(
+                of: "([.!?])([A-Z])",
+                with: "$1 $2",
+                options: .regularExpression
+            )
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard cleaned.count > 680 else { return cleaned }
+        let prefix = String(cleaned.prefix(680))
+        if let sentenceEnd = prefix.lastIndex(of: ".") {
+            return String(prefix[...sentenceEnd])
+        }
+        return prefix + "…"
     }
 
     private var readButtonTitle: String {
         progress == nil ? "Start Reading" : "Continue Reading"
+    }
+
+    private var chapterCountLabel: String? {
+        chapters.isEmpty ? nil : "\(chapters.count) chapters"
     }
 
     private func load() async {
@@ -213,7 +246,9 @@ struct NovelDetailView: View {
     }
 
     private func openPreferredChapter() {
-        let preferred = progress.flatMap { saved in chapters.first { $0.id == saved.chapterId } } ?? chapters.first
+        let preferred = progress.flatMap { saved in
+            chapters.first { $0.id == saved.chapterId }
+        } ?? chapters.first
         if let preferred { open(preferred) }
     }
 
@@ -221,30 +256,41 @@ struct NovelDetailView: View {
         openWindow(value: ReaderRoute(novelID: novel.id, chapterID: chapter.id))
     }
 
-    private func section<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
+    private func detailSection<Content: View>(
+        title: String,
+        trailing: String? = nil,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(title)
-                .font(.asterionSerif(22, weight: .semibold))
-                .foregroundStyle(Color.asterionText)
+            HStack {
+                Text(title)
+                    .font(.asterionSerif(20, weight: .semibold))
+                    .foregroundStyle(Color.asterionText)
+                Spacer()
+                if let trailing {
+                    Text(trailing)
+                        .font(.caption)
+                        .foregroundStyle(Color.asterionGold)
+                }
+            }
             content()
         }
     }
 }
 
-private struct Metric: View {
+private struct MetadataLine: View {
+    let icon: String
     let value: String
-    let label: String
 
     var body: some View {
-        VStack(spacing: 3) {
+        Label {
             Text(value)
-                .font(.headline.monospacedDigit())
-                .foregroundStyle(Color.asterionText)
                 .lineLimit(1)
-            Text(label)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+        } icon: {
+            Image(systemName: icon)
+                .frame(width: 16)
         }
-        .frame(maxWidth: .infinity)
+        .font(.caption)
+        .foregroundStyle(Color.asterionMuted)
     }
 }

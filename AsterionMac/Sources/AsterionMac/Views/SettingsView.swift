@@ -3,7 +3,7 @@ import SwiftUI
 struct SettingsView: View {
     @AppStorage("readerFontSize") private var fontSize = 19.0
     @AppStorage("readerLineSpacing") private var lineSpacing = 8.0
-    @AppStorage("readerColumnWidth") private var columnWidth = 700.0
+    @AppStorage("readerColumnWidth") private var columnWidth = 640.0
 
     var body: some View {
         Form {
@@ -29,5 +29,6 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .frame(width: 520, height: 260)
+        .preferredColorScheme(.light)
     }
 }

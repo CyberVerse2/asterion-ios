@@ -1,13 +1,17 @@
 import SwiftUI
 
 extension Color {
-    static let asterionBackground = Color(red: 0.051, green: 0.047, blue: 0.043)
-    static let asterionCard = Color(red: 0.102, green: 0.094, blue: 0.086)
-    static let asterionText = Color(red: 0.91, green: 0.863, blue: 0.784)
-    static let asterionGold = Color(red: 0.769, green: 0.643, blue: 0.29)
-    static let asterionMuted = Color(red: 0.42, green: 0.392, blue: 0.349)
-    static let asterionBorder = Color(red: 0.165, green: 0.153, blue: 0.133)
-    static let asterionReaderText = Color(red: 0.784, green: 0.722, blue: 0.627)
+    static let asterionBackground = Color(red: 0.988, green: 0.976, blue: 0.956)
+    static let asterionSidebar = Color(red: 0.973, green: 0.957, blue: 0.929)
+    static let asterionSurface = Color(red: 0.998, green: 0.993, blue: 0.982)
+    static let asterionCard = Color(red: 0.965, green: 0.941, blue: 0.913)
+    static let asterionText = Color(red: 0.145, green: 0.122, blue: 0.102)
+    static let asterionGold = Color(red: 0.612, green: 0.169, blue: 0.161)
+    static let asterionAccentSoft = Color(red: 0.969, green: 0.910, blue: 0.894)
+    static let asterionMuted = Color(red: 0.455, green: 0.408, blue: 0.365)
+    static let asterionBorder = Color(red: 0.890, green: 0.855, blue: 0.812)
+    static let asterionReaderText = Color(red: 0.190, green: 0.157, blue: 0.129)
+    static let asterionProgressTrack = Color(red: 0.898, green: 0.866, blue: 0.828)
 }
 
 extension Font {

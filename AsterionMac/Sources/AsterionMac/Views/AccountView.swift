@@ -6,11 +6,18 @@ struct AccountSummaryView: View {
     @EnvironmentObject private var model: AppModel
 
     var body: some View {
-        List {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Account")
+                .font(.asterionSerif(24, weight: .semibold))
+                .foregroundStyle(Color.asterionText)
             Label(model.isSignedIn ? "Profile" : "Sign In", systemImage: "person.crop.circle")
-                .font(.headline)
+                .font(.body.weight(.medium))
+                .foregroundStyle(Color.asterionGold)
+            Spacer()
         }
-        .listStyle(.inset)
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Color.asterionBackground)
         .navigationTitle("Account")
     }
 }
@@ -29,7 +36,8 @@ struct AccountView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(40)
-        .background(Color.asterionBackground)
+        .background(Color.asterionSurface)
+        .preferredColorScheme(.light)
         .sheet(isPresented: $presentsAuthentication) {
             AuthView()
                 .environment(Clerk.shared)
@@ -67,7 +75,7 @@ struct AccountView: View {
             if let error = model.accountError {
                 Text(error)
                     .font(.callout)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(Color.asterionGold)
                     .multilineTextAlignment(.center)
             }
 
@@ -94,7 +102,7 @@ struct AccountView: View {
             if let error = model.accountError {
                 Text(error)
                     .font(.callout)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(Color.asterionGold)
                     .multilineTextAlignment(.center)
             }
 

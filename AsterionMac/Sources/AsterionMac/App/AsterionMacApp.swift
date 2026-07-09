@@ -36,7 +36,7 @@ struct AsterionMacApp: App {
             ContentView()
                 .environmentObject(model)
                 .environment(Clerk.shared)
-                .preferredColorScheme(.dark)
+                .preferredColorScheme(.light)
                 .task { await model.start() }
         }
         .defaultSize(width: 1240, height: 780)
@@ -50,14 +50,14 @@ struct AsterionMacApp: App {
             if let route {
                 ReaderView(route: route)
                     .environmentObject(model)
-                    .preferredColorScheme(.dark)
+                    .preferredColorScheme(.light)
             }
         }
         .defaultSize(width: 840, height: 900)
 
         Settings {
             SettingsView()
-                .preferredColorScheme(.dark)
+                .preferredColorScheme(.light)
         }
     }
 }
