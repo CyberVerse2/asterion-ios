@@ -122,7 +122,7 @@ struct AccountSummaryView: View {
                         .stroke(Color.asterionBorder)
                 }
             } else {
-                VStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(model.continueReadingEntries.prefix(3).enumerated()), id: \.element.id) { index, entry in
                         if index > 0 {
                             Divider().overlay(Color.asterionBorder)
@@ -518,6 +518,7 @@ private struct ProfileBenefit: View {
             }
         }
         .padding(.vertical, 18)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
