@@ -5,6 +5,7 @@ MODE="${1:-run}"
 APP_NAME="AsterionMac"
 BUNDLE_ID="cloud.cyberverse.AsterionMac"
 MIN_SYSTEM_VERSION="15.0"
+CODE_SIGN_IDENTITY="${ASTERION_CODE_SIGN_IDENTITY:-}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
@@ -15,17 +16,48 @@ APP_RESOURCES="$APP_CONTENTS/Resources"
 APP_BINARY="$APP_MACOS/$APP_NAME"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
 
+if [[ -z "$CODE_SIGN_IDENTITY" ]]; then
+  CODE_SIGN_IDENTITY="$(
+    /usr/bin/security find-identity -v -p codesigning \
+      | /usr/bin/sed -En 's/^[[:space:]]*[0-9]+\) ([0-9A-F]{40}) ".*"$/\1/p' \
+      | /usr/bin/sed -n '1p'
+  )"
+fi
+
+if [[ -z "$CODE_SIGN_IDENTITY" ]]; then
+  echo "error: no valid Apple code-signing identity is available" >&2
+  echo "Install an Apple Development certificate or set ASTERION_CODE_SIGN_IDENTITY." >&2
+  exit 1
+fi
+
 pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 
 cd "$ROOT_DIR"
 swift build
 BIN_DIR="$(swift build --show-bin-path)"
 BUILD_BINARY="$BIN_DIR/$APP_NAME"
+mkdir -p "$DIST_DIR"
+SIGNED_BINARY="$(/usr/bin/mktemp "$DIST_DIR/.${APP_NAME}.XXXXXX")"
+trap 'rm -f "$SIGNED_BINARY"' EXIT
+
+cp "$BUILD_BINARY" "$SIGNED_BINARY"
+chmod +x "$SIGNED_BINARY"
+
+/usr/bin/codesign \
+  --force \
+  --sign "$CODE_SIGN_IDENTITY" \
+  --identifier "$BUNDLE_ID" \
+  "$SIGNED_BINARY"
+
+/usr/bin/codesign \
+  --verify \
+  --strict \
+  -R="identifier \"$BUNDLE_ID\" and anchor apple generic" \
+  "$SIGNED_BINARY"
 
 rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_MACOS" "$APP_RESOURCES"
-cp "$BUILD_BINARY" "$APP_BINARY"
-chmod +x "$APP_BINARY"
+mv "$SIGNED_BINARY" "$APP_BINARY"
 
 find "$BIN_DIR" -maxdepth 1 -type d -name '*.bundle' -exec cp -R {} "$APP_BUNDLE/" \;
 if [[ -f "$ROOT_DIR/Resources/AppIcon.icns" ]]; then

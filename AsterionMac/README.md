@@ -20,6 +20,8 @@ cd AsterionMac
 
 The script builds the Swift package, stages `dist/AsterionMac.app` with its dependency resources, and launches it as a foreground macOS app. Use `--verify` to confirm that the launched process remains active.
 
+Staging requires a valid Apple code-signing identity so Clerk's Keychain access remains trusted across rebuilds. The script uses the first installed code-signing identity, or the identity named by `ASTERION_CODE_SIGN_IDENTITY`.
+
 Run tests with:
 
 ```sh

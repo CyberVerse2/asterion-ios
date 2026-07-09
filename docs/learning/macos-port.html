@@ -30,6 +30,7 @@
   <div class="panel">
     <ul>
       <li><code>AsterionMacApp</code> owns app-wide services and declares main, reader, and settings scenes.</li>
+      <li><code>AsterionMacApp</code> gives Clerk an app-owned Keychain service, while the staging script gives every build the same signed application identity.</li>
       <li><code>AsterionAppDelegate</code> is the only AppKit bridge; it activates the staged SwiftPM app bundle and brings its SwiftUI window forward.</li>
       <li><code>ContentView</code> owns window-scoped sidebar and novel selection with <code>@SceneStorage</code>.</li>
       <li><code>AppModel</code> owns the catalog, Clerk session, server library, and chapter cache.</li>
@@ -50,8 +51,12 @@
     <li>The reader debounces visible-line changes before syncing authenticated progress.</li>
   </ol>
 
+  <h2>Keychain identity</h2>
+  <p>Clerk persists its client and environment records in the macOS Keychain. Keychain access is authorized against the executable's designated code requirement, not just the bundle identifier written in <code>Info.plist</code>. The staging script therefore signs the executable with an installed Apple code-signing identity and verifies that it satisfies the Asterion identifier plus Apple's certificate anchor. Clerk uses the explicit service <code>cloud.cyberverse.AsterionMac.clerk</code>, keeping authentication records scoped to this app.</p>
+  <p>A raw SwiftPM executable only has an ad-hoc, hash-based designated requirement. Copying that executable into an app bundle without re-signing changes its trusted identity whenever the binary changes, which makes macOS request password confirmation for every existing Clerk record. A stable signed requirement removes that authorization loop.</p>
+
   <h2>Verification</h2>
-  <p><code>swift build</code> proves source and current dependency compatibility. <code>swift test</code> verifies backend decoding, rank normalization, and chapter HTML cleanup. <code>./script/build_and_run.sh --verify</code> stages a real <code>.app</code> bundle—including SwiftPM dependency resource bundles—and proves the macOS process launches.</p>
+  <p><code>swift build</code> proves source and current dependency compatibility. <code>swift test</code> verifies backend decoding, rank normalization, and chapter HTML cleanup. Every staging run verifies the executable's signature and designated Asterion requirement before launch. <code>./script/build_and_run.sh --verify</code> also stages a real <code>.app</code> bundle—including SwiftPM dependency resource bundles—and proves the macOS process launches.</p>
 
   <h2>Quiz</h2>
   <div class="quiz" data-answer="reader">
@@ -75,12 +80,20 @@
     <button data-value="verify"><code>./script/build_and_run.sh --verify</code></button>
     <p class="feedback" aria-live="polite"></p>
   </div>
+  <div class="quiz" data-answer="requirement" data-feedback="Trace which identity macOS records in each Keychain item's access control list.">
+    <p>What must remain stable across rebuilds to prevent repeated Keychain authorization prompts?</p>
+    <button data-value="plist">Only the identifier text in <code>Info.plist</code></button>
+    <button data-value="requirement">The signed executable's designated requirement</button>
+    <button data-value="path">The absolute path to the SwiftPM build directory</button>
+    <p class="feedback" aria-live="polite"></p>
+  </div>
   <script>
     document.querySelectorAll('.quiz').forEach((quiz) => {
       quiz.querySelectorAll('button').forEach((button) => {
         button.addEventListener('click', () => {
           const correct = button.dataset.value === quiz.dataset.answer;
-          quiz.querySelector('.feedback').textContent = correct ? 'Correct.' : 'Not quite—trace which owner has the narrowest lifetime for that state.';
+          const hint = quiz.dataset.feedback || 'Trace which owner has the narrowest lifetime for that state.';
+          quiz.querySelector('.feedback').textContent = correct ? 'Correct.' : `Not quite—${hint}`;
         });
       });
     });

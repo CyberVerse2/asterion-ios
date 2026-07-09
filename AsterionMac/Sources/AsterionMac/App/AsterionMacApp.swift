@@ -16,11 +16,19 @@ final class AsterionAppDelegate: NSObject, NSApplicationDelegate {
 @main
 @MainActor
 struct AsterionMacApp: App {
+    private static let clerkKeychainService = "cloud.cyberverse.AsterionMac.clerk"
+
     @NSApplicationDelegateAdaptor(AsterionAppDelegate.self) private var appDelegate
     @StateObject private var model = AppModel()
 
     init() {
-        Clerk.configure(publishableKey: "pk_test_cG9ldGljLWdhdG9yLTk3LmNsZXJrLmFjY291bnRzLmRldiQ")
+        let options = Clerk.Options(
+            keychainConfig: .init(service: Self.clerkKeychainService)
+        )
+        Clerk.configure(
+            publishableKey: "pk_test_cG9ldGljLWdhdG9yLTk3LmNsZXJrLmFjY291bnRzLmRldiQ",
+            options: options
+        )
     }
 
     var body: some Scene {
