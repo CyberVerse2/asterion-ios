@@ -106,6 +106,11 @@ struct SidebarView: View {
             }
         }
         .background(Color.asterionSidebar)
+        .overlay(alignment: .trailing) {
+            Rectangle()
+                .fill(Color.asterionBorder)
+                .frame(width: 1)
+        }
     }
 
     @ViewBuilder
