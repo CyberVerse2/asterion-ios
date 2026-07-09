@@ -105,7 +105,11 @@ struct SidebarView: View {
                 }
             }
         }
-        .background(Color.asterionSidebar)
+        .background {
+            Color.asterionSidebar
+                .ignoresSafeArea()
+        }
+        .clipShape(Rectangle())
         .overlay(alignment: .trailing) {
             Rectangle()
                 .fill(Color.asterionBorder)
