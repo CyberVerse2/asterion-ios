@@ -109,6 +109,13 @@ struct AsterionApp: App {
         }
         .defaultSize(width: 840, height: 900)
 
+        WindowGroup("Sign In to Asterion", id: "authentication") {
+            AsterionAuthenticationView()
+                .preferredColorScheme(.light)
+        }
+        .defaultSize(width: 520, height: 700)
+        .windowResizability(.contentMinSize)
+
         Settings {
             SettingsView()
                 .preferredColorScheme(.light)

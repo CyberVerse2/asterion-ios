@@ -2,6 +2,34 @@ import ClerkKit
 import ClerkKitUI
 import SwiftUI
 
+enum AsterionClerkTheme {
+    @MainActor
+    static func make() -> ClerkTheme {
+        ClerkTheme(
+            colors: .init(
+                primary: .asterionAccent,
+                background: .asterionSurface,
+                input: .asterionBackground,
+                danger: .asterionAccent,
+                success: Color(red: 0.20, green: 0.46, blue: 0.31),
+                warning: Color(red: 0.68, green: 0.43, blue: 0.16),
+                foreground: .asterionText,
+                mutedForeground: .asterionMuted,
+                primaryForeground: .white,
+                inputForeground: .asterionText,
+                neutral: .asterionMuted,
+                ring: .asterionAccent,
+                muted: .asterionCard,
+                secondaryButtonBackground: .asterionBackground,
+                secondaryButtonForeground: .asterionText,
+                shadow: .black,
+                border: .asterionBorder
+            ),
+            design: .init(borderRadius: 10)
+        )
+    }
+}
+
 struct AccountSummaryView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.openWindow) private var openWindow
@@ -193,30 +221,9 @@ struct AccountSummaryView: View {
 
 struct AccountView: View {
     @EnvironmentObject private var model: AppModel
-    @State private var presentsAuthentication = false
+    @Environment(\.openWindow) private var openWindow
     @State private var presentsProfileEditor = false
-    @State private var clerkTheme = ClerkTheme(
-        colors: .init(
-            primary: .asterionAccent,
-            background: .asterionSurface,
-            input: .asterionBackground,
-            danger: .asterionAccent,
-            success: Color(red: 0.20, green: 0.46, blue: 0.31),
-            warning: Color(red: 0.68, green: 0.43, blue: 0.16),
-            foreground: .asterionText,
-            mutedForeground: .asterionMuted,
-            primaryForeground: .white,
-            inputForeground: .asterionText,
-            neutral: .asterionMuted,
-            ring: .asterionAccent,
-            muted: .asterionCard,
-            secondaryButtonBackground: .asterionBackground,
-            secondaryButtonForeground: .asterionText,
-            shadow: .black,
-            border: .asterionBorder
-        ),
-        design: .init(borderRadius: 10)
-    )
+    @State private var clerkTheme = AsterionClerkTheme.make()
 
     var body: some View {
         ScrollView {
@@ -235,13 +242,6 @@ struct AccountView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Color.asterionSurface)
         .preferredColorScheme(.light)
-        .sheet(isPresented: $presentsAuthentication) {
-            AuthView()
-                .environment(Clerk.shared)
-                .environment(\.clerkTheme, clerkTheme)
-                .hidingScrollIndicators()
-                .frame(minWidth: 460, minHeight: 620)
-        }
         .sheet(isPresented: $presentsProfileEditor) {
             UserProfileView()
                 .environment(Clerk.shared)
@@ -347,7 +347,7 @@ struct AccountView: View {
                     .fixedSize(horizontal: false, vertical: true)
 
                 Button("Sign In or Create Account") {
-                    presentsAuthentication = true
+                    openWindow(id: "authentication")
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(.asterionAccent)
@@ -364,6 +364,17 @@ struct AccountView: View {
                     .accountCard()
             }
         }
+    }
+}
+
+struct AsterionAuthenticationView: View {
+    var body: some View {
+        AuthView()
+            .environment(Clerk.shared)
+            .environment(\.clerkTheme, AsterionClerkTheme.make())
+            .hidingScrollIndicators()
+            .frame(minWidth: 460, minHeight: 620)
+            .background(Color.asterionSurface)
     }
 }
 

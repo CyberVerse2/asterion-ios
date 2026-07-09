@@ -5,36 +5,43 @@ struct SidebarView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Binding var selection: AppSection
+    @Binding var isCompact: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            brand
+            sidebarHeader
 
             VStack(spacing: 5) {
                 ForEach(AppSection.allCases, id: \.self) { section in
                     Button {
                         selection = section
                     } label: {
-                        HStack(spacing: 11) {
+                        HStack(spacing: isCompact ? 0 : 11) {
                             Image(systemName: section.systemImage)
                                 .font(.system(size: 13, weight: .semibold))
                                 .frame(width: 18)
-                            Text(section.title)
-                                .font(.asterionDisplay(14, weight: selection == section ? .semibold : .medium))
-                            Spacer()
+                            if !isCompact {
+                                Text(section.title)
+                                    .font(.asterionDisplay(14, weight: selection == section ? .semibold : .medium))
+                                Spacer()
+                            }
                         }
-                            .foregroundStyle(selection == section ? Color.asterionText : Color.asterionSidebarMuted)
+                            .foregroundStyle(
+                                selection == section
+                                    ? (isCompact ? Color.asterionAccent : Color.asterionText)
+                                    : Color.asterionSidebarMuted
+                            )
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 12)
+                            .padding(.horizontal, isCompact ? 10 : 12)
                             .padding(.vertical, 10)
                             .background {
                                 if selection == section {
-                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                        .fill(Color.asterionSidebarSelection)
+                                    RoundedRectangle(cornerRadius: isCompact ? 10 : 8, style: .continuous)
+                                        .fill(isCompact ? Color.asterionAccentSoft.opacity(0.72) : Color.asterionSidebarSelection)
                                 }
                             }
                             .overlay(alignment: .leading) {
-                                if selection == section {
+                                if selection == section, !isCompact {
                                     Capsule()
                                         .fill(Color.asterionSidebarAccent)
                                         .frame(width: 3, height: 22)
@@ -42,7 +49,7 @@ struct SidebarView: View {
                                 }
                             }
                             .overlay {
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                RoundedRectangle(cornerRadius: isCompact ? 10 : 8, style: .continuous)
                                     .stroke(selection == section ? Color.asterionBorder : .clear)
                             }
                             .animation(
@@ -51,6 +58,7 @@ struct SidebarView: View {
                             )
                     }
                     .buttonStyle(AsterionPressButtonStyle())
+                    .help(section.title)
                 }
             }
             .padding(.horizontal, 14)
@@ -58,7 +66,7 @@ struct SidebarView: View {
             Spacer(minLength: 20)
 
             if let user = model.signedInUser {
-                HStack(spacing: 10) {
+                HStack(spacing: isCompact ? 0 : 10) {
                     AsyncImage(url: user.imageURL) { phase in
                         if case .success(let image) = phase {
                             image.resizable().scaledToFill()
@@ -68,20 +76,23 @@ struct SidebarView: View {
                                 .foregroundStyle(Color.asterionMuted)
                         }
                     }
-                    .frame(width: 30, height: 30)
+                    .frame(width: isCompact ? 26 : 30, height: isCompact ? 26 : 30)
                     .clipShape(Circle())
 
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(user.name)
-                            .font(.asterionDisplay(12, weight: .semibold))
-                            .foregroundStyle(Color.asterionSidebarText)
-                            .lineLimit(1)
-                        Text("Reader")
-                            .font(.caption2)
-                            .foregroundStyle(Color.asterionSidebarAccent)
+                    if !isCompact {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(user.name)
+                                .font(.asterionDisplay(12, weight: .semibold))
+                                .foregroundStyle(Color.asterionSidebarText)
+                                .lineLimit(1)
+                            Text("Reader")
+                                .font(.caption2)
+                                .foregroundStyle(Color.asterionSidebarAccent)
+                        }
                     }
                 }
-                .padding(.horizontal, 18)
+                .frame(maxWidth: .infinity, alignment: isCompact ? .center : .leading)
+                .padding(.horizontal, isCompact ? 10 : 18)
                 .padding(.top, 14)
                 .padding(.bottom, 16)
                 .overlay(alignment: .top) {
@@ -90,6 +101,32 @@ struct SidebarView: View {
             }
         }
         .background(Color.asterionSidebar)
+    }
+
+    @ViewBuilder
+    private var sidebarHeader: some View {
+        if isCompact {
+            VStack(spacing: 5) {
+                logoMark
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 18, height: 23)
+                compactToggle
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.top, 12)
+            .padding(.bottom, 14)
+        } else {
+            HStack(spacing: 6) {
+                brand
+                    .layoutPriority(1)
+                Spacer(minLength: 0)
+                compactToggle
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 18)
+            .padding(.bottom, 22)
+        }
     }
 
     private var brand: some View {
@@ -110,11 +147,45 @@ struct SidebarView: View {
                     .font(.caption2)
                     .foregroundStyle(Color.asterionSidebarMuted)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.85)
             }
         }
-        .padding(.horizontal, 18)
-        .padding(.top, 23)
-        .padding(.bottom, 25)
+    }
+
+    private var compactToggle: some View {
+        Button {
+            toggleCompactSidebar()
+        } label: {
+            Image(systemName: isCompact ? "chevron.right" : "chevron.left")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Color.asterionSidebarMuted)
+                .frame(width: 22, height: 22)
+                .background(Color.asterionSurface.opacity(0.72), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .stroke(Color.asterionBorder)
+                }
+        }
+        .buttonStyle(AsterionPressButtonStyle())
+        .help(isCompact ? "Expand Sidebar" : "Compact Sidebar")
+        .accessibilityLabel(isCompact ? "Expand Sidebar" : "Compact Sidebar")
+    }
+
+    private func toggleCompactSidebar() {
+        let compacting = !isCompact
+        isCompact = compacting
+
+        DispatchQueue.main.async {
+            guard let window = NSApp.keyWindow else { return }
+            let delta: CGFloat = 156
+            var frame = window.frame
+            frame.origin.x += compacting ? delta : -delta
+            frame.size.width += compacting ? -delta : delta
+            if let screen = window.screen {
+                frame = window.constrainFrameRect(frame, to: screen)
+            }
+            window.setFrame(frame, display: true, animate: !reduceMotion)
+        }
     }
 
     private var logoMark: Image {

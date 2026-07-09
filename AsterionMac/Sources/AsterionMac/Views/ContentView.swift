@@ -6,6 +6,7 @@ struct ContentView: View {
     @SceneStorage("selectedNovelID") private var selectedNovelID = ""
     @State private var searchText = ""
     @State private var columnVisibility = NavigationSplitViewVisibility.all
+    @State private var isSidebarCompact = false
 
     private var section: Binding<AppSection> {
         Binding(
@@ -24,8 +25,12 @@ struct ContentView: View {
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
-            SidebarView(selection: section)
-                .navigationSplitViewColumnWidth(min: 190, ideal: 220, max: 240)
+            SidebarView(selection: section, isCompact: $isSidebarCompact)
+                .navigationSplitViewColumnWidth(
+                    min: isSidebarCompact ? 64 : 190,
+                    ideal: isSidebarCompact ? 64 : 220,
+                    max: isSidebarCompact ? 64 : 240
+                )
         } content: {
             if section.wrappedValue == .account {
                 AccountSummaryView()

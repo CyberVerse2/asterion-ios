@@ -46,7 +46,7 @@
     <li>Preserve real loading, empty, authentication, progress, and failure states.</li>
     <li>Make Profile a reading dashboard: identity and activity occupy the main pane, while account management and sync status stay in the inspector.</li>
     <li>Keep every content surface scrollable with trackpad, mouse wheel, and keyboard while hiding persistent scroll indicators across the app.</li>
-    <li>Keep the primary navigation sidebar visible so collapsing it cannot reflow and widen the catalog or inspector columns.</li>
+    <li>Keep primary navigation visible in both modes: the sidebar compacts to a narrow icon rail instead of disappearing or surrendering its navigation state.</li>
     <li>Label reading progress with the reader’s current chapter number and title, not only a percentage.</li>
     <li>Open each novel with a sentence-aware synopsis preview; reveal the complete synopsis only on request.</li>
   </ol>
@@ -56,12 +56,12 @@
     <ul>
       <li><code>Theme.swift</code> owns the Graphite &amp; Crimson colors, Literata display and reading roles, SF Pro utility text, and bundled-font registration.</li>
       <li><code>Motion.swift</code> owns the shared press, hover, reveal, and navigation timing plus Reduce Motion behavior.</li>
-      <li><code>SidebarView</code> owns app-area navigation and signed-in identity.</li>
+      <li><code>SidebarView</code> owns app-area navigation, signed-in identity, and the expanded-to-icon-rail compact mode; SwiftUI owns compact state while a narrow AppKit window-frame adjustment preserves the reading workspace.</li>
       <li><code>Resources/Brand/AsterionMark.png</code> is the generated celestial-book symbol used by the sidebar lockup; Literata keeps the wordmark editable and sharp at every scale.</li>
       <li><code>Resources/AppIcon.icns</code> is the Finder icon: the same celestial-book symbol, placed on the Graphite and Crimson app-icon field. The packaging script emits <code>dist/Asterion.app</code> and removes the obsolete bundle.</li>
       <li><code>EditorialCatalogView</code> owns cover shelves, rankings, library grids, selection, and progress tiles.</li>
       <li><code>NovelDetailView</code> owns the selected story’s reading action, metadata, collapsible synopsis preview, and recent chapters.</li>
-      <li><code>AccountSummaryView</code> owns the reader identity, library metrics, active stories, and direct Continue actions; <code>AccountView</code> owns Clerk profile management, sync status, authentication, and sign-out.</li>
+      <li><code>AccountSummaryView</code> owns the reader identity, library metrics, active stories, and direct Continue actions; <code>AccountView</code> owns Clerk profile management, sync status, and sign-out. <code>AsterionAuthenticationView</code> hosts Clerk sign-in in a dedicated, correctly sized macOS window.</li>
       <li><code>ScrollIndicatorHider</code> is the narrow AppKit bridge that disables <code>NSScrollView</code> scrollers even when macOS is configured to always show them; SwiftUI still owns every scrolling surface.</li>
       <li><code>ReaderView</code> owns the distraction-free reading window and its per-user typography preferences.</li>
       <li><code>AppModel</code> owns shelf data, server progress, and the distinction between chapter metadata and full chapter content.</li>
@@ -89,11 +89,11 @@
   <h2>Motion language</h2>
   <div class="panel">
     <p>Asterion uses motion to clarify local state rather than animate whole reading surfaces. Buttons compress for 120 ms, interactive covers lift for 160 ms, selection outlines settle over 220 ms, the sidebar highlight follows navigation with a restrained spring, and the Save symbol morphs in place. Catalog, detail, profile, and reader containers remain spatially stable so animation cannot disturb scrolling or text.</p>
-    <p>Every custom transform reads macOS Reduce Motion. When enabled, hover lift and press scaling are removed while each final state remains immediate and complete. The main split view owns an explicit <code>.all</code> visibility state, and the system collapse command is removed, so toolbar changes cannot hide the sidebar or reflow the content columns.</p>
+    <p>Every custom transform reads macOS Reduce Motion. When enabled, hover lift and press scaling are removed while each final state remains immediate and complete. The main split view owns an explicit <code>.all</code> visibility state, and the system collapse command is removed. A custom compact control narrows the window and sidebar together, preserving navigation without allowing the detail workspace to unpredictably consume the released width.</p>
   </div>
 
   <h2>Verification</h2>
-  <p>Verification covers decoding and cleanup tests, debug and release compilation, signed <code>Asterion.app</code> launch, Finder icon inspection, bundled Literata registration and display rendering, animated navigation and cover selection, stable three-column visibility, compact synopsis preview and expansion, visible navigation and search controls, a cover-to-detail selection path, a full-text reader window, profile layout at the standard three-column window size, direct Continue behavior, the Clerk account-management sheet, hidden scroll indicators, and continued trackpad scrolling. Visual QA compares the selected concept and implementation at the same Discover state and records the Profile before/after states.</p>
+  <p>Verification covers decoding and cleanup tests, debug and release compilation, signed <code>Asterion.app</code> launch, Finder icon inspection, bundled Literata registration and display rendering, animated navigation and cover selection, expanded and compact sidebar states, stable three-column visibility, compact synopsis preview and expansion, visible navigation and search controls, a cover-to-detail selection path, a full-text reader window, profile layout at the standard three-column window size, direct Continue behavior, the dedicated Clerk authentication window, the Clerk account-management sheet, hidden scroll indicators, and continued trackpad scrolling. Visual QA compares the selected concept and implementation at the same Discover state and records the Profile before/after states.</p>
 
   <h2>Quiz</h2>
   <div class="quiz" data-answer="covers">
