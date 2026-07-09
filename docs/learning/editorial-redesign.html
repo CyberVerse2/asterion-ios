@@ -50,7 +50,8 @@
     <li>Put the current chapter number directly in the Continue Reading button and keep the progress row limited to its bar and percentage.</li>
     <li>Open each novel with a sentence-aware synopsis preview; reveal the complete synopsis only on request.</li>
     <li>In fullscreen, let the split columns fill the window while capping the catalog, profile, and detail content measures so covers and reading text remain composed.</li>
-    <li>Use one floating-shell geometry: the sidebar, catalog, and detail pane sit on a graphite canvas with 12-point gutters, consistent continuous corners, and no shared sharp edges. Catalog controls live inside the middle panel header.</li>
+    <li>Use one floating-shell geometry: the sidebar, catalog, and detail pane sit on a soft cool-gray canvas with 12-point gutters, consistent continuous corners, and no shared sharp edges. Catalog controls live inside the middle panel header.</li>
+    <li>Adapt split visibility to available width: all three panes on wide windows, sidebar plus catalog at medium widths, and an expanded sidebar column when the window becomes narrow.</li>
   </ol>
 
   <h2>System map</h2>
@@ -58,7 +59,7 @@
     <ul>
       <li><code>Theme.swift</code> owns the Graphite &amp; Crimson colors, the cool-gray structural canvas behind floating surfaces, Literata display and reading roles, SF Pro utility text, and bundled-font registration.</li>
       <li><code>Motion.swift</code> owns the shared press, hover, reveal, and navigation timing plus Reduce Motion behavior.</li>
-      <li><code>ContentView</code> applies the shared 18-point panel shell around every split-view column. The section title, refresh action, and search field live in the middle panel header; the main scene uses a hidden titlebar and lets the workspace consume its released safe area while retaining the 12-point outer gutter.</li>
+      <li><code>ContentView</code> applies the shared 18-point panel shell around every split-view column. Each <code>FloatingPane</code> owns its full-height surface, while a narrow AppKit window bridge enables full-size content beneath the transparent hidden titlebar so the sidebar, catalog, and detail shells occupy their complete columns. <code>SidebarView</code> reserves internal top clearance for the overlaid traffic lights without shrinking its surface. The section title, refresh action, and search field live in the middle panel header while the 12-point outer gutter remains intact.</li>
       <li><code>SidebarView</code> owns app-area navigation, signed-in identity, and the expanded-to-icon-rail compact mode. Its toggle lives in the footer, away from the brand and primary navigation; SwiftUI owns compact state while a narrow AppKit window-frame adjustment preserves the ordinary windowed workspace. In fullscreen or a zoomed window, AppKit frame mutation is disabled and only the split columns respond.</li>
       <li><code>Resources/Brand/AsterionMark.png</code> is the generated celestial-book symbol used by the sidebar lockup; Literata keeps the wordmark editable and sharp at every scale.</li>
       <li><code>Resources/AppIcon.icns</code> is the Finder icon: the same celestial-book symbol, placed on the Graphite and Crimson app-icon field. The packaging script emits <code>dist/Asterion.app</code> and removes the obsolete bundle.</li>

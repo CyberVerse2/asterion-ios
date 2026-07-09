@@ -43,7 +43,10 @@
 
 - [x] Move section, refresh, and search controls into the middle panel header.
 - [x] Give sidebar, catalog, and detail their own consistent rounded shells.
+- [x] Make each shell own a full-height surface independent of child safe-area insets.
+- [x] Extend the split view into the hidden titlebar area and reserve sidebar content clearance for window controls.
 - [x] Expose cool-gray gutters between every surface and around the window perimeter.
+- [x] Adapt split visibility and sidebar width for narrow windows so no secondary pane is left as a sliver.
 - [x] Verify expanded and compact sidebar states in the running app.
 - [x] Preserve navigation, refresh, search, selection, scrolling, and account actions.
 
