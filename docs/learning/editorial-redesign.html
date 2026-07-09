@@ -5,15 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Asterion Editorial Reading Design System</title>
   <style>
-    :root { color-scheme: light; font-family: ui-sans-serif, system-ui, sans-serif; background: #fbf8f3; color: #251f1a; }
+    :root { color-scheme: light; font-family: ui-sans-serif, system-ui, sans-serif; background: #f2f3f5; color: #1a1b1f; }
     body { max-width: 940px; margin: 0 auto; padding: 48px 24px 80px; line-height: 1.65; }
-    h1, h2 { font-family: Georgia, serif; } a, button { color: #9c2b29; }
-    code { color: #8f2725; } .panel { padding: 20px; border: 1px solid #e3d9ce; background: #fffdf9; border-radius: 12px; }
+    h1, h2 { font-family: ui-sans-serif, system-ui, sans-serif; } a, button { color: #9c2335; }
+    code { color: #9c2335; } .panel { padding: 20px; border: 1px solid #c9ced5; background: #fff; border-radius: 12px; }
     .tokens { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: 10px; }
-    .token { padding: 14px; border: 1px solid #e3d9ce; background: #fffdf9; border-radius: 10px; }
-    .swatch { width: 100%; height: 38px; border-radius: 6px; margin-bottom: 8px; border: 1px solid #e3d9ce; }
-    .quiz button { display: block; width: 100%; text-align: left; margin: 8px 0; padding: 10px 12px; border: 1px solid #d9cbbd; border-radius: 8px; background: #fffdf9; }
-    .feedback { min-height: 1.5em; color: #9c2b29; }
+    .token { padding: 14px; border: 1px solid #c9ced5; background: #fff; border-radius: 10px; }
+    .swatch { width: 100%; height: 38px; border-radius: 6px; margin-bottom: 8px; border: 1px solid #c9ced5; }
+    .quiz button { display: block; width: 100%; text-align: left; margin: 8px 0; padding: 10px 12px; border: 1px solid #c9ced5; border-radius: 8px; background: #fff; }
+    .feedback { min-height: 1.5em; color: #9c2335; }
   </style>
 </head>
 <body>
@@ -28,6 +28,11 @@
       <li><a href="https://support.apple.com/guide/books/change-a-books-appearance-ibks8923126d/mac">Apple Books on Mac</a> exposes font, background, spacing, justification, and column controls for reading comfort.</li>
       <li><a href="https://docs.readwise.io/reader/docs">Readwise Reader</a> keeps reading customizable and keyboard-friendly while separating the library from the focused document surface.</li>
       <li><a href="https://hq.getmatter.com/themes">Matter’s reading themes</a> use lower-contrast paper and sepia palettes to reduce glare.</li>
+      <li><a href="https://developer.apple.com/design/human-interface-guidelines/color">Apple’s color guidance</a> recommends consistent semantic use, appearance-aware contrast, and testing under different displays and lighting.</li>
+      <li><a href="https://m3.material.io/styles/color/roles">Material’s color roles</a> separate accent, surface, container, and on-surface colors instead of treating every background as a brand color.</li>
+      <li><a href="https://www.w3.org/TR/WCAG22/#contrast-minimum">WCAG 2.2</a> sets a 4.5:1 minimum for normal text and 3:1 for essential interface boundaries.</li>
+      <li><a href="https://developer.apple.com/design/human-interface-guidelines/typography">Apple’s typography guidance</a> identifies SF Pro as the native macOS UI face, recommends regular-to-bold weights, and advises minimizing the number of typefaces.</li>
+      <li><a href="https://github.com/googlefonts/literata">Literata</a> was created for Google Play Books and optimized for long-form reading across screen sizes; Asterion bundles its variable roman and italic files under the SIL Open Font License.</li>
     </ul>
   </div>
 
@@ -39,31 +44,47 @@
     <li>Use a warm paper surface and a literary serif for long-form text; use the system sans serif for controls and metadata.</li>
     <li>Keep the reader in its own window with adjustable text size, spacing, and measure.</li>
     <li>Preserve real loading, empty, authentication, progress, and failure states.</li>
+    <li>Make Profile a reading dashboard: identity and activity occupy the main pane, while account management and sync status stay in the inspector.</li>
+    <li>Keep every content surface scrollable with trackpad, mouse wheel, and keyboard while hiding persistent scroll indicators across the app.</li>
+    <li>Keep the primary navigation sidebar visible so collapsing it cannot reflow and widen the catalog or inspector columns.</li>
+    <li>Label reading progress with the reader’s current chapter number and title, not only a percentage.</li>
   </ol>
 
   <h2>System map</h2>
   <div class="panel">
     <ul>
-      <li><code>Theme.swift</code> owns the paper, ink, oxblood, muted, border, and progress tokens.</li>
+      <li><code>Theme.swift</code> owns the Graphite &amp; Crimson colors, Literata display and reading roles, SF Pro utility text, and bundled-font registration.</li>
       <li><code>SidebarView</code> owns app-area navigation and signed-in identity.</li>
+      <li><code>Resources/Brand/AsterionMark.png</code> is the generated celestial-book symbol used by the sidebar lockup; Literata keeps the wordmark editable and sharp at every scale.</li>
       <li><code>EditorialCatalogView</code> owns cover shelves, rankings, library grids, selection, and progress tiles.</li>
       <li><code>NovelDetailView</code> owns the selected story’s reading action, metadata, synopsis, and recent chapters.</li>
+      <li><code>AccountSummaryView</code> owns the reader identity, library metrics, active stories, and direct Continue actions; <code>AccountView</code> owns Clerk profile management, sync status, authentication, and sign-out.</li>
+      <li><code>ScrollIndicatorHider</code> is the narrow AppKit bridge that disables <code>NSScrollView</code> scrollers even when macOS is configured to always show them; SwiftUI still owns every scrolling surface.</li>
       <li><code>ReaderView</code> owns the distraction-free reading window and its per-user typography preferences.</li>
       <li><code>AppModel</code> owns shelf data, server progress, and the distinction between chapter metadata and full chapter content.</li>
     </ul>
   </div>
 
-  <h2>Color tokens</h2>
+  <h2>Graphite &amp; Crimson color system</h2>
   <div class="tokens">
-    <div class="token"><div class="swatch" style="background:#fcf9f4"></div><code>Background</code><br>#FCF9F4</div>
-    <div class="token"><div class="swatch" style="background:#f8f4ed"></div><code>Sidebar</code><br>#F8F4ED</div>
-    <div class="token"><div class="swatch" style="background:#fffdf9"></div><code>Surface</code><br>#FFFDF9</div>
-    <div class="token"><div class="swatch" style="background:#251f1a"></div><code>Ink</code><br>#251F1A</div>
-    <div class="token"><div class="swatch" style="background:#9c2b29"></div><code>Accent</code><br>#9C2B29</div>
+    <div class="token"><div class="swatch" style="background:#f2f3f5"></div><code>Cool gray</code><br>#F2F3F5</div>
+    <div class="token"><div class="swatch" style="background:#1b1c20"></div><code>Graphite</code><br>#1B1C20</div>
+    <div class="token"><div class="swatch" style="background:#ffffff"></div><code>Surface</code><br>#FFFFFF</div>
+    <div class="token"><div class="swatch" style="background:#1a1b1f"></div><code>Ink</code><br>#1A1B1F</div>
+    <div class="token"><div class="swatch" style="background:#9c2335"></div><code>Logo crimson</code><br>#9C2335</div>
+    <div class="token"><div class="swatch" style="background:#555c66"></div><code>Slate</code><br>#555C66</div>
+    <div class="token"><div class="swatch" style="background:#c9ced5"></div><code>Structure</code><br>#C9CED5</div>
+  </div>
+  <p>Graphite anchors navigation, cool gray separates the workspace from white content surfaces, Ink and Slate own text hierarchy, and the logo’s crimson is the only interactive accent. The palette contains no yellow, cream, blue, or competing brand color. Primary text, accent text, accent buttons, sidebar text, and sidebar supporting text exceed enhanced 7:1 contrast; Slate on white remains above 6.7:1 and comfortably exceeds AA.</p>
+
+  <h2>Typography pairing</h2>
+  <div class="panel">
+    <p><strong>Literata</strong> is the app’s primary voice: brand, navigation labels, headings, book titles, profile identity, synopsis, and reader chapters. Its variable weight and optical-size support let the same family move from compact UI titles to sustained reading without changing character.</p>
+    <p><strong>SF Pro</strong> remains only for small metadata, toolbar controls, buttons, status labels, and other platform utility text where native macOS density matters most.</p>
   </div>
 
   <h2>Verification</h2>
-  <p>Verification covers decoding and cleanup tests, debug and release compilation, signed bundle launch, visible navigation and search controls, a cover-to-detail selection path, and a full-text reader window. Visual QA compares the selected concept and implementation at the same Discover state.</p>
+  <p>Verification covers decoding and cleanup tests, debug and release compilation, signed bundle launch, bundled Literata registration and display rendering, visible navigation and search controls, a cover-to-detail selection path, a full-text reader window, profile layout at the standard three-column window size, direct Continue behavior, the Clerk account-management sheet, hidden scroll indicators, and continued trackpad scrolling. Visual QA compares the selected concept and implementation at the same Discover state and records the Profile before/after states.</p>
 
   <h2>Quiz</h2>
   <div class="quiz" data-answer="covers">
@@ -85,6 +106,13 @@
     <button data-value="catalog">In each catalog tile</button>
     <button data-value="reader">In the reader and its Settings scene</button>
     <button data-value="api">In the content API</button>
+    <p class="feedback" aria-live="polite"></p>
+  </div>
+  <div class="quiz" data-answer="split">
+    <p>How does Profile divide responsibility across the desktop split view?</p>
+    <button data-value="duplicate">Repeat the same identity summary in both panes</button>
+    <button data-value="split">Reading identity and activity in the main pane; account and sync controls in the inspector</button>
+    <button data-value="settings">Move all profile information into Settings</button>
     <p class="feedback" aria-live="polite"></p>
   </div>
   <script>

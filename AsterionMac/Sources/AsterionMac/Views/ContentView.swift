@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct ContentView: View {
@@ -5,7 +6,6 @@ struct ContentView: View {
     @SceneStorage("selectedSection") private var selectedSectionRaw = AppSection.discover.rawValue
     @SceneStorage("selectedNovelID") private var selectedNovelID = ""
     @State private var searchText = ""
-    @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
     private var section: Binding<AppSection> {
         Binding(
@@ -23,13 +23,13 @@ struct ContentView: View {
     }
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
+        NavigationSplitView {
             SidebarView(selection: section)
                 .navigationSplitViewColumnWidth(min: 190, ideal: 220, max: 240)
         } content: {
             if section.wrappedValue == .account {
                 AccountSummaryView()
-                    .navigationSplitViewColumnWidth(min: 250, ideal: 280, max: 340)
+                    .navigationSplitViewColumnWidth(min: 520, ideal: 650, max: 760)
             } else {
                 EditorialCatalogView(
                     section: section.wrappedValue,
@@ -53,13 +53,17 @@ struct ContentView: View {
             }
         }
         .navigationSplitViewStyle(.balanced)
-        .searchable(text: $searchText, prompt: "Search titles, authors, or genres")
+        .toolbar(removing: .sidebarToggle)
+        .catalogSearch(
+            text: $searchText,
+            isEnabled: section.wrappedValue != .account
+        )
         .focusedSceneValue(\.asterionSection, section)
-        .tint(.asterionGold)
+        .tint(.asterionAccent)
         .background(Color.asterionBackground)
         .preferredColorScheme(.light)
         .onAppear {
-            columnVisibility = .all
+            suppressSidebarToggle()
             if selectedNovelID.isEmpty {
                 selectFirstNovel(in: section.wrappedValue)
             } else {
@@ -75,6 +79,7 @@ struct ContentView: View {
         }
         .onChange(of: selectedSectionRaw) {
             selectFirstNovel(in: section.wrappedValue)
+            suppressSidebarToggle()
         }
         .onChange(of: searchText) {
             ensureSelection()
@@ -134,6 +139,28 @@ struct ContentView: View {
 
         if !visibleIDs.contains(selectedNovelID) {
             selectFirstNovel(in: section.wrappedValue)
+        }
+    }
+
+    private func suppressSidebarToggle() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            for window in NSApp.windows where window.title != "Reader" {
+                guard let toolbar = window.toolbar,
+                      !toolbar.items.isEmpty
+                else { continue }
+                toolbar.removeItem(at: 0)
+            }
+        }
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func catalogSearch(text: Binding<String>, isEnabled: Bool) -> some View {
+        if isEnabled {
+            searchable(text: text, prompt: "Search titles, authors, or genres")
+        } else {
+            self
         }
     }
 }

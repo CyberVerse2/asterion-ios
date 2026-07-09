@@ -60,6 +60,7 @@ struct EditorialCatalogView: View {
                     .padding(.top, 24)
                     .padding(.bottom, 48)
                 }
+                .hidingScrollIndicators()
             }
         }
         .background(Color.asterionBackground)
@@ -178,7 +179,7 @@ private struct ShelfHeader: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(title)
-                .font(.asterionSerif(22, weight: .semibold))
+                .font(.asterionDisplay(22, weight: .semibold))
                 .foregroundStyle(Color.asterionText)
             Text(subtitle)
                 .font(.callout)
@@ -204,18 +205,18 @@ private struct EditorialBookTile: View {
                             .foregroundStyle(.white)
                             .padding(.horizontal, 7)
                             .padding(.vertical, 4)
-                            .background(Color.asterionGold, in: Capsule())
+                            .background(Color.asterionAccent, in: Capsule())
                             .padding(7)
                     }
                 }
                 .padding(4)
                 .overlay {
                     RoundedRectangle(cornerRadius: 11, style: .continuous)
-                        .stroke(isSelected ? Color.asterionGold : .clear, lineWidth: 2)
+                        .stroke(isSelected ? Color.asterionAccent : .clear, lineWidth: 2)
                 }
 
                 Text(novel.title)
-                    .font(.asterionSerif(15, weight: .medium))
+                    .font(.asterionDisplay(15, weight: .medium))
                     .foregroundStyle(Color.asterionText)
                     .lineLimit(2)
                     .frame(maxWidth: 136, alignment: .leading)
@@ -249,10 +250,10 @@ private struct ContinueReadingTile: View {
                     .padding(4)
                     .overlay {
                         RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .stroke(isSelected ? Color.asterionGold : .clear, lineWidth: 2)
+                            .stroke(isSelected ? Color.asterionAccent : .clear, lineWidth: 2)
                     }
                 Text(entry.novel.title)
-                    .font(.asterionSerif(14, weight: .medium))
+                    .font(.asterionDisplay(14, weight: .medium))
                     .foregroundStyle(Color.asterionText)
                     .lineLimit(2)
                     .frame(maxWidth: 120, alignment: .leading)
@@ -261,7 +262,7 @@ private struct ContinueReadingTile: View {
                     .foregroundStyle(Color.asterionMuted)
                     .lineLimit(1)
                 ProgressView(value: fraction)
-                    .tint(Color.asterionGold)
+                    .tint(Color.asterionAccent)
                     .frame(maxWidth: 120)
             }
         }

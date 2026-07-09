@@ -44,7 +44,7 @@ struct ReaderView: View {
             if let error = model.accountError {
                 Label(error, systemImage: "exclamationmark.triangle.fill")
                     .font(.callout)
-                    .foregroundStyle(Color.asterionGold)
+                    .foregroundStyle(Color.asterionAccent)
                     .padding(10)
                     .frame(maxWidth: .infinity)
                     .background(.ultraThinMaterial)
@@ -77,9 +77,9 @@ struct ReaderView: View {
                         Text(novel?.title.uppercased() ?? "ASTERION")
                             .font(.caption.weight(.medium))
                             .tracking(1.5)
-                            .foregroundStyle(Color.asterionGold)
+                            .foregroundStyle(Color.asterionAccent)
                         Text(chapter.title)
-                            .font(.asterionSerif(32, weight: .semibold))
+                            .font(.asterionReading(32, weight: .semibold))
                             .foregroundStyle(Color.asterionText)
                             .textSelection(.enabled)
                     }
@@ -87,7 +87,7 @@ struct ReaderView: View {
 
                     ForEach(Array(chapter.paragraphs.enumerated()), id: \.offset) { index, paragraph in
                         Text(paragraph)
-                            .font(.asterionSerif(fontSize))
+                            .font(.asterionReading(fontSize))
                             .foregroundStyle(Color.asterionReaderText)
                             .lineSpacing(lineSpacing)
                             .textSelection(.enabled)
@@ -115,6 +115,7 @@ struct ReaderView: View {
                 .padding(.bottom, 64)
                 .frame(maxWidth: .infinity)
             }
+            .hidingScrollIndicators()
             .onChange(of: chapter.id) {
                 proxy.scrollTo(restoredLine ?? 0, anchor: .top)
                 restoredLine = nil

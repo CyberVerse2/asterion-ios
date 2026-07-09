@@ -30,7 +30,7 @@ struct NovelDetailView: View {
                 if !cleanSummary.isEmpty {
                     detailSection(title: "Synopsis") {
                         Text(cleanSummary)
-                            .font(.asterionSerif(15))
+                            .font(.asterionReading(15))
                             .foregroundStyle(Color.asterionReaderText)
                             .lineSpacing(5)
                             .textSelection(.enabled)
@@ -47,6 +47,7 @@ struct NovelDetailView: View {
             .padding(.top, 28)
             .padding(.bottom, 44)
         }
+        .hidingScrollIndicators()
         .scrollPosition(id: $scrollPosition, anchor: .top)
         .background(Color.asterionSurface)
         .navigationTitle(novel.title)
@@ -64,13 +65,13 @@ struct NovelDetailView: View {
 
             VStack(alignment: .leading, spacing: 13) {
                 Text(novel.title)
-                    .font(.asterionSerif(28, weight: .semibold))
+                    .font(.asterionDisplay(28, weight: .semibold))
                     .foregroundStyle(Color.asterionText)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
 
                 Text(novel.authorDisplayName)
-                    .font(.asterionSerif(16, weight: .medium))
+                    .font(.asterionDisplay(16, weight: .medium))
                     .foregroundStyle(Color.asterionText)
 
                 VStack(alignment: .leading, spacing: 9) {
@@ -104,7 +105,7 @@ struct NovelDetailView: View {
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 11)
                         .foregroundStyle(.white)
-                        .background(Color.asterionGold, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                        .background(Color.asterionAccent, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .keyboardShortcut(.return, modifiers: .command)
@@ -129,15 +130,19 @@ struct NovelDetailView: View {
             }
 
             if let progress {
-                HStack(spacing: 8) {
-                    Text("Chapter progress")
-                        .font(.caption)
-                        .foregroundStyle(Color.asterionMuted)
+                VStack(alignment: .leading, spacing: 7) {
+                    HStack(spacing: 8) {
+                        Text(progressChapterLabel)
+                            .font(.caption)
+                            .foregroundStyle(Color.asterionMuted)
+                            .lineLimit(1)
+                        Spacer(minLength: 8)
+                        Text("\(Int(progress.percentage))%")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(Color.asterionMuted)
+                    }
                     ProgressView(value: min(1, max(0, progress.percentage / 100)))
-                        .tint(Color.asterionGold)
-                    Text("\(Int(progress.percentage))%")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(Color.asterionMuted)
+                        .tint(Color.asterionAccent)
                 }
             }
         }
@@ -170,7 +175,7 @@ struct NovelDetailView: View {
                                 .foregroundStyle(Color.asterionMuted)
                                 .frame(width: 34, alignment: .trailing)
                             Text(chapter.title)
-                                .font(.asterionSerif(14, weight: .medium))
+                                .font(.asterionDisplay(14, weight: .medium))
                                 .foregroundStyle(Color.asterionText)
                                 .lineLimit(1)
                             Spacer()
@@ -193,7 +198,7 @@ struct NovelDetailView: View {
         if let error = model.accountError {
             Label(error, systemImage: "exclamationmark.triangle.fill")
                 .font(.callout)
-                .foregroundStyle(Color.asterionGold)
+                .foregroundStyle(Color.asterionAccent)
                 .padding(10)
                 .frame(maxWidth: .infinity)
                 .background(.regularMaterial)
@@ -225,6 +230,15 @@ struct NovelDetailView: View {
 
     private var readButtonTitle: String {
         progress == nil ? "Start Reading" : "Continue Reading"
+    }
+
+    private var progressChapterLabel: String {
+        guard let progress,
+              let chapter = chapters.first(where: { $0.id == progress.chapterId })
+        else {
+            return "Chapter progress"
+        }
+        return "Chapter \(chapter.chapterNumber) · \(chapter.title)"
     }
 
     private var chapterCountLabel: String? {
@@ -264,13 +278,13 @@ struct NovelDetailView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text(title)
-                    .font(.asterionSerif(20, weight: .semibold))
+                    .font(.asterionDisplay(20, weight: .semibold))
                     .foregroundStyle(Color.asterionText)
                 Spacer()
                 if let trailing {
                     Text(trailing)
                         .font(.caption)
-                        .foregroundStyle(Color.asterionGold)
+                        .foregroundStyle(Color.asterionAccent)
                 }
             }
             content()

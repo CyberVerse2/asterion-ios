@@ -6,9 +6,45 @@ import SwiftUI
 final class AsterionAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(windowDidBecomeKey(_:)),
+            name: NSWindow.didBecomeKeyNotification,
+            object: nil
+        )
         DispatchQueue.main.async {
             NSApp.activate(ignoringOtherApps: true)
             NSApp.windows.first?.makeKeyAndOrderFront(nil)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            self.removeSidebarToggle()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+            self.removeSidebarToggle()
+        }
+    }
+
+    @objc private func windowDidBecomeKey(_ notification: Notification) {
+        removeSidebarToggle()
+    }
+
+    private func removeSidebarToggle() {
+        for window in NSApp.windows {
+            guard let toolbar = window.toolbar else { continue }
+            for index in toolbar.items.indices.reversed() {
+                let item = toolbar.items[index]
+                let action = item.action.map(NSStringFromSelector) ?? ""
+                let details = [
+                    item.itemIdentifier.rawValue,
+                    item.label,
+                    item.paletteLabel,
+                    item.toolTip ?? "",
+                    action,
+                ].joined(separator: " ").lowercased()
+                if details.contains("sidebar") {
+                    toolbar.removeItem(at: index)
+                }
+            }
         }
     }
 }
@@ -22,6 +58,7 @@ struct AsterionMacApp: App {
     @StateObject private var model = AppModel()
 
     init() {
+        AsterionFontRegistry.registerBundledFonts()
         let options = Clerk.Options(
             keychainConfig: .init(service: Self.clerkKeychainService)
         )
@@ -42,7 +79,6 @@ struct AsterionMacApp: App {
         .defaultSize(width: 1240, height: 780)
         .windowResizability(.contentMinSize)
         .commands {
-            SidebarCommands()
             AsterionNavigationCommands()
         }
 

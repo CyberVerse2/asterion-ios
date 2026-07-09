@@ -20,7 +20,11 @@ let package = Package(
                 .product(name: "ClerkKit", package: "clerk-ios"),
                 .product(name: "ClerkKitUI", package: "clerk-ios"),
             ],
-            path: "Sources/AsterionMac"
+            path: "Sources/AsterionMac",
+            resources: [
+                .copy("Resources/Fonts"),
+                .process("Resources/Brand"),
+            ]
         ),
         .testTarget(
             name: "AsterionMacTests",

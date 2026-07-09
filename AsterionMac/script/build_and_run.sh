@@ -60,6 +60,25 @@ mkdir -p "$APP_MACOS" "$APP_RESOURCES"
 mv "$SIGNED_BINARY" "$APP_BINARY"
 
 find "$BIN_DIR" -maxdepth 1 -type d -name '*.bundle' -exec cp -R {} "$APP_BUNDLE/" \;
+
+while IFS= read -r -d '' RESOURCE_BUNDLE; do
+  ASSET_CATALOGS=()
+  while IFS= read -r -d '' ASSET_CATALOG; do
+    ASSET_CATALOGS+=("$ASSET_CATALOG")
+  done < <(find "$RESOURCE_BUNDLE" -maxdepth 1 -type d -name '*.xcassets' -print0)
+
+  if (( ${#ASSET_CATALOGS[@]} > 0 )); then
+    PARTIAL_PLIST="$(/usr/bin/mktemp "$DIST_DIR/.asset-info.XXXXXX")"
+    /usr/bin/xcrun actool \
+      --compile "$RESOURCE_BUNDLE" \
+      --platform macosx \
+      --minimum-deployment-target "$MIN_SYSTEM_VERSION" \
+      --output-partial-info-plist "$PARTIAL_PLIST" \
+      "${ASSET_CATALOGS[@]}"
+    rm -rf "${ASSET_CATALOGS[@]}" "$PARTIAL_PLIST"
+  fi
+done < <(find "$APP_BUNDLE" -maxdepth 1 -type d -name '*.bundle' -print0)
+
 if [[ -f "$ROOT_DIR/Resources/AppIcon.icns" ]]; then
   cp "$ROOT_DIR/Resources/AppIcon.icns" "$APP_RESOURCES/AppIcon.icns"
 fi
