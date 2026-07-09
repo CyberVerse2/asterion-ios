@@ -8,44 +8,61 @@ final class AsterionAppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.regular)
         NotificationCenter.default.addObserver(
             self,
-            selector: #selector(windowDidBecomeKey(_:)),
-            name: NSWindow.didBecomeKeyNotification,
+            selector: #selector(windowToolbarDidChange(_:)),
+            name: NSWindow.didUpdateNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(toolbarWillAddItem(_:)),
+            name: NSToolbar.willAddItemNotification,
             object: nil
         )
         DispatchQueue.main.async {
             NSApp.activate(ignoringOtherApps: true)
             NSApp.windows.first?.makeKeyAndOrderFront(nil)
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            self.removeSidebarToggle()
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-            self.removeSidebarToggle()
+            self.removeSidebarToggles()
         }
     }
 
-    @objc private func windowDidBecomeKey(_ notification: Notification) {
-        removeSidebarToggle()
+    @objc private func windowToolbarDidChange(_ notification: Notification) {
+        removeSidebarToggles()
     }
 
-    private func removeSidebarToggle() {
+    @objc private func toolbarWillAddItem(_ notification: Notification) {
+        DispatchQueue.main.async { [weak self] in
+            self?.removeSidebarToggles()
+        }
+    }
+
+    private func removeSidebarToggles() {
         for window in NSApp.windows {
             guard let toolbar = window.toolbar else { continue }
             for index in toolbar.items.indices.reversed() {
                 let item = toolbar.items[index]
-                let action = item.action.map(NSStringFromSelector) ?? ""
-                let details = [
-                    item.itemIdentifier.rawValue,
-                    item.label,
-                    item.paletteLabel,
-                    item.toolTip ?? "",
-                    action,
-                ].joined(separator: " ").lowercased()
-                if details.contains("sidebar") {
+                if containsSidebarToggle(item) {
                     toolbar.removeItem(at: index)
                 }
             }
         }
+    }
+
+    private func containsSidebarToggle(_ item: NSToolbarItem) -> Bool {
+        if item.itemIdentifier == .toggleSidebar {
+            return true
+        }
+        if let group = item as? NSToolbarItemGroup,
+           group.subitems.contains(where: containsSidebarToggle) {
+            return true
+        }
+        let action = item.action.map(NSStringFromSelector) ?? ""
+        return [
+            item.itemIdentifier.rawValue,
+            item.label,
+            item.paletteLabel,
+            item.toolTip ?? "",
+            action,
+        ].joined(separator: " ").localizedCaseInsensitiveContains("sidebar")
     }
 }
 
@@ -79,6 +96,7 @@ struct AsterionApp: App {
         .defaultSize(width: 1240, height: 780)
         .windowResizability(.contentMinSize)
         .commands {
+            CommandGroup(replacing: .sidebar) {}
             AsterionNavigationCommands()
         }
 

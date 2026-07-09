@@ -72,6 +72,7 @@ struct EditorialCatalogView: View {
                 } label: {
                     Label("Refresh Catalog", systemImage: "arrow.clockwise")
                 }
+                .buttonStyle(AsterionPressButtonStyle())
             }
         }
     }
@@ -189,6 +190,7 @@ private struct ShelfHeader: View {
 }
 
 private struct EditorialBookTile: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let novel: Novel
     let isSelected: Bool
     let rank: Int?
@@ -229,12 +231,15 @@ private struct EditorialBookTile: View {
             }
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(AsterionPressButtonStyle())
+        .asterionHoverLift()
+        .animation(reduceMotion ? nil : AsterionMotion.reveal, value: isSelected)
         .accessibilityLabel("\(novel.title), by \(novel.authorDisplayName)")
     }
 }
 
 private struct ContinueReadingTile: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let entry: AppModel.ContinueReadingEntry
     let isSelected: Bool
     let action: () -> Void
@@ -266,6 +271,8 @@ private struct ContinueReadingTile: View {
                     .frame(maxWidth: 120)
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(AsterionPressButtonStyle())
+        .asterionHoverLift()
+        .animation(reduceMotion ? nil : AsterionMotion.reveal, value: isSelected)
     }
 }

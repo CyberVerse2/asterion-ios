@@ -3,6 +3,7 @@ import SwiftUI
 struct NovelDetailView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let novel: Novel
 
     @State private var chapters: [Chapter] = []
@@ -10,6 +11,7 @@ struct NovelDetailView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var scrollPosition: String?
+    @State private var showsFullSynopsis = false
 
     private var isInLibrary: Bool {
         model.libraryNovelIDs.contains(novel.id)
@@ -29,11 +31,27 @@ struct NovelDetailView: View {
 
                 if !cleanSummary.isEmpty {
                     detailSection(title: "Synopsis") {
-                        Text(cleanSummary)
-                            .font(.asterionReading(15))
-                            .foregroundStyle(Color.asterionReaderText)
-                            .lineSpacing(5)
-                            .textSelection(.enabled)
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text(showsFullSynopsis ? cleanSummary : synopsisPreview)
+                                .font(.asterionReading(15))
+                                .foregroundStyle(Color.asterionReaderText)
+                                .lineSpacing(5)
+                                .textSelection(.enabled)
+
+                            if synopsisPreview != cleanSummary {
+                                Button {
+                                    showsFullSynopsis.toggle()
+                                } label: {
+                                    Label(
+                                        showsFullSynopsis ? "Show less" : "Read full synopsis",
+                                        systemImage: showsFullSynopsis ? "chevron.up" : "chevron.down"
+                                    )
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(Color.asterionAccent)
+                                }
+                                .buttonStyle(AsterionPressButtonStyle())
+                            }
+                        }
                     }
                 }
 
@@ -53,8 +71,10 @@ struct NovelDetailView: View {
         .navigationTitle(novel.title)
         .safeAreaInset(edge: .bottom) { accountErrorBar }
         .task(id: novel.id) {
-            scrollPosition = "detail-top"
+            showsFullSynopsis = false
+            scrollPosition = nil
             await load()
+            await Task.yield()
             scrollPosition = "detail-top"
         }
     }
@@ -107,14 +127,19 @@ struct NovelDetailView: View {
                         .foregroundStyle(.white)
                         .background(Color.asterionAccent, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(AsterionPressButtonStyle())
                 .keyboardShortcut(.return, modifiers: .command)
                 .disabled(chapters.isEmpty)
 
                 Button {
                     Task { await model.toggleLibrary(novelID: novel.id) }
                 } label: {
-                    Label(isInLibrary ? "Saved" : "Save", systemImage: isInLibrary ? "bookmark.fill" : "bookmark")
+                    Label {
+                        Text(isInLibrary ? "Saved" : "Save")
+                    } icon: {
+                        Image(systemName: isInLibrary ? "bookmark.fill" : "bookmark")
+                            .contentTransition(.symbolEffect(.replace))
+                    }
                         .frame(minWidth: 76)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
@@ -125,8 +150,9 @@ struct NovelDetailView: View {
                                 .stroke(Color.asterionBorder)
                         }
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(AsterionPressButtonStyle())
                 .disabled(!model.isSignedIn || model.isUpdatingLibrary)
+                .animation(reduceMotion ? nil : AsterionMotion.hover, value: isInLibrary)
             }
 
             if let progress {
@@ -143,6 +169,7 @@ struct NovelDetailView: View {
                     }
                     ProgressView(value: min(1, max(0, progress.percentage / 100)))
                         .tint(Color.asterionAccent)
+                        .animation(reduceMotion ? nil : AsterionMotion.reveal, value: progress.percentage)
                 }
             }
         }
@@ -186,7 +213,7 @@ struct NovelDetailView: View {
                         .padding(.vertical, 11)
                         .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(AsterionPressButtonStyle())
                     Divider().overlay(Color.asterionBorder)
                 }
             }
@@ -220,10 +247,17 @@ struct NovelDetailView: View {
             )
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        guard cleaned.count > 680 else { return cleaned }
-        let prefix = String(cleaned.prefix(680))
-        if let sentenceEnd = prefix.lastIndex(of: ".") {
+        return cleaned
+    }
+
+    private var synopsisPreview: String {
+        guard cleanSummary.count > 280 else { return cleanSummary }
+        let prefix = String(cleanSummary.prefix(280))
+        if let sentenceEnd = prefix.lastIndex(where: { ".!?".contains($0) }) {
             return String(prefix[...sentenceEnd])
+        }
+        if let wordBoundary = prefix.lastIndex(where: { $0.isWhitespace }) {
+            return String(prefix[..<wordBoundary]) + "…"
         }
         return prefix + "…"
     }

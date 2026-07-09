@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 struct ContentView: View {
@@ -6,6 +5,7 @@ struct ContentView: View {
     @SceneStorage("selectedSection") private var selectedSectionRaw = AppSection.discover.rawValue
     @SceneStorage("selectedNovelID") private var selectedNovelID = ""
     @State private var searchText = ""
+    @State private var columnVisibility = NavigationSplitViewVisibility.all
 
     private var section: Binding<AppSection> {
         Binding(
@@ -23,7 +23,7 @@ struct ContentView: View {
     }
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarView(selection: section)
                 .navigationSplitViewColumnWidth(min: 190, ideal: 220, max: 240)
         } content: {
@@ -37,6 +37,7 @@ struct ContentView: View {
                     isSearching: !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                     selectedNovelID: $selectedNovelID
                 )
+                .id(section.wrappedValue)
                 .navigationSplitViewColumnWidth(min: 520, ideal: 650, max: 760)
             }
         } detail: {
@@ -53,17 +54,17 @@ struct ContentView: View {
             }
         }
         .navigationSplitViewStyle(.balanced)
-        .toolbar(removing: .sidebarToggle)
         .catalogSearch(
             text: $searchText,
             isEnabled: section.wrappedValue != .account
         )
+        .toolbar(removing: .sidebarToggle)
         .focusedSceneValue(\.asterionSection, section)
         .tint(.asterionAccent)
         .background(Color.asterionBackground)
         .preferredColorScheme(.light)
         .onAppear {
-            suppressSidebarToggle()
+            restoreAllColumns()
             if selectedNovelID.isEmpty {
                 selectFirstNovel(in: section.wrappedValue)
             } else {
@@ -79,10 +80,12 @@ struct ContentView: View {
         }
         .onChange(of: selectedSectionRaw) {
             selectFirstNovel(in: section.wrappedValue)
-            suppressSidebarToggle()
         }
         .onChange(of: searchText) {
             ensureSelection()
+        }
+        .onChange(of: columnVisibility) {
+            restoreAllColumns()
         }
     }
 
@@ -142,14 +145,12 @@ struct ContentView: View {
         }
     }
 
-    private func suppressSidebarToggle() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            for window in NSApp.windows where window.title != "Reader" {
-                guard let toolbar = window.toolbar,
-                      !toolbar.items.isEmpty
-                else { continue }
-                toolbar.removeItem(at: 0)
-            }
+    private func restoreAllColumns() {
+        guard columnVisibility != .all else { return }
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            columnVisibility = .all
         }
     }
 }

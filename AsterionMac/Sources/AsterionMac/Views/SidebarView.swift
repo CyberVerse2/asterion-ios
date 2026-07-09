@@ -3,6 +3,7 @@ import SwiftUI
 
 struct SidebarView: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Binding var selection: AppSection
 
     var body: some View {
@@ -26,10 +27,12 @@ struct SidebarView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 10)
-                            .background(
-                                selection == section ? Color.asterionSidebarSelection : .clear,
-                                in: RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            )
+                            .background {
+                                if selection == section {
+                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                        .fill(Color.asterionSidebarSelection)
+                                }
+                            }
                             .overlay(alignment: .leading) {
                                 if selection == section {
                                     Capsule()
@@ -42,8 +45,12 @@ struct SidebarView: View {
                                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                                     .stroke(selection == section ? Color.asterionBorder : .clear)
                             }
+                            .animation(
+                                reduceMotion ? nil : AsterionMotion.navigation,
+                                value: selection == section
+                            )
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(AsterionPressButtonStyle())
                 }
             }
             .padding(.horizontal, 14)
@@ -86,22 +93,24 @@ struct SidebarView: View {
     }
 
     private var brand: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                logoMark
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 25, height: 32)
+        HStack(alignment: .center, spacing: 9) {
+            logoMark
+                .resizable()
+                .scaledToFit()
+                .frame(width: 24, height: 31)
+
+            VStack(alignment: .leading, spacing: 2) {
                 Text("ASTERION")
-                    .font(.asterionDisplay(17, weight: .semibold))
-                    .tracking(2.6)
+                    .font(.asterionDisplay(16, weight: .semibold))
+                    .tracking(2.3)
                     .foregroundStyle(Color.asterionSidebarText)
                     .lineLimit(1)
                     .minimumScaleFactor(0.82)
+                Text("Stories that transcend time.")
+                    .font(.caption2)
+                    .foregroundStyle(Color.asterionSidebarMuted)
+                    .lineLimit(1)
             }
-            Text("Stories that transcend time.")
-                .font(.caption2)
-                .foregroundStyle(Color.asterionSidebarMuted)
         }
         .padding(.horizontal, 18)
         .padding(.top, 23)

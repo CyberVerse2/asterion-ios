@@ -7,7 +7,7 @@ struct ScrollIndicatorHider: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: MarkerView, context: Context) {
-        nsView.hideScrollIndicators()
+        nsView.scheduleScrollIndicatorPasses()
     }
 
     final class MarkerView: NSView {
@@ -32,7 +32,7 @@ struct ScrollIndicatorHider: NSViewRepresentable {
                     object: window
                 )
             }
-            hideScrollIndicators()
+            scheduleScrollIndicatorPasses()
         }
 
         override func layout() {
@@ -43,6 +43,14 @@ struct ScrollIndicatorHider: NSViewRepresentable {
         func hideScrollIndicators() {
             DispatchQueue.main.async { [weak self] in
                 self?.hideScrollIndicatorsImmediately()
+            }
+        }
+
+        func scheduleScrollIndicatorPasses() {
+            for delay in [0.0, 0.15, 0.75, 2.5] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                    self?.hideScrollIndicatorsImmediately()
+                }
             }
         }
 
@@ -59,20 +67,8 @@ struct ScrollIndicatorHider: NSViewRepresentable {
             if let scrollView = view as? NSScrollView {
                 scrollView.scrollerStyle = .overlay
                 scrollView.autohidesScrollers = true
-
-                if scrollView.hasVerticalScroller,
-                   !(scrollView.verticalScroller is InvisibleScroller)
-                {
-                    scrollView.verticalScroller = InvisibleScroller()
-                    scrollView.hasVerticalScroller = true
-                }
-
-                if scrollView.hasHorizontalScroller,
-                   !(scrollView.horizontalScroller is InvisibleScroller)
-                {
-                    scrollView.horizontalScroller = InvisibleScroller()
-                    scrollView.hasHorizontalScroller = true
-                }
+                scrollView.hasVerticalScroller = false
+                scrollView.hasHorizontalScroller = false
             }
 
             for subview in view.subviews {
@@ -81,11 +77,6 @@ struct ScrollIndicatorHider: NSViewRepresentable {
         }
     }
 
-    final class InvisibleScroller: NSScroller {
-        override func draw(_ dirtyRect: NSRect) {}
-        override func drawKnob() {}
-        override func drawKnobSlot(in slotRect: NSRect, highlight flag: Bool) {}
-    }
 }
 
 extension View {

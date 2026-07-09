@@ -287,7 +287,7 @@ struct AccountView: View {
                         .foregroundStyle(.white)
                         .background(Color.asterionAccent, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(AsterionPressButtonStyle())
             }
             .accountCard()
 
@@ -491,7 +491,7 @@ private struct ReadingActivityRow: View {
                         Capsule().stroke(Color.asterionAccent.opacity(0.35))
                     }
             }
-            .buttonStyle(.plain)
+            .buttonStyle(AsterionPressButtonStyle())
         }
         .padding(.vertical, 15)
     }
