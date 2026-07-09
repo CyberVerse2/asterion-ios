@@ -2,6 +2,7 @@ import CoreText
 import SwiftUI
 
 extension Color {
+    static let asterionCanvas = Color(red: 0.867, green: 0.882, blue: 0.906)
     static let asterionBackground = Color(red: 0.949, green: 0.953, blue: 0.961)
     static let asterionSidebar = Color(red: 0.925, green: 0.933, blue: 0.945)
     static let asterionSurface = Color.white
