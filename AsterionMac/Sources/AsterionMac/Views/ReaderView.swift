@@ -443,9 +443,15 @@ private struct ReaderThemeMenu: View {
             }
         } label: {
             Image(systemName: theme.icon)
-                .font(.system(size: 13, weight: .regular))
-                .foregroundStyle(palette.muted)
-                .frame(width: 30, height: 30)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(palette.text)
+                .frame(width: 32, height: 30)
+                .background {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(palette.text.opacity(0.10))
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .stroke(palette.text.opacity(0.24), lineWidth: 0.75)
+                }
                 .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
         }
         .menuStyle(.borderlessButton)
@@ -567,6 +573,10 @@ private struct ReaderWebSpreadView: NSViewRepresentable {
     }
 
     private static func hideScrollers(in view: NSView) {
+        if let scroller = view as? NSScroller {
+            scroller.alphaValue = 0
+            scroller.isHidden = true
+        }
         if let scrollView = view as? NSScrollView {
             scrollView.hasHorizontalScroller = false
             scrollView.hasVerticalScroller = false
@@ -604,6 +614,8 @@ private struct ReaderWebSpreadView: NSViewRepresentable {
               margin: 0;
               background: var(--asterion-bg);
               color: var(--asterion-text);
+              scrollbar-color: transparent transparent;
+              scrollbar-width: none;
             }
             body {
               box-sizing: border-box;
@@ -618,12 +630,19 @@ private struct ReaderWebSpreadView: NSViewRepresentable {
               overflow-x: auto;
               overflow-y: hidden;
               overscroll-behavior-x: none;
-              scrollbar-width: none;
             }
-            body::-webkit-scrollbar {
-              width: 0;
-              height: 0;
+            html::-webkit-scrollbar,
+            body::-webkit-scrollbar,
+            *::-webkit-scrollbar {
+              width: 0 !important;
+              height: 0 !important;
               display: none;
+              background: transparent;
+            }
+            html::-webkit-scrollbar-thumb,
+            body::-webkit-scrollbar-thumb,
+            *::-webkit-scrollbar-thumb {
+              background: transparent;
             }
             header, p {
               box-sizing: border-box;

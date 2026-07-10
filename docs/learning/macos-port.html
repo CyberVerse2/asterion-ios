@@ -53,7 +53,7 @@
     <li>Catalog and chapter lookups merge downloaded data with live API data, so downloaded books remain readable offline.</li>
     <li>The reader lays chapter text into a WebKit-powered two-page spread when the window is wide enough.</li>
     <li>The theme menu applies Paper, Sepia, or Ink colors to SwiftUI chrome and WebKit content from one palette and persists the selection with <code>@AppStorage</code>.</li>
-    <li>The native WebKit scroll view keeps its horizontal and vertical scrollers disabled while wheel, keyboard, and trackpad page turns remain active.</li>
+    <li>The reader suppresses both document-level scrollbar styling and nested AppKit scroller views while wheel, keyboard, and trackpad page turns remain active.</li>
     <li>The page-turn bridge computes spread width from the viewport instead of parsing CSS <code>calc()</code> or <code>clamp()</code> strings.</li>
     <li>At the first or last spread of a chapter, page-turn input loads the previous or next chapter.</li>
     <li>The reader debounces visible-line changes before syncing authenticated progress.</li>
