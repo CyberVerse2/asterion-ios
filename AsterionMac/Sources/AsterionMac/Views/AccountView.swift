@@ -259,8 +259,7 @@ struct AccountView: View {
         }
         .hidingScrollIndicators()
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Color.asterionSurface)
-        .preferredColorScheme(.light)
+        .background(.background)
         .sheet(isPresented: $presentsProfileEditor) {
             UserProfileView()
                 .environment(Clerk.shared)
@@ -302,11 +301,11 @@ struct AccountView: View {
                 } label: {
                     Label("Manage Profile", systemImage: "person.crop.circle")
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 11)
-                        .foregroundStyle(.white)
-                        .background(Color.asterionAccent, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
-                .buttonStyle(AsterionPressButtonStyle())
+                .buttonStyle(.glassProminent)
+                .buttonBorderShape(.roundedRectangle(radius: 10))
+                .controlSize(.large)
+                .tint(.asterionAccent)
             }
             .accountCard()
 

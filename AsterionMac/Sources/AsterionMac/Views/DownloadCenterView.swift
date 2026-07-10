@@ -27,7 +27,7 @@ struct DownloadCenterView: View {
             }
             .padding(18)
 
-            Divider().overlay(Color.asterionBorder)
+            Divider()
 
             if model.offlineDownloads.isEmpty {
                 ContentUnavailableView {
@@ -42,7 +42,7 @@ struct DownloadCenterView: View {
                         ForEach(model.offlineDownloads) { download in
                             DownloadRow(download: download)
                             if download.id != model.offlineDownloads.last?.id {
-                                Divider().overlay(Color.asterionBorder)
+                                Divider()
                             }
                         }
                     }
@@ -52,8 +52,7 @@ struct DownloadCenterView: View {
             }
         }
         .frame(width: 360)
-        .background(Color.asterionSurface)
-        .preferredColorScheme(.light)
+        .background(.background)
     }
 }
 

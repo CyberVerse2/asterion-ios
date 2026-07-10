@@ -38,7 +38,7 @@ struct NovelDetailView: View {
                 hero
                     .id("detail-top")
                 actions
-                Divider().overlay(Color.asterionBorder)
+                Divider()
 
                 if !cleanSummary.isEmpty {
                     detailSection(title: "Synopsis") {
@@ -58,15 +58,15 @@ struct NovelDetailView: View {
                                         systemImage: showsFullSynopsis ? "chevron.up" : "chevron.down"
                                     )
                                     .font(.caption.weight(.semibold))
-                                    .foregroundStyle(Color.asterionAccent)
                                 }
-                                .buttonStyle(AsterionPressButtonStyle())
+                                .buttonStyle(.link)
+                                .tint(.asterionAccent)
                             }
                         }
                     }
                 }
 
-                Divider().overlay(Color.asterionBorder)
+                Divider()
 
                 detailSection(title: "Chapters", trailing: chapterCountLabel) {
                     chapterList
@@ -80,7 +80,7 @@ struct NovelDetailView: View {
         }
         .hidingScrollIndicators()
         .scrollPosition(id: $scrollPosition, anchor: .top)
-        .background(Color.asterionSurface)
+        .background(.background)
         .navigationTitle(novel.title)
         .safeAreaInset(edge: .bottom) { accountErrorBar }
         .task(id: novel.id) {
@@ -130,74 +130,22 @@ struct NovelDetailView: View {
 
     private var actions: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 12) {
-                Button {
-                    openPreferredChapter()
-                } label: {
-                    Label(readButtonTitle, systemImage: "book.pages")
-                        .lineLimit(1)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 11)
-                        .foregroundStyle(.white)
-                        .background(Color.asterionAccent, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) {
+                    readAction
+                    saveAction
+                    downloadAction
                 }
-                .layoutPriority(1)
-                .buttonStyle(AsterionPressButtonStyle())
-                .keyboardShortcut(.return, modifiers: .command)
-                .disabled(chapters.isEmpty)
 
-                Button {
-                    Task { await model.toggleLibrary(novelID: novel.id) }
-                } label: {
-                    Label {
-                        Text(isInLibrary ? "Saved" : "Save")
-                    } icon: {
-                        Image(systemName: isInLibrary ? "bookmark.fill" : "bookmark")
-                            .contentTransition(.symbolEffect(.replace))
+                VStack(spacing: 10) {
+                    readAction
+                    HStack(spacing: 10) {
+                        saveAction
+                            .frame(maxWidth: .infinity)
+                        downloadAction
+                            .frame(maxWidth: .infinity)
                     }
-                        .frame(minWidth: 76)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .foregroundStyle(Color.asterionText)
-                        .background(Color.asterionSurface, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                .stroke(Color.asterionBorder)
-                        }
                 }
-                .buttonStyle(AsterionPressButtonStyle())
-                .disabled(!model.isSignedIn || model.isUpdatingLibrary)
-                .animation(reduceMotion ? nil : AsterionMotion.hover, value: isInLibrary)
-
-                Button {
-                    Task {
-                        downloadRequestError = nil
-                        do {
-                            try await model.downloadForOffline(novel: novel)
-                        } catch {
-                            downloadRequestError = error.localizedDescription
-                        }
-                    }
-                } label: {
-                    Label {
-                        Text(downloadButtonTitle)
-                    } icon: {
-                        Image(systemName: downloadButtonIcon)
-                            .contentTransition(.symbolEffect(.replace))
-                    }
-                        .frame(minWidth: 116)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .foregroundStyle(isDownloaded ? Color.asterionAccent : Color.asterionText)
-                        .background(Color.asterionSurface, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                .stroke(isDownloaded ? Color.asterionAccent : Color.asterionBorder)
-                        }
-                }
-                .buttonStyle(AsterionPressButtonStyle())
-                .disabled(isDownloaded || isDownloading || chapters.isEmpty)
-                .animation(reduceMotion ? nil : AsterionMotion.hover, value: isDownloaded)
             }
 
             downloadStatus
@@ -213,6 +161,69 @@ struct NovelDetailView: View {
                 }
             }
         }
+    }
+
+    private var readAction: some View {
+        Button {
+            openPreferredChapter()
+        } label: {
+            Label(readButtonTitle, systemImage: "book.pages")
+                .lineLimit(1)
+                .frame(maxWidth: .infinity)
+        }
+        .layoutPriority(1)
+        .buttonStyle(.glassProminent)
+        .buttonBorderShape(.roundedRectangle(radius: 10))
+        .controlSize(.large)
+        .tint(.asterionAccent)
+        .keyboardShortcut(.return, modifiers: .command)
+        .disabled(chapters.isEmpty)
+    }
+
+    private var saveAction: some View {
+        Button {
+            Task { await model.toggleLibrary(novelID: novel.id) }
+        } label: {
+            Label {
+                Text(isInLibrary ? "Saved" : "Save")
+            } icon: {
+                Image(systemName: isInLibrary ? "bookmark.fill" : "bookmark")
+                    .contentTransition(.symbolEffect(.replace))
+            }
+            .frame(minWidth: 76, maxWidth: .infinity)
+        }
+        .buttonStyle(.glass)
+        .buttonBorderShape(.roundedRectangle(radius: 10))
+        .controlSize(.large)
+        .disabled(!model.isSignedIn || model.isUpdatingLibrary)
+        .animation(reduceMotion ? nil : AsterionMotion.hover, value: isInLibrary)
+    }
+
+    private var downloadAction: some View {
+        Button {
+            Task {
+                downloadRequestError = nil
+                do {
+                    try await model.downloadForOffline(novel: novel)
+                } catch {
+                    downloadRequestError = error.localizedDescription
+                }
+            }
+        } label: {
+            Label {
+                Text(downloadButtonTitle)
+            } icon: {
+                Image(systemName: downloadButtonIcon)
+                    .contentTransition(.symbolEffect(.replace))
+            }
+            .frame(minWidth: 116, maxWidth: .infinity)
+        }
+        .buttonStyle(.glass)
+        .buttonBorderShape(.roundedRectangle(radius: 10))
+        .controlSize(.large)
+        .tint(isDownloaded ? .asterionAccent : nil)
+        .disabled(isDownloaded || isDownloading || chapters.isEmpty)
+        .animation(reduceMotion ? nil : AsterionMotion.hover, value: isDownloaded)
     }
 
     @ViewBuilder
@@ -277,8 +288,8 @@ struct NovelDetailView: View {
                         .padding(.vertical, 11)
                         .contentShape(Rectangle())
                     }
-                    .buttonStyle(AsterionPressButtonStyle())
-                    Divider().overlay(Color.asterionBorder)
+                    .buttonStyle(.plain)
+                    Divider()
                 }
             }
         }
