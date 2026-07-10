@@ -40,7 +40,7 @@
   </div>
 
   <h2>Desktop decisions</h2>
-  <p>The mobile tab bar and push stacks were replaced with a stable three-column <code>NavigationSplitView</code>. A novel stays selected while the user moves between the list and detail surface. Reading opens in a value-driven <code>WindowGroup</code>, allowing multiple books or chapters to remain open without hiding catalog context. Account preferences live in the system Settings scene, while account identity remains an app section.</p>
+  <p>The mobile tab bar and push stacks were replaced with a stable three-column <code>NavigationSplitView</code>. A novel stays selected while the user moves between the list and detail surface. Reading opens in a value-driven <code>WindowGroup</code>, allowing multiple books or chapters to remain open without hiding catalog context. Desktop-width reader windows use a facing-page spread by default; turning past a chapter edge opens the neighboring chapter so the book keeps moving forward or backward. Narrow windows keep a single page so the text never feels compressed. Account preferences live in the system Settings scene, while account identity remains an app section.</p>
 
   <h2>Behavior walkthrough</h2>
   <ol>
@@ -48,6 +48,8 @@
     <li>Sidebar selection chooses a catalog projection: alphabetical, ranked, or saved.</li>
     <li>Selecting a novel renders its metadata and lazily fetches its complete chapter list.</li>
     <li>Read opens a new reader window using the novel and chapter identifiers as the route.</li>
+    <li>The reader lays chapter text into a WebKit-powered two-page spread when the window is wide enough.</li>
+    <li>At the first or last spread of a chapter, page-turn input loads the previous or next chapter.</li>
     <li>The reader debounces visible-line changes before syncing authenticated progress.</li>
   </ol>
 
@@ -85,6 +87,13 @@
     <button data-value="plist">Only the identifier text in <code>Info.plist</code></button>
     <button data-value="requirement">The signed executable's designated requirement</button>
     <button data-value="path">The absolute path to the SwiftPM build directory</button>
+    <p class="feedback" aria-live="polite"></p>
+  </div>
+  <div class="quiz" data-answer="width">
+    <p>Why does the reader only use facing-page turns at desktop width?</p>
+    <button data-value="sync">Progress sync requires two columns</button>
+    <button data-value="width">Each page needs enough measure to stay readable</button>
+    <button data-value="export">Export only works from split view</button>
     <p class="feedback" aria-live="polite"></p>
   </div>
   <script>
