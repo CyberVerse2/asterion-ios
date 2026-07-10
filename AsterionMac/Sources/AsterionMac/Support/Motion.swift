@@ -1,22 +1,10 @@
 import SwiftUI
 
 enum AsterionMotion {
-    static let press = Animation.easeOut(duration: 0.12)
     static let hover = Animation.easeOut(duration: 0.16)
     static let reveal = Animation.easeOut(duration: 0.22)
     static let navigation = Animation.spring(duration: 0.28, bounce: 0.06)
     static let sidebar = Animation.easeInOut(duration: 0.22)
-}
-
-struct AsterionPressButtonStyle: ButtonStyle {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(reduceMotion || !configuration.isPressed ? 1 : 0.975)
-            .opacity(configuration.isPressed ? 0.88 : 1)
-            .animation(reduceMotion ? nil : AsterionMotion.press, value: configuration.isPressed)
-    }
 }
 
 private struct AsterionHoverLift: ViewModifier {

@@ -223,7 +223,7 @@ private struct EditorialBookTile: View {
             }
             .contentShape(Rectangle())
         }
-        .buttonStyle(AsterionPressButtonStyle())
+        .buttonStyle(.plain)
         .asterionHoverLift()
         .animation(reduceMotion ? nil : AsterionMotion.reveal, value: isSelected)
         .accessibilityLabel("\(novel.title), by \(novel.authorDisplayName)")
@@ -263,7 +263,7 @@ private struct ContinueReadingTile: View {
                     .frame(maxWidth: 120)
             }
         }
-        .buttonStyle(AsterionPressButtonStyle())
+        .buttonStyle(.plain)
         .asterionHoverLift()
         .animation(reduceMotion ? nil : AsterionMotion.reveal, value: isSelected)
     }
