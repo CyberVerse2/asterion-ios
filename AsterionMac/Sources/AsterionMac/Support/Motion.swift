@@ -5,6 +5,7 @@ enum AsterionMotion {
     static let hover = Animation.easeOut(duration: 0.16)
     static let reveal = Animation.easeOut(duration: 0.22)
     static let navigation = Animation.spring(duration: 0.28, bounce: 0.06)
+    static let sidebar = Animation.easeInOut(duration: 0.22)
 }
 
 struct AsterionPressButtonStyle: ButtonStyle {

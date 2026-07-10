@@ -23,6 +23,7 @@ struct SidebarView: View {
                             if !isCompact {
                                 Text(section.title)
                                     .font(.asterionDisplay(14, weight: selection == section ? .semibold : .medium))
+                                    .transition(.opacity)
                                 Spacer()
                             }
                         }
@@ -94,6 +95,7 @@ struct SidebarView: View {
                                 .font(.caption2)
                                 .foregroundStyle(Color.asterionSidebarAccent)
                         }
+                        .transition(.opacity)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: isCompact ? .center : .leading)
@@ -124,14 +126,16 @@ struct SidebarView: View {
                 .resizable()
                 .scaledToFit()
                 .frame(width: 18, height: 23)
-            .frame(maxWidth: .infinity)
-            .padding(.top, 16)
-            .padding(.bottom, 18)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 16)
+                .padding(.bottom, 18)
+                .transition(.opacity)
         } else {
             brand
-            .padding(.horizontal, 14)
-            .padding(.top, 18)
-            .padding(.bottom, 22)
+                .padding(.horizontal, 14)
+                .padding(.top, 18)
+                .padding(.bottom, 22)
+                .transition(.opacity)
         }
     }
 
@@ -179,7 +183,9 @@ struct SidebarView: View {
 
     private func toggleCompactSidebar() {
         let compacting = !isCompact
-        isCompact = compacting
+        withAnimation(reduceMotion ? nil : AsterionMotion.sidebar) {
+            isCompact = compacting
+        }
 
         DispatchQueue.main.async {
             guard let window = NSApp.keyWindow else { return }

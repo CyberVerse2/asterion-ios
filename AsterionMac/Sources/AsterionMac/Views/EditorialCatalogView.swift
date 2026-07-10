@@ -72,9 +72,15 @@ struct EditorialCatalogView: View {
                 Button {
                     Task { await model.loadCatalog() }
                 } label: {
-                    Label("Refresh Catalog", systemImage: "arrow.clockwise")
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(width: 34, height: 30)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(AsterionPressButtonStyle())
+                .fixedSize()
+                .help("Refresh Catalog")
+                .accessibilityLabel("Refresh Catalog")
             }
         }
     }
