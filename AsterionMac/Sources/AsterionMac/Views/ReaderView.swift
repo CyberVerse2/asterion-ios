@@ -127,6 +127,7 @@ struct ReaderView: View {
         .preferredColorScheme(readerTheme.preferredColorScheme)
         .animation(.easeInOut(duration: 0.3), value: readerTheme)
         .navigationTitle(chapter?.title ?? "Reader")
+        .toolbar { readerToolbar }
         .safeAreaInset(edge: .bottom) {
             if let error = model.accountError {
                 Label(error, systemImage: "exclamationmark.triangle.fill")
@@ -158,24 +159,6 @@ struct ReaderView: View {
     @ViewBuilder
     private func reader(_ chapter: Chapter) -> some View {
         VStack(spacing: 0) {
-            ReaderTopBar(
-                novelTitle: novel?.title ?? "Asterion",
-                chapterTitle: chapter.displayTitle,
-                chapterNumber: chapter.chapterNumber,
-                canGoBack: currentIndex > 0,
-                canGoForward: currentIndex < chapters.count - 1,
-                onBack: { navigate(by: -1) },
-                onForward: { navigate(by: 1) },
-                showsChapterPicker: showsChapterPicker,
-                onToggleChapterPicker: { showsChapterPicker.toggle() },
-                onSmallerText: { fontSize = max(14, fontSize - 1) },
-                onLargerText: { fontSize = min(30, fontSize + 1) },
-                theme: readerTheme,
-                palette: palette,
-                onThemeChange: { readerThemeRawValue = $0.rawValue },
-                onExport: { exportsChapter = true }
-            )
-
             HStack(spacing: 0) {
                 if showsChapterPicker {
                     ReaderChapterPicker(
@@ -241,6 +224,83 @@ struct ReaderView: View {
                 label: "\(Int(chapterProgress * 100))% of chapter",
                 palette: palette
             )
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var readerToolbar: some ToolbarContent {
+        ToolbarItemGroup(placement: .navigation) {
+            Button {
+                navigate(by: -1)
+            } label: {
+                Label("Previous Chapter", systemImage: "chevron.left")
+            }
+            .disabled(currentIndex <= 0)
+            .help("Previous Chapter")
+
+            Button {
+                navigate(by: 1)
+            } label: {
+                Label("Next Chapter", systemImage: "chevron.right")
+            }
+            .disabled(currentIndex >= chapters.count - 1)
+            .help("Next Chapter")
+
+            Button {
+                showsChapterPicker.toggle()
+            } label: {
+                Label(
+                    showsChapterPicker ? "Hide Chapters" : "Browse Chapters",
+                    systemImage: "list.bullet"
+                )
+            }
+            .help(showsChapterPicker ? "Hide Chapters" : "Browse Chapters")
+        }
+
+        if let chapter {
+            ToolbarItem(placement: .principal) {
+                VStack(spacing: 1) {
+                    Text(novel?.title ?? "Asterion")
+                        .font(.asterionDisplay(13, weight: .medium))
+                    Text("Chapter \(chapter.chapterNumber) · \(chapter.displayTitle)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                .lineLimit(1)
+                .frame(maxWidth: 520)
+            }
+        }
+
+        ToolbarItemGroup(placement: .primaryAction) {
+            Button {
+                fontSize = max(14, fontSize - 1)
+            } label: {
+                Label("Smaller Text", systemImage: "textformat.size.smaller")
+            }
+            .help("Smaller Text")
+
+            Button {
+                fontSize = min(30, fontSize + 1)
+            } label: {
+                Label("Larger Text", systemImage: "textformat.size.larger")
+            }
+            .help("Larger Text")
+        }
+
+        ToolbarSpacer(.fixed)
+
+        ToolbarItemGroup(placement: .primaryAction) {
+            ReaderThemeMenu(
+                theme: readerTheme,
+                onSelect: { readerThemeRawValue = $0.rawValue }
+            )
+
+            Button {
+                exportsChapter = true
+            } label: {
+                Label("Save Chapter", systemImage: "square.and.arrow.down")
+            }
+            .help("Save Chapter")
         }
     }
 
@@ -386,101 +446,8 @@ struct ReaderView: View {
     }
 }
 
-private struct ReaderTopBar: View {
-    let novelTitle: String
-    let chapterTitle: String
-    let chapterNumber: Int
-    let canGoBack: Bool
-    let canGoForward: Bool
-    let onBack: () -> Void
-    let onForward: () -> Void
-    let showsChapterPicker: Bool
-    let onToggleChapterPicker: () -> Void
-    let onSmallerText: () -> Void
-    let onLargerText: () -> Void
-    let theme: ReaderTheme
-    let palette: ReaderPalette
-    let onThemeChange: (ReaderTheme) -> Void
-    let onExport: () -> Void
-
-    var body: some View {
-        ZStack {
-            VStack(spacing: 2) {
-                Text(novelTitle)
-                    .font(.asterionDisplay(14, weight: .medium))
-                    .foregroundStyle(palette.text)
-                    .lineLimit(1)
-                Text("Chapter \(chapterNumber) · \(chapterTitle)")
-                    .font(.system(size: 11, weight: .regular))
-                    .tracking(0.4)
-                    .foregroundStyle(palette.faint)
-                    .lineLimit(1)
-            }
-            .frame(maxWidth: 560)
-
-            HStack(spacing: 8) {
-                ReaderChromeButton(systemImage: "chevron.left", help: "Previous chapter", palette: palette, action: onBack)
-                    .disabled(!canGoBack)
-                ReaderChromeButton(systemImage: "chevron.right", help: "Next chapter", palette: palette, action: onForward)
-                    .disabled(!canGoForward)
-                ReaderChromeButton(
-                    systemImage: "list.bullet",
-                    help: showsChapterPicker ? "Hide chapters" : "Browse chapters",
-                    palette: palette,
-                    isSelected: showsChapterPicker,
-                    action: onToggleChapterPicker
-                )
-
-                Spacer(minLength: 0)
-
-                ReaderChromeButton(systemImage: "textformat.size.smaller", help: "Smaller text", palette: palette, action: onSmallerText)
-                ReaderChromeButton(systemImage: "textformat.size.larger", help: "Larger text", palette: palette, action: onLargerText)
-                ReaderThemeMenu(theme: theme, palette: palette, onSelect: onThemeChange)
-                ReaderChromeButton(systemImage: "square.and.arrow.down", help: "Save chapter", palette: palette, action: onExport)
-            }
-        }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 12)
-        .background(
-            palette.background
-                .overlay(alignment: .bottom) {
-                    Rectangle().fill(palette.border).frame(height: 0.5)
-                }
-        )
-    }
-}
-
-private struct ReaderChromeButton: View {
-    let systemImage: String
-    let help: String
-    let palette: ReaderPalette
-    var isSelected = false
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
-                .foregroundStyle(isSelected ? palette.text : palette.muted)
-                .frame(width: 30, height: 30)
-                .background {
-                    if isSelected {
-                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .fill(palette.text.opacity(0.10))
-                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .stroke(palette.text.opacity(0.22), lineWidth: 0.75)
-                    }
-                }
-                .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .help(help)
-    }
-}
-
 private struct ReaderThemeMenu: View {
     let theme: ReaderTheme
-    let palette: ReaderPalette
     let onSelect: (ReaderTheme) -> Void
 
     var body: some View {
@@ -493,21 +460,8 @@ private struct ReaderThemeMenu: View {
                 }
             }
         } label: {
-            Image(systemName: theme.icon)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(palette.text)
-                .frame(width: 32, height: 30)
-                .background {
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(palette.text.opacity(0.10))
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .stroke(palette.text.opacity(0.24), lineWidth: 0.75)
-                }
-                .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+            Label("Reading Theme", systemImage: theme.icon)
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
         .help("Theme: \(theme.label)")
     }
 }

@@ -130,22 +130,10 @@ struct NovelDetailView: View {
 
     private var actions: some View {
         VStack(alignment: .leading, spacing: 10) {
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 12) {
-                    readAction
-                    saveAction
-                    downloadAction
-                }
-
-                VStack(spacing: 10) {
-                    readAction
-                    HStack(spacing: 10) {
-                        saveAction
-                            .frame(maxWidth: .infinity)
-                        downloadAction
-                            .frame(maxWidth: .infinity)
-                    }
-                }
+            HStack(spacing: 10) {
+                readAction
+                saveAction
+                downloadAction
             }
 
             downloadStatus
@@ -184,17 +172,14 @@ struct NovelDetailView: View {
         Button {
             Task { await model.toggleLibrary(novelID: novel.id) }
         } label: {
-            Label {
-                Text(isInLibrary ? "Saved" : "Save")
-            } icon: {
-                Image(systemName: isInLibrary ? "bookmark.fill" : "bookmark")
-                    .contentTransition(.symbolEffect(.replace))
-            }
-            .frame(minWidth: 76, maxWidth: .infinity)
+            Image(systemName: isInLibrary ? "bookmark.fill" : "bookmark")
+                .contentTransition(.symbolEffect(.replace))
         }
         .buttonStyle(.glass)
         .buttonBorderShape(.roundedRectangle(radius: 10))
         .controlSize(.large)
+        .help(isInLibrary ? "Saved" : "Save to Library")
+        .accessibilityLabel(isInLibrary ? "Saved" : "Save to Library")
         .disabled(!model.isSignedIn || model.isUpdatingLibrary)
         .animation(reduceMotion ? nil : AsterionMotion.hover, value: isInLibrary)
     }
@@ -210,18 +195,15 @@ struct NovelDetailView: View {
                 }
             }
         } label: {
-            Label {
-                Text(downloadButtonTitle)
-            } icon: {
-                Image(systemName: downloadButtonIcon)
-                    .contentTransition(.symbolEffect(.replace))
-            }
-            .frame(minWidth: 116, maxWidth: .infinity)
+            Image(systemName: downloadButtonIcon)
+                .contentTransition(.symbolEffect(.replace))
         }
         .buttonStyle(.glass)
         .buttonBorderShape(.roundedRectangle(radius: 10))
         .controlSize(.large)
         .tint(isDownloaded ? .asterionAccent : nil)
+        .help(downloadButtonTitle)
+        .accessibilityLabel(downloadButtonTitle)
         .disabled(isDownloaded || isDownloading || chapters.isEmpty)
         .animation(reduceMotion ? nil : AsterionMotion.hover, value: isDownloaded)
     }
