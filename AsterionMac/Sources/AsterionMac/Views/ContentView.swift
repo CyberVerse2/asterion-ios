@@ -5,7 +5,6 @@ struct ContentView: View {
     @SceneStorage("selectedSection") private var selectedSectionRaw = AppSection.discover.rawValue
     @SceneStorage("selectedNovelID") private var selectedNovelID = ""
     @State private var searchText = ""
-    @State private var columnVisibility = NavigationSplitViewVisibility.all
     @State private var isSidebarCompact = false
 
     private var section: Binding<AppSection> {
@@ -24,41 +23,21 @@ struct ContentView: View {
     }
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
+        HSplitView {
             SidebarView(selection: section, isCompact: $isSidebarCompact)
-                .navigationSplitViewColumnWidth(
-                    min: isSidebarCompact ? 64 : 190,
-                    ideal: isSidebarCompact ? 64 : 220,
-                    max: isSidebarCompact ? 64 : 240
+                .frame(
+                    minWidth: isSidebarCompact ? 64 : 190,
+                    idealWidth: isSidebarCompact ? 64 : 220,
+                    maxWidth: isSidebarCompact ? 64 : 240,
+                    maxHeight: .infinity
                 )
-        } content: {
-            if section.wrappedValue == .account {
-                AccountSummaryView()
-                    .navigationSplitViewColumnWidth(min: 520, ideal: 680, max: 1_200)
-            } else {
-                EditorialCatalogView(
-                    section: section.wrappedValue,
-                    novels: model.novels(for: section.wrappedValue, search: searchText),
-                    isSearching: !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                    selectedNovelID: $selectedNovelID
-                )
-                .id(section.wrappedValue)
-                .navigationSplitViewColumnWidth(min: 520, ideal: 680, max: 1_200)
-            }
-        } detail: {
-            if section.wrappedValue == .account {
-                AccountView()
-                    .navigationSplitViewColumnWidth(min: 400, ideal: 500, max: 800)
-            } else if let selectedNovel {
-                NovelDetailView(novel: selectedNovel)
-                    .id(selectedNovel.id)
-                    .navigationSplitViewColumnWidth(min: 400, ideal: 500, max: 800)
-            } else {
-                detailPlaceholder
-                    .navigationSplitViewColumnWidth(min: 400, ideal: 500, max: 800)
-            }
+
+            catalogColumn
+                .frame(minWidth: 520, idealWidth: 680, maxWidth: 1_200, maxHeight: .infinity)
+
+            detailColumn
+                .frame(minWidth: 400, idealWidth: 500, maxWidth: 800, maxHeight: .infinity)
         }
-        .navigationSplitViewStyle(.balanced)
         .catalogSearch(
             text: $searchText,
             isEnabled: section.wrappedValue != .account
@@ -70,7 +49,6 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .preferredColorScheme(.light)
         .onAppear {
-            restoreAllColumns()
             if selectedNovelID.isEmpty {
                 selectFirstNovel(in: section.wrappedValue)
             } else {
@@ -90,8 +68,32 @@ struct ContentView: View {
         .onChange(of: searchText) {
             ensureSelection()
         }
-        .onChange(of: columnVisibility) {
-            restoreAllColumns()
+    }
+
+    @ViewBuilder
+    private var catalogColumn: some View {
+        if section.wrappedValue == .account {
+            AccountSummaryView()
+        } else {
+            EditorialCatalogView(
+                section: section.wrappedValue,
+                novels: model.novels(for: section.wrappedValue, search: searchText),
+                isSearching: !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                selectedNovelID: $selectedNovelID
+            )
+            .id(section.wrappedValue)
+        }
+    }
+
+    @ViewBuilder
+    private var detailColumn: some View {
+        if section.wrappedValue == .account {
+            AccountView()
+        } else if let selectedNovel {
+            NovelDetailView(novel: selectedNovel)
+                .id(selectedNovel.id)
+        } else {
+            detailPlaceholder
         }
     }
 
@@ -151,14 +153,6 @@ struct ContentView: View {
         }
     }
 
-    private func restoreAllColumns() {
-        guard columnVisibility != .all else { return }
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) {
-            columnVisibility = .all
-        }
-    }
 }
 
 private extension View {
