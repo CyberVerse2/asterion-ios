@@ -1,6 +1,6 @@
 # Asterion for macOS
 
-A native macOS 15+ port of the Asterion reader. It is a standalone SwiftPM app and does not compile the iOS target, widgets, Live Activities, or UIKit code.
+A native macOS 26+ port of the Asterion reader. It is a standalone SwiftPM app and does not compile the iOS target, widgets, Live Activities, or UIKit code.
 
 ## Desktop experience
 
