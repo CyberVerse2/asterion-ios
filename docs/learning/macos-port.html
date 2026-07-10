@@ -36,7 +36,7 @@
       <li><code>AppModel</code> owns the catalog, Clerk session, server library, and chapter cache.</li>
       <li><code>OfflineLibraryStore</code> owns downloaded novels and full chapter files under Application Support.</li>
       <li><code>APIClient</code> is an actor, so token and request state are serialized away from view code.</li>
-      <li><code>ReaderView</code> owns each reader window's active chapter, visible line, export, and preference bindings.</li>
+      <li><code>ReaderView</code> owns each reader window's active chapter, chapter navigator visibility, visible line, export, and preference bindings.</li>
     </ul>
   </div>
 
@@ -52,6 +52,7 @@
     <li>Download fetches every chapter with content and writes one JSON package per novel to the offline library.</li>
     <li>Catalog and chapter lookups merge downloaded data with live API data, so downloaded books remain readable offline.</li>
     <li>The reader lays chapter text into a WebKit-powered two-page spread when the window is wide enough.</li>
+    <li>The chapter-list button reveals a searchable, theme-aware navigator that highlights and scrolls to the current chapter; selecting a result cancels any older chapter load before opening the new one.</li>
     <li>The theme menu applies Paper, Sepia, or Ink colors to SwiftUI chrome and WebKit content from one palette and persists the selection with <code>@AppStorage</code>.</li>
     <li>The reader suppresses both document-level scrollbar styling and nested AppKit scroller views while wheel, keyboard, and trackpad page turns remain active.</li>
     <li>The page-turn bridge computes spread width from the viewport instead of parsing CSS <code>calc()</code> or <code>clamp()</code> strings.</li>

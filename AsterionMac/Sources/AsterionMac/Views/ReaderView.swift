@@ -67,7 +67,7 @@ private enum ReaderTheme: String, CaseIterable, Identifiable {
     }
 }
 
-private struct ReaderPalette {
+struct ReaderPalette {
     let background: Color
     let text: Color
     let muted: Color
@@ -96,7 +96,9 @@ struct ReaderView: View {
     @State private var errorMessage: String?
     @State private var isLoading = true
     @State private var progressTask: Task<Void, Never>?
+    @State private var chapterLoadTask: Task<Void, Never>?
     @State private var exportsChapter = false
+    @State private var showsChapterPicker = false
 
     private var readerTheme: ReaderTheme {
         ReaderTheme(rawValue: readerThemeRawValue) ?? .ink
@@ -138,6 +140,7 @@ struct ReaderView: View {
         .task(id: route) { await load() }
         .onDisappear {
             progressTask?.cancel()
+            chapterLoadTask?.cancel()
             syncProgress()
         }
         .fileExporter(
@@ -157,12 +160,14 @@ struct ReaderView: View {
         VStack(spacing: 0) {
             ReaderTopBar(
                 novelTitle: novel?.title ?? "Asterion",
-                chapterTitle: chapter.title,
+                chapterTitle: chapter.displayTitle,
                 chapterNumber: chapter.chapterNumber,
                 canGoBack: currentIndex > 0,
                 canGoForward: currentIndex < chapters.count - 1,
                 onBack: { navigate(by: -1) },
                 onForward: { navigate(by: 1) },
+                showsChapterPicker: showsChapterPicker,
+                onToggleChapterPicker: { showsChapterPicker.toggle() },
                 onSmallerText: { fontSize = max(14, fontSize - 1) },
                 onLargerText: { fontSize = min(30, fontSize + 1) },
                 theme: readerTheme,
@@ -171,50 +176,65 @@ struct ReaderView: View {
                 onExport: { exportsChapter = true }
             )
 
-            ScrollViewReader { proxy in
-                GeometryReader { geometry in
-                    let usesSplitPages = geometry.size.width >= 980
+            HStack(spacing: 0) {
+                if showsChapterPicker {
+                    ReaderChapterPicker(
+                        chapters: chapters,
+                        selectedIndex: currentIndex,
+                        palette: palette,
+                        onSelect: openChapter,
+                        onClose: { showsChapterPicker = false }
+                    )
+                    .frame(width: 300)
+                    .transition(.move(edge: .leading).combined(with: .opacity))
+                }
 
-                    if usesSplitPages {
-                        ReaderWebSpreadView(
-                            novelTitle: novel?.title ?? "Asterion",
-                            chapter: chapter,
-                            fontSize: fontSize,
-                            lineSpacing: lineSpacing,
-                            palette: palette,
-                            initialLine: restoredLine ?? currentLine,
-                            onVisibleLineChange: recordVisibleLine,
-                            onChapterTurn: navigate
-                        )
-                    } else {
-                        ScrollView {
-                            LazyVStack(alignment: .leading, spacing: lineSpacing) {
-                                readerHeader(chapter)
-                                    .padding(.bottom, 24)
+                ScrollViewReader { proxy in
+                    GeometryReader { geometry in
+                        let usesSplitPages = geometry.size.width >= 980
 
-                                singlePageParagraphs(chapter.paragraphs)
+                        if usesSplitPages {
+                            ReaderWebSpreadView(
+                                novelTitle: novel?.title ?? "Asterion",
+                                chapter: chapter,
+                                fontSize: fontSize,
+                                lineSpacing: lineSpacing,
+                                palette: palette,
+                                initialLine: restoredLine ?? currentLine,
+                                onVisibleLineChange: recordVisibleLine,
+                                onChapterTurn: navigate
+                            )
+                        } else {
+                            ScrollView {
+                                LazyVStack(alignment: .leading, spacing: lineSpacing) {
+                                    readerHeader(chapter)
+                                        .padding(.bottom, 24)
+
+                                    singlePageParagraphs(chapter.paragraphs)
+                                }
+                                .frame(maxWidth: columnWidth, alignment: .leading)
+                                .padding(.horizontal, 48)
+                                .padding(.top, 52)
+                                .padding(.bottom, 32)
+                                .frame(maxWidth: .infinity)
                             }
-                            .frame(maxWidth: columnWidth, alignment: .leading)
-                            .padding(.horizontal, 48)
-                            .padding(.top, 52)
-                            .padding(.bottom, 32)
-                            .frame(maxWidth: .infinity)
+                            .hidingScrollIndicators()
+                            .background(palette.background)
                         }
-                        .hidingScrollIndicators()
-                        .background(palette.background)
                     }
-                }
-                .onChange(of: chapter.id) {
-                    proxy.scrollTo(restoredLine ?? 0, anchor: .top)
-                    restoredLine = nil
-                }
-                .onAppear {
-                    if let restoredLine {
-                        proxy.scrollTo(restoredLine, anchor: .top)
-                        self.restoredLine = nil
+                    .onChange(of: chapter.id) {
+                        proxy.scrollTo(restoredLine ?? 0, anchor: .top)
+                        restoredLine = nil
+                    }
+                    .onAppear {
+                        if let restoredLine {
+                            proxy.scrollTo(restoredLine, anchor: .top)
+                            self.restoredLine = nil
+                        }
                     }
                 }
             }
+            .animation(.easeInOut(duration: 0.18), value: showsChapterPicker)
 
             ReaderBottomBar(
                 progress: chapterProgress,
@@ -230,7 +250,7 @@ struct ReaderView: View {
                 .font(.caption.weight(.medium))
                 .tracking(1.5)
                 .foregroundStyle(palette.faint)
-            Text(chapter.title)
+            Text(chapter.displayTitle)
                 .font(.asterionReading(32, weight: .semibold))
                 .foregroundStyle(palette.text)
                 .textSelection(.enabled)
@@ -261,7 +281,7 @@ struct ReaderView: View {
 
     private var exportFilename: String {
         guard let chapter else { return "Asterion Chapter" }
-        return "\(chapter.chapterNumber) - \(chapter.title)"
+        return "\(chapter.chapterNumber) - \(chapter.displayTitle)"
             .replacingOccurrences(of: "[/\\:]", with: "-", options: .regularExpression)
     }
 
@@ -293,16 +313,26 @@ struct ReaderView: View {
 
     private func navigate(by offset: Int) {
         let targetIndex = currentIndex + offset
-        guard chapters.indices.contains(targetIndex) else { return }
+        openChapter(at: targetIndex, startsAtEnd: offset < 0)
+    }
+
+    private func openChapter(at index: Int) {
+        openChapter(at: index, startsAtEnd: false)
+    }
+
+    private func openChapter(at targetIndex: Int, startsAtEnd: Bool) {
+        guard chapters.indices.contains(targetIndex), targetIndex != currentIndex else { return }
         syncProgress()
         progressTask?.cancel()
+        chapterLoadTask?.cancel()
         currentIndex = targetIndex
-        currentLine = offset < 0 ? .max : 0
+        currentLine = startsAtEnd ? .max : 0
         restoredLine = currentLine
-        Task {
+        chapterLoadTask = Task {
             do {
                 let loadedChapter = try await model.chapter(id: chapters[targetIndex].id)
-                if offset < 0 {
+                guard !Task.isCancelled, currentIndex == targetIndex else { return }
+                if startsAtEnd {
                     let lastLine = max(0, loadedChapter.paragraphs.count - 1)
                     currentLine = lastLine
                     restoredLine = lastLine
@@ -327,7 +357,10 @@ struct ReaderView: View {
     }
 
     private func syncProgress() {
-        guard let chapter else { return }
+        guard let chapter,
+              chapters.indices.contains(currentIndex),
+              chapter.id == chapters[currentIndex].id
+        else { return }
         let line = currentLine
         let total = max(chapter.paragraphs.count, 1)
         Task {
@@ -361,6 +394,8 @@ private struct ReaderTopBar: View {
     let canGoForward: Bool
     let onBack: () -> Void
     let onForward: () -> Void
+    let showsChapterPicker: Bool
+    let onToggleChapterPicker: () -> Void
     let onSmallerText: () -> Void
     let onLargerText: () -> Void
     let theme: ReaderTheme
@@ -388,6 +423,13 @@ private struct ReaderTopBar: View {
                     .disabled(!canGoBack)
                 ReaderChromeButton(systemImage: "chevron.right", help: "Next chapter", palette: palette, action: onForward)
                     .disabled(!canGoForward)
+                ReaderChromeButton(
+                    systemImage: "list.bullet",
+                    help: showsChapterPicker ? "Hide chapters" : "Browse chapters",
+                    palette: palette,
+                    isSelected: showsChapterPicker,
+                    action: onToggleChapterPicker
+                )
 
                 Spacer(minLength: 0)
 
@@ -412,14 +454,23 @@ private struct ReaderChromeButton: View {
     let systemImage: String
     let help: String
     let palette: ReaderPalette
+    var isSelected = false
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.system(size: 13, weight: .regular))
-                .foregroundStyle(palette.muted)
+                .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
+                .foregroundStyle(isSelected ? palette.text : palette.muted)
                 .frame(width: 30, height: 30)
+                .background {
+                    if isSelected {
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .fill(palette.text.opacity(0.10))
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .stroke(palette.text.opacity(0.22), lineWidth: 0.75)
+                    }
+                }
                 .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
         }
         .buttonStyle(.plain)
@@ -684,7 +735,7 @@ private struct ReaderWebSpreadView: NSViewRepresentable {
         <body>
           <header>
             <p class="novel">\(novelTitle.htmlEscaped)</p>
-            <h1>\(chapter.title.htmlEscaped)</h1>
+            <h1>\(chapter.displayTitle.htmlEscaped)</h1>
           </header>
           \(paragraphs)
           <script>
@@ -793,7 +844,7 @@ private struct PlainTextDocument: FileDocument {
     let text: String
 
     init(chapter: Chapter) {
-        text = "\(chapter.title)\n\n\(chapter.plainContent)"
+        text = "\(chapter.displayTitle)\n\n\(chapter.plainContent)"
     }
 
     init(configuration: ReadConfiguration) throws {

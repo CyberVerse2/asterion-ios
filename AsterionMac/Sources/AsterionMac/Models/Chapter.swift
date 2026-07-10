@@ -7,6 +7,14 @@ struct Chapter: Identifiable, Codable, Hashable, Sendable {
     let content: String?
     let url: String?
 
+    var displayTitle: String {
+        let pattern = "^\\s*(?:chapter\\s+)?\(chapterNumber)\\s*(?:[-:·]\\s*)?(?:\(chapterNumber)\\s*[-:]\\s*)?"
+        let cleaned = title
+            .replacingOccurrences(of: pattern, with: "", options: [.regularExpression, .caseInsensitive])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return cleaned.isEmpty ? "Chapter \(chapterNumber)" : cleaned
+    }
+
     var plainContent: String {
         (content ?? "")
             .replacingOccurrences(of: "<br\\s*/?>", with: "\n", options: .regularExpression)

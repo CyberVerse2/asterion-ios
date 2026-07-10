@@ -25,6 +25,18 @@ struct DomainModelTests {
         #expect(chapter.paragraphs == ["First & foremost.", "Second line.", "Still second."])
     }
 
+    @Test func chapterDisplayTitleRemovesRepeatedNumbering() {
+        let chapter = Chapter(
+            id: "chapter-627",
+            chapterNumber: 627,
+            title: "Chapter 627 - 627: Needlework",
+            content: nil,
+            url: nil
+        )
+
+        #expect(chapter.displayTitle == "Needlework")
+    }
+
     @Test func unknownRanksSortAfterNumericRanks() {
         let ranked = Novel(
             id: "1", title: "Ranked", author: nil, rank: "2", totalChapters: nil,
