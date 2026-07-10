@@ -5,14 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>The Asterion macOS Port</title>
   <style>
-    :root { color-scheme: dark; font-family: ui-sans-serif, system-ui, sans-serif; background: #0d0c0b; color: #e8dcc8; }
+    :root { color-scheme: light dark; font-family: ui-sans-serif, system-ui, sans-serif; background: #f3f5f8; color: #1a1b20; --accent: #9c2335; --panel: #ffffff; --border: #cbd0d8; }
     body { max-width: 920px; margin: 0 auto; padding: 48px 24px 80px; line-height: 1.65; }
-    h1, h2 { font-family: Georgia, serif; } a, button { color: #d5b655; }
-    code { color: #e1c96f; } pre, .panel { padding: 18px; border-radius: 12px; border: 1px solid #2a2722; background: #1a1816; overflow: auto; }
+    h1, h2 { font-family: Georgia, serif; } a, button, code { color: var(--accent); }
+    pre, .panel { padding: 18px; border-radius: 12px; border: 1px solid var(--border); background: var(--panel); overflow: auto; }
     .flow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 18px 0; }
-    .flow div { padding: 14px; text-align: center; border-radius: 10px; background: #1a1816; border: 1px solid #4a4024; }
-    .quiz button { display: block; width: 100%; text-align: left; margin: 8px 0; padding: 10px 12px; border: 1px solid #4a4640; border-radius: 8px; background: #1a1816; }
-    .feedback { min-height: 1.5em; color: #c4a44a; }
+    .flow div { padding: 14px; text-align: center; border-radius: 10px; background: var(--panel); border: 1px solid var(--border); }
+    .quiz button { display: block; width: 100%; text-align: left; margin: 8px 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
+    .feedback { min-height: 1.5em; color: var(--accent); }
+    @media (prefers-color-scheme: dark) { :root { background: #111318; color: #f0f1f4; --accent: #ff7188; --panel: #1b1e26; --border: #383d48; } }
     @media (max-width: 680px) { .flow { grid-template-columns: 1fr; } }
   </style>
 </head>
@@ -31,7 +32,7 @@
     <ul>
       <li><code>AsterionMacApp</code> owns app-wide services and declares main, reader, and settings scenes.</li>
       <li><code>AsterionMacApp</code> gives Clerk an app-owned Keychain service, while the staging script gives every build the same signed application identity.</li>
-      <li><code>AsterionAppDelegate</code> is the only AppKit bridge; it activates the staged SwiftPM app bundle and brings its SwiftUI window forward.</li>
+      <li><code>AsterionAppDelegate</code> activates the staged SwiftPM app bundle and brings its SwiftUI window forward. The reader itself is fully SwiftUI, including its WebKit surface.</li>
       <li><code>ContentView</code> owns window-scoped sidebar and novel selection with <code>@SceneStorage</code>.</li>
       <li><code>AppModel</code> owns the catalog, Clerk session, server library, chapter cache, independent per-novel offline download state, and progress reconciliation.</li>
       <li><code>OfflineLibraryStore</code> owns downloaded novels and full chapter files under Application Support.</li>
@@ -42,7 +43,7 @@
   </div>
 
   <h2>Desktop decisions</h2>
-  <p>The mobile tab bar and push stacks were replaced with a stable three-column <code>NavigationSplitView</code>. A novel stays selected while the user moves between the list and detail surface. The detail column has a 640-point floor and the workspace minimum includes all three column floors, preventing split-view restoration or resizing from compressing the novel detail below its designed measure. Reading opens in a value-driven <code>WindowGroup</code>, allowing multiple books or chapters to remain open without hiding catalog context. Reader windows use a Chicken-style shell with in-app chrome, a centered chapter readout, a slim progress bar, and Paper, Sepia, and Ink themes that style both the text surface and surrounding chrome. The selected theme is an app preference shared by reader windows. Facing pages appear at desktop width; turning past a chapter edge opens the neighboring chapter so the book keeps moving forward or backward. Narrow windows keep a single page so the text never feels compressed. Downloaded novels become local library items and can be opened without a network session. Account preferences live in the system Settings scene, while account identity remains an app section.</p>
+  <p>The mobile tab bar and push stacks were replaced with a three-column <code>NavigationSplitView</code>. macOS owns sidebar collapse, column resizing, fullscreen adaptation, restoration, toolbar placement, and catalog search. A novel remains selected while the user moves between the catalog and detail columns. Standard controls receive macOS 26 Liquid Glass automatically, while Asterion's crimson remains the semantic accent and system colors provide adaptive light and dark appearances. Reading opens in a value-driven <code>WindowGroup</code>, allowing multiple reader windows without hiding catalog context. The reader uses a native toolbar for chapter navigation, chapter search, typography, themes, and export. Paper, Sepia, and Ink deliberately control the reading surface independently from the system appearance. Facing pages appear at desktop width; turning past a chapter edge opens the neighboring chapter, while narrow windows use a single scrolling page. Downloaded novels become local library items and remain readable without a network session. Account preferences live in the system Settings scene, while account identity remains a sidebar destination.</p>
 
   <h2>Behavior walkthrough</h2>
   <ol>
@@ -53,28 +54,29 @@
     <li>Download fetches chapter bodies through a bounded 32-request task group, preserves chapter order before storage, and writes one JSON package per novel to the offline library.</li>
     <li>Each download publishes its own completed and total chapter counts; the selected novel shows inline progress while the sidebar download center shows every active, completed, or failed novel.</li>
     <li>Catalog and chapter lookups merge downloaded data with live API data, so downloaded books remain readable offline.</li>
-    <li>The reader lays chapter text into a WebKit-powered two-page spread when the window is wide enough.</li>
+    <li>The reader connects a macOS 26 SwiftUI <code>WebView</code> to a <code>WebPage</code> and loads locally generated chapter HTML for the two-page spread.</li>
     <li>The chapter-list button reveals a searchable, theme-aware navigator that highlights and scrolls to the current chapter; selecting a result cancels any older chapter load before opening the new one.</li>
     <li>The theme menu applies Paper, Sepia, or Ink colors to SwiftUI chrome and WebKit content from one palette and persists the selection with <code>@AppStorage</code>.</li>
-    <li>The reader suppresses both document-level scrollbar styling and nested AppKit scroller views while wheel, keyboard, and trackpad page turns remain active.</li>
-    <li>The page-turn bridge computes spread width from the viewport instead of parsing CSS <code>calc()</code> or <code>clamp()</code> strings.</li>
+    <li>SwiftUI hides the native <code>WebView</code> scroll indicators while document CSS removes web scrollbars; wheel, keyboard, and trackpad page turns remain active.</li>
+    <li>The page-turn script computes spread width from the viewport instead of parsing CSS <code>calc()</code> or <code>clamp()</code> strings.</li>
+    <li>A <code>WKUserContentController</code> configured through <code>WebPage.Configuration</code> carries visible-line and chapter-boundary events from the page without an <code>NSViewRepresentable</code>, <code>WKWebView</code> delegate, or AppKit view lifecycle.</li>
     <li>At the first or last spread of a chapter, page-turn input loads the previous or next chapter.</li>
     <li>The reader debounces visible-line changes, then writes the newest position locally before attempting the server request.</li>
     <li>Failed server writes remain marked pending. Authentication events and network reconnection reconcile local and server records by timestamp; a newer local revision uploads, while a newer server revision replaces it.</li>
   </ol>
 
   <h2>Keychain identity</h2>
-  <p>Clerk persists its client and environment records in the macOS Keychain. Keychain access is authorized against the executable's designated code requirement, not just the bundle identifier written in <code>Info.plist</code>. The staging script therefore signs the executable with an installed Apple code-signing identity and verifies that it satisfies the Asterion identifier plus Apple's certificate anchor. Clerk uses the explicit service <code>cloud.cyberverse.AsterionMac.clerk</code>, keeping authentication records scoped to this app.</p>
+  <p>Clerk persists its client and environment records in the macOS Keychain. Keychain access is authorized against the executable's designated code requirement, not just the bundle identifier written in <code>Info.plist</code>. The staging script therefore signs the executable with an installed Apple code-signing identity and verifies that it satisfies the Asterion identifier plus Apple's certificate anchor. Clerk uses the explicit service <code>cloud.cyberverse.Asterion.clerk</code>, keeping authentication records scoped to this app.</p>
   <p>A raw SwiftPM executable only has an ad-hoc, hash-based designated requirement. Copying that executable into an app bundle without re-signing changes its trusted identity whenever the binary changes, which makes macOS request password confirmation for every existing Clerk record. A stable signed requirement removes that authorization loop.</p>
 
   <h2>Toolbar ownership</h2>
-  <p>SwiftUI exclusively owns toolbar composition through <code>.searchable</code>, <code>.toolbar(removing:)</code>, and scene commands. AppKit notifications must not remove <code>NSToolbarItem</code> instances while SwiftUI is replacing a toolbar: Account navigation changes search availability, and concurrent imperative removal can trigger duplicate KVO teardown inside <code>AppKitWindowController</code>. The app delegate only configures window chrome after launch.</p>
+  <p>SwiftUI exclusively owns toolbar composition. <code>NavigationSplitView</code> supplies the native sidebar toggle, <code>.searchable</code> owns catalog search, and <code>ToolbarSpacer</code> separates refresh and download utilities. Reader controls use the same native toolbar model. No AppKit code mutates window chrome or removes toolbar items.</p>
 
   <h2>DMG packaging</h2>
   <p><code>./script/build_and_run.sh --package</code> builds the release executable, stages the app with version metadata and SwiftPM resource bundles, creates a compressed <code>Asterion.dmg</code> containing the app and an Applications shortcut, signs the image, mounts it read-only, validates the mounted executable and bundle identifier, and emits a SHA-256 checksum. The current machine has an Apple Development identity, so its artifact is suitable for local installation and testing. Public distribution additionally requires a Developer ID Application identity, hardened runtime, a fully sealed app bundle, and notarization.</p>
 
   <h2>Verification</h2>
-  <p><code>swift build</code> proves source and current dependency compatibility. <code>swift test</code> verifies backend decoding, rank normalization, and chapter HTML cleanup. Every staging run verifies the executable's signature and designated Asterion requirement before launch. <code>./script/build_and_run.sh --verify</code> stages a real <code>.app</code> bundle—including SwiftPM dependency resource bundles—and proves the macOS process launches. The package workflow additionally verifies the DMG filesystem, mounts the image, checks the installed layout, and records the image checksum; the release handoff check launches the app directly from that mounted image.</p>
+  <p><code>swift build</code> proves source and current dependency compatibility. The ten Swift tests verify backend decoding, rank normalization, chapter cleanup, offline persistence, download state, and local-first progress reconciliation. Every staging run verifies the executable's signature and designated Asterion requirement before launch. <code>./script/build_and_run.sh --verify</code> stages a real <code>.app</code> bundle—including SwiftPM dependency resource bundles—and proves the macOS process launches. The package workflow additionally verifies the DMG filesystem, mounts the image, checks the installed layout, and records the image checksum.</p>
 
   <h2>Quiz</h2>
   <div class="quiz" data-answer="reader">

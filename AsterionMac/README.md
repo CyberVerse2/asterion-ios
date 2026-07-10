@@ -5,9 +5,10 @@ A native macOS 26+ port of the Asterion reader. It is a standalone SwiftPM app a
 ## Desktop experience
 
 - Native three-column navigation for Discover, Rankings, Library, and Account
+- Adaptive macOS appearance with native Liquid Glass navigation, toolbars, and controls
 - Searchable catalog backed by the production Asterion API
 - Selection-driven novel details with chapters and synced library state
-- Separate reader windows with chapter navigation, selectable text, text sizing, and plain-text export
+- Separate reader windows powered by SwiftUI `WebView`/`WebPage`, with facing pages, chapter navigation, selectable text, themes, text sizing, and plain-text export
 - Clerk authentication and cross-device library/progress sync
 - macOS Settings and keyboard navigation (`⌘1` through `⌘4`)
 

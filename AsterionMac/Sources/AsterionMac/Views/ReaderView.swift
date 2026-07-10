@@ -1,4 +1,5 @@
-import AppKit
+import Foundation
+import Observation
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
@@ -504,7 +505,7 @@ private struct ReaderBottomBar: View {
     }
 }
 
-private struct ReaderWebSpreadView: NSViewRepresentable {
+private struct ReaderWebSpreadView: View {
     let novelTitle: String
     let chapter: Chapter
     let fontSize: Double
@@ -514,80 +515,32 @@ private struct ReaderWebSpreadView: NSViewRepresentable {
     let onVisibleLineChange: (Int) -> Void
     let onChapterTurn: (Int) -> Void
 
-    func makeNSView(context: Context) -> WKWebView {
-        let configuration = WKWebViewConfiguration()
-        configuration.userContentController.add(context.coordinator, name: "asterionProgress")
-        let webView = WKWebView(frame: .zero, configuration: configuration)
-        webView.navigationDelegate = context.coordinator
-        webView.setValue(false, forKey: "drawsBackground")
-        Self.hideScrollers(in: webView)
-        return webView
-    }
+    @State private var model = ReaderWebSpreadModel()
 
-    func updateNSView(_ webView: WKWebView, context: Context) {
-        context.coordinator.parent = self
-        Self.hideScrollers(in: webView)
+    var body: some View {
         let html = makeHTML()
-        guard context.coordinator.lastHTML != html else { return }
-        context.coordinator.lastHTML = html
-        webView.loadHTMLString(html, baseURL: nil)
-    }
 
-    static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
-        webView.configuration.userContentController.removeScriptMessageHandler(forName: "asterionProgress")
-        webView.navigationDelegate = nil
-    }
+        ZStack {
+            WebView(model.page)
+                .scrollIndicators(.hidden)
+                .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator(parent: self)
-    }
-
-    final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
-        var parent: ReaderWebSpreadView
-        var lastHTML: String?
-
-        init(parent: ReaderWebSpreadView) {
-            self.parent = parent
-        }
-
-        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            DispatchQueue.main.async { [weak webView] in
-                guard let webView, let window = webView.window else { return }
-                ReaderWebSpreadView.hideScrollers(in: webView)
-                window.makeFirstResponder(webView)
-            }
-            webView.evaluateJavaScript("window.__asterionRestoreLine(\(parent.initialLine));", completionHandler: nil)
-        }
-
-        func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-            guard message.name == "asterionProgress" else { return }
-            if let line = message.body as? Int {
-                parent.onVisibleLineChange(line)
-                return
-            }
-            guard let body = message.body as? [String: Any],
-                  let type = body["type"] as? String
-            else { return }
-
-            if type == "progress", let line = body["line"] as? Int {
-                parent.onVisibleLineChange(line)
-            } else if type == "turn", let offset = body["offset"] as? Int {
-                parent.onChapterTurn(offset)
+            if let loadError = model.loadError {
+                ContentUnavailableView {
+                    Label("Reader unavailable", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(loadError)
+                }
+                .background(palette.background)
             }
         }
-    }
-
-    private static func hideScrollers(in view: NSView) {
-        if let scroller = view as? NSScroller {
-            scroller.alphaValue = 0
-            scroller.isHidden = true
+        .task(id: html) {
+            model.configure(
+                onVisibleLineChange: onVisibleLineChange,
+                onChapterTurn: onChapterTurn
+            )
+            await model.load(html: html, initialLine: initialLine)
         }
-        if let scrollView = view as? NSScrollView {
-            scrollView.hasHorizontalScroller = false
-            scrollView.hasVerticalScroller = false
-            scrollView.autohidesScrollers = true
-        }
-        view.subviews.forEach(hideScrollers)
     }
 
     private func makeHTML() -> String {
@@ -780,6 +733,78 @@ private struct ReaderWebSpreadView: NSViewRepresentable {
         </body>
         </html>
         """
+    }
+}
+
+@MainActor
+@Observable
+private final class ReaderWebSpreadModel {
+    let page: WebPage
+    private let messageHandler: ReaderScriptMessageHandler
+    private(set) var loadError: String?
+
+    init() {
+        let messageHandler = ReaderScriptMessageHandler()
+        var configuration = WebPage.Configuration()
+        configuration.websiteDataStore = .nonPersistent()
+        configuration.userContentController.add(
+            messageHandler,
+            name: ReaderScriptMessageHandler.name
+        )
+        self.messageHandler = messageHandler
+        page = WebPage(configuration: configuration)
+    }
+
+    func configure(
+        onVisibleLineChange: @escaping (Int) -> Void,
+        onChapterTurn: @escaping (Int) -> Void
+    ) {
+        messageHandler.onVisibleLineChange = onVisibleLineChange
+        messageHandler.onChapterTurn = onChapterTurn
+    }
+
+    func load(html: String, initialLine: Int) async {
+        loadError = nil
+        do {
+            for try await event in page.load(html: html) {
+                guard event == .finished else { continue }
+                _ = try await page.callJavaScript(
+                    "window.__asterionRestoreLine(line);",
+                    arguments: ["line": initialLine]
+                )
+            }
+        } catch {
+            guard !Task.isCancelled else { return }
+            loadError = error.localizedDescription
+        }
+    }
+}
+
+@MainActor
+private final class ReaderScriptMessageHandler: NSObject, WKScriptMessageHandler {
+    static let name = "asterionProgress"
+
+    var onVisibleLineChange: ((Int) -> Void)?
+    var onChapterTurn: ((Int) -> Void)?
+
+    func userContentController(
+        _ userContentController: WKUserContentController,
+        didReceive message: WKScriptMessage
+    ) {
+        guard message.name == Self.name else { return }
+        if let line = message.body as? Int {
+            onVisibleLineChange?(line)
+            return
+        }
+        guard let body = message.body as? [String: Any],
+              let type = body["type"] as? String
+        else { return }
+
+        if type == "progress", let line = body["line"] as? Int {
+            onVisibleLineChange?(line)
+        } else if type == "turn", let offset = body["offset"] as? Int {
+            onChapterTurn?(offset)
+        }
     }
 }
 
