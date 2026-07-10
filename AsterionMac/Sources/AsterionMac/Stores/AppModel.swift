@@ -4,6 +4,7 @@ import Foundation
 @MainActor
 final class AppModel: ObservableObject {
     private static let offlineDownloadConcurrency = 32
+    private static let deviceProgressOwnerID = "device"
 
     struct ContinueReadingEntry: Identifiable {
         let novel: Novel
@@ -32,11 +33,22 @@ final class AppModel: ObservableObject {
 
     let api = APIClient()
     private let offlineLibrary = OfflineLibraryStore()
+    private let readingProgressStore = ReadingProgressStore()
+    private let networkStatus = NetworkStatusMonitor()
 
     private var chaptersByNovelID: [String: [Chapter]] = [:]
     private var chapterByID: [String: Chapter] = [:]
     private var hasStarted = false
+    private var isSynchronizingSession = false
+    private var shouldResynchronizeSession = false
     private var authEventsTask: Task<Void, Never>?
+    private var networkEventsTask: Task<Void, Never>?
+
+    deinit {
+        authEventsTask?.cancel()
+        networkEventsTask?.cancel()
+        networkStatus.cancel()
+    }
 
     var isSignedIn: Bool { signedInUser != nil }
 
@@ -97,6 +109,19 @@ final class AppModel: ObservableObject {
         authEventsTask = Task { @MainActor [weak self] in
             for await _ in Clerk.shared.auth.events {
                 guard let self else { return }
+                await self.synchronizeSession()
+            }
+        }
+
+        let networkUpdates = networkStatus.updates()
+        networkEventsTask = Task { @MainActor [weak self] in
+            var receivedInitialStatus = false
+            for await isOnline in networkUpdates {
+                if !receivedInitialStatus {
+                    receivedInitialStatus = true
+                    continue
+                }
+                guard isOnline, let self else { continue }
                 await self.synchronizeSession()
             }
         }
@@ -314,12 +339,43 @@ final class AppModel: ObservableObject {
     }
 
     func fetchProgress(novelID: String) async throws -> ReadingProgress? {
+        let ownerID = progressOwnerID
+        if let local = try await readingProgressStore.progress(ownerID: ownerID, novelID: novelID) {
+            return local.readingProgress
+        }
         guard isSignedIn else { return nil }
-        return try await api.fetchProgress(novelID: novelID)
+
+        do {
+            guard let server = try await api.fetchProgress(novelID: novelID) else { return nil }
+            try await readingProgressStore.save(.synced(ownerID: ownerID, server: server))
+            progressByNovelID[novelID] = server
+            return server
+        } catch {
+            accountError = "Progress is unavailable until the connection returns: \(error.localizedDescription)"
+            return nil
+        }
     }
 
     func saveProgress(novelID: String, chapterID: String, currentLine: Int, totalLines: Int) async {
+        let ownerID = progressOwnerID
+        let pending = LocalReadingProgress.pending(
+            ownerID: ownerID,
+            novelID: novelID,
+            chapterID: chapterID,
+            currentLine: currentLine,
+            totalLines: totalLines
+        )
+
+        do {
+            try await readingProgressStore.save(pending)
+            progressByNovelID[novelID] = pending.readingProgress
+        } catch {
+            accountError = "Reading progress could not be saved locally: \(error.localizedDescription)"
+            return
+        }
+
         guard isSignedIn else { return }
+
         do {
             let saved = try await api.saveProgress(
                 novelID: novelID,
@@ -327,9 +383,13 @@ final class AppModel: ObservableObject {
                 currentLine: currentLine,
                 totalLines: totalLines
             )
+            let current = try await readingProgressStore.progress(ownerID: ownerID, novelID: novelID)
+            guard current?.revision == pending.revision else { return }
+            try await readingProgressStore.save(.synced(ownerID: ownerID, server: saved))
             progressByNovelID[novelID] = saved
+            accountError = nil
         } catch {
-            accountError = "Reading progress could not be synced: \(error.localizedDescription)"
+            accountError = "Progress is saved offline and will sync automatically: \(error.localizedDescription)"
         }
     }
 
@@ -350,30 +410,59 @@ final class AppModel: ObservableObject {
     }
 
     private func synchronizeSession() async {
+        guard !isSynchronizingSession else {
+            shouldResynchronizeSession = true
+            return
+        }
+        isSynchronizingSession = true
+        defer {
+            isSynchronizingSession = false
+            if shouldResynchronizeSession {
+                shouldResynchronizeSession = false
+                Task { @MainActor [weak self] in
+                    await self?.synchronizeSession()
+                }
+            }
+        }
+
         guard let clerkUser = Clerk.shared.user else {
             signedInUser = nil
             libraryNovelIDs = []
-            progressByNovelID = [:]
             await api.setToken(nil)
+            do {
+                try await loadLocalProgress(ownerID: Self.deviceProgressOwnerID)
+                accountError = nil
+            } catch {
+                progressByNovelID = [:]
+                accountError = "Local reading progress could not be loaded: \(error.localizedDescription)"
+            }
             return
+        }
+
+        let email = clerkUser.emailAddresses.first?.emailAddress
+        let fullName = [clerkUser.firstName, clerkUser.lastName]
+            .compactMap { $0 }
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = fullName.isEmpty ? (email ?? "Asterion Reader") : fullName
+        signedInUser = SignedInUser(
+            id: clerkUser.id,
+            name: name,
+            email: email,
+            imageURL: URL(string: clerkUser.imageUrl)
+        )
+
+        do {
+            try await loadLocalProgress(ownerID: clerkUser.id)
+        } catch {
+            accountError = "Local reading progress could not be loaded: \(error.localizedDescription)"
         }
 
         do {
             let token = try await Clerk.shared.auth.getToken()
             await api.setToken(token)
 
-            let email = clerkUser.emailAddresses.first?.emailAddress
-            let fullName = [clerkUser.firstName, clerkUser.lastName]
-                .compactMap { $0 }
-                .joined(separator: " ")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            let name = fullName.isEmpty ? (email ?? "Asterion Reader") : fullName
-            signedInUser = SignedInUser(
-                id: clerkUser.id,
-                name: name,
-                email: email,
-                imageURL: URL(string: clerkUser.imageUrl)
-            )
+            try await synchronizeReadingProgress(ownerID: clerkUser.id)
 
             _ = try await api.updateProfile(
                 email: email,
@@ -382,12 +471,60 @@ final class AppModel: ObservableObject {
             )
             let records = try await api.fetchLibrary()
             libraryNovelIDs = Set(records.map(\.novelId))
-            let progress = try await api.fetchAllProgress()
-            progressByNovelID = Dictionary(uniqueKeysWithValues: progress.map { ($0.novelId, $0) })
             accountError = nil
         } catch {
-            accountError = error.localizedDescription
+            accountError = "Using local progress until sync succeeds: \(error.localizedDescription)"
         }
+    }
+
+    private var progressOwnerID: String {
+        signedInUser?.id ?? Self.deviceProgressOwnerID
+    }
+
+    private func loadLocalProgress(ownerID: String) async throws {
+        let local = try await readingProgressStore.progresses(ownerID: ownerID)
+        progressByNovelID = Dictionary(
+            uniqueKeysWithValues: local.map { ($0.novelID, $0.readingProgress) }
+        )
+    }
+
+    private func synchronizeReadingProgress(ownerID: String) async throws {
+        let serverProgress = try await api.fetchAllProgress()
+        let localProgress = try await readingProgressStore.progresses(ownerID: ownerID)
+        let serverByNovelID = Dictionary(
+            uniqueKeysWithValues: serverProgress.map { ($0.novelId, $0) }
+        )
+        let localByNovelID = Dictionary(
+            uniqueKeysWithValues: localProgress.map { ($0.novelID, $0) }
+        )
+        let novelIDs = Set(serverByNovelID.keys).union(localByNovelID.keys)
+        var resolvedLocal: [LocalReadingProgress] = []
+        var resolvedProgress: [String: ReadingProgress] = [:]
+
+        for novelID in novelIDs.sorted() {
+            let local = localByNovelID[novelID]
+            let server = serverByNovelID[novelID]
+
+            if let local, (local.shouldUpload(over: server) || server == nil) {
+                let saved = try await api.saveProgress(
+                    novelID: local.novelID,
+                    chapterID: local.chapterID,
+                    currentLine: local.currentLine,
+                    totalLines: local.totalLines
+                )
+                resolvedLocal.append(.synced(ownerID: ownerID, server: saved))
+                resolvedProgress[novelID] = saved
+            } else if let server {
+                resolvedLocal.append(.synced(ownerID: ownerID, server: server))
+                resolvedProgress[novelID] = server
+            }
+        }
+
+        try await readingProgressStore.replaceProgresses(
+            ownerID: ownerID,
+            with: resolvedLocal
+        )
+        progressByNovelID = resolvedProgress
     }
 
     private func loadOfflineLibrary() async {

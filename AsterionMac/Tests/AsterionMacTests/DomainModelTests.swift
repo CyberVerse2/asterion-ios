@@ -134,4 +134,84 @@ struct DomainModelTests {
         #expect(failed.phase == .failed)
         #expect(failed.errorMessage == "The connection was lost.")
     }
+
+    @Test func readingProgressStorePersistsAndScopesProgressByAccount() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let fileURL = directory.appendingPathComponent("progress.json")
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let accountProgress = LocalReadingProgress.pending(
+            ownerID: "account-1",
+            novelID: "novel-1",
+            chapterID: "chapter-12",
+            currentLine: 8,
+            totalLines: 20,
+            now: Date(timeIntervalSince1970: 100)
+        )
+        let otherAccountProgress = LocalReadingProgress.pending(
+            ownerID: "account-2",
+            novelID: "novel-2",
+            chapterID: "chapter-3",
+            currentLine: 2,
+            totalLines: 10,
+            now: Date(timeIntervalSince1970: 200)
+        )
+
+        let writer = ReadingProgressStore(fileURL: fileURL)
+        try await writer.save(accountProgress)
+        try await writer.save(otherAccountProgress)
+
+        let reader = ReadingProgressStore(fileURL: fileURL)
+        #expect(try await reader.progresses(ownerID: "account-1") == [accountProgress])
+        #expect(try await reader.progresses(ownerID: "account-2") == [otherAccountProgress])
+
+        let replacement = LocalReadingProgress.pending(
+            ownerID: "account-1",
+            novelID: "novel-3",
+            chapterID: "chapter-7",
+            currentLine: 4,
+            totalLines: 12,
+            now: Date(timeIntervalSince1970: 300)
+        )
+        try await reader.replaceProgresses(ownerID: "account-1", with: [replacement])
+
+        #expect(try await reader.progresses(ownerID: "account-1") == [replacement])
+        #expect(try await reader.progresses(ownerID: "account-2") == [otherAccountProgress])
+    }
+
+    @Test func pendingProgressUsesNewestTimestampDuringReconciliation() {
+        let pending = LocalReadingProgress.pending(
+            ownerID: "account-1",
+            novelID: "novel-1",
+            chapterID: "chapter-8",
+            currentLine: 6,
+            totalLines: 10,
+            now: Date(timeIntervalSince1970: 200)
+        )
+        let olderServer = ReadingProgress(
+            id: "progress-1",
+            userId: "user-1",
+            novelId: "novel-1",
+            chapterId: "chapter-7",
+            currentLine: 9,
+            totalLines: 10,
+            percentage: 90,
+            updatedAt: Date(timeIntervalSince1970: 100)
+        )
+        let newerServer = ReadingProgress(
+            id: "progress-1",
+            userId: "user-1",
+            novelId: "novel-1",
+            chapterId: "chapter-9",
+            currentLine: 1,
+            totalLines: 10,
+            percentage: 10,
+            updatedAt: Date(timeIntervalSince1970: 300)
+        )
+
+        #expect(pending.shouldUpload(over: nil))
+        #expect(pending.shouldUpload(over: olderServer))
+        #expect(!pending.shouldUpload(over: newerServer))
+    }
 }
