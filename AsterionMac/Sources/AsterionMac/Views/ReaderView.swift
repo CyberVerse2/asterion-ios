@@ -2,6 +2,16 @@ import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
 
+private enum ReaderInkPalette {
+    static let background = Color(red: 0.059, green: 0.059, blue: 0.063)
+    static let surface = Color(red: 0.102, green: 0.102, blue: 0.106)
+    static let surfaceAlt = Color(red: 0.145, green: 0.145, blue: 0.153)
+    static let text = Color(red: 0.910, green: 0.902, blue: 0.882)
+    static let muted = Color(red: 0.604, green: 0.588, blue: 0.553)
+    static let faint = Color(red: 0.353, green: 0.345, blue: 0.318)
+    static let border = Color.white.opacity(0.08)
+}
+
 struct ReaderView: View {
     @EnvironmentObject private var model: AppModel
     let route: ReaderRoute
@@ -38,8 +48,8 @@ struct ReaderView: View {
             }
         }
         .frame(minWidth: 560, minHeight: 560)
-        .background(Color.asterionBackground)
-        .preferredColorScheme(.light)
+        .background(ReaderInkPalette.background)
+        .preferredColorScheme(.dark)
         .navigationTitle(chapter?.title ?? "Reader")
         .safeAreaInset(edge: .bottom) {
             if let error = model.accountError {
@@ -51,7 +61,6 @@ struct ReaderView: View {
                     .background(.ultraThinMaterial)
             }
         }
-        .toolbar { readerToolbar }
         .task(id: route) { await load() }
         .onDisappear {
             progressTask?.cancel()
@@ -71,11 +80,24 @@ struct ReaderView: View {
 
     @ViewBuilder
     private func reader(_ chapter: Chapter) -> some View {
-        ScrollViewReader { proxy in
-            GeometryReader { geometry in
-                let usesSplitPages = geometry.size.width >= 980
+        VStack(spacing: 0) {
+            ReaderTopBar(
+                novelTitle: novel?.title ?? "Asterion",
+                chapterTitle: chapter.title,
+                chapterNumber: chapter.chapterNumber,
+                canGoBack: currentIndex > 0,
+                canGoForward: currentIndex < chapters.count - 1,
+                onBack: { navigate(by: -1) },
+                onForward: { navigate(by: 1) },
+                onSmallerText: { fontSize = max(14, fontSize - 1) },
+                onLargerText: { fontSize = min(30, fontSize + 1) },
+                onExport: { exportsChapter = true }
+            )
 
-                VStack(spacing: 0) {
+            ScrollViewReader { proxy in
+                GeometryReader { geometry in
+                    let usesSplitPages = geometry.size.width >= 980
+
                     if usesSplitPages {
                         ReaderWebSpreadView(
                             novelTitle: novel?.title ?? "Asterion",
@@ -101,28 +123,25 @@ struct ReaderView: View {
                             .frame(maxWidth: .infinity)
                         }
                         .hidingScrollIndicators()
+                        .background(ReaderInkPalette.background)
                     }
-
-                    if !usesSplitPages {
-                        Divider()
-                            .overlay(Color.asterionBorder)
-
-                        readerNavigation
-                            .padding(.horizontal, 48)
-                            .padding(.vertical, 18)
+                }
+                .onChange(of: chapter.id) {
+                    proxy.scrollTo(restoredLine ?? 0, anchor: .top)
+                    restoredLine = nil
+                }
+                .onAppear {
+                    if let restoredLine {
+                        proxy.scrollTo(restoredLine, anchor: .top)
+                        self.restoredLine = nil
                     }
                 }
             }
-            .onChange(of: chapter.id) {
-                proxy.scrollTo(restoredLine ?? 0, anchor: .top)
-                restoredLine = nil
-            }
-            .onAppear {
-                if let restoredLine {
-                    proxy.scrollTo(restoredLine, anchor: .top)
-                    self.restoredLine = nil
-                }
-            }
+
+            ReaderBottomBar(
+                progress: chapterProgress,
+                label: "\(Int(chapterProgress * 100))% of chapter"
+            )
         }
     }
 
@@ -131,10 +150,10 @@ struct ReaderView: View {
             Text(novel?.title.uppercased() ?? "ASTERION")
                 .font(.caption.weight(.medium))
                 .tracking(1.5)
-                .foregroundStyle(Color.asterionAccent)
+                .foregroundStyle(ReaderInkPalette.faint)
             Text(chapter.title)
                 .font(.asterionReading(32, weight: .semibold))
-                .foregroundStyle(Color.asterionText)
+                .foregroundStyle(ReaderInkPalette.text)
                 .textSelection(.enabled)
         }
     }
@@ -148,47 +167,17 @@ struct ReaderView: View {
     private func paragraphText(_ paragraph: String, index: Int) -> some View {
         Text(paragraph)
             .font(.asterionReading(fontSize))
-            .foregroundStyle(Color.asterionReaderText)
+            .foregroundStyle(ReaderInkPalette.text)
             .lineSpacing(lineSpacing)
             .textSelection(.enabled)
             .id(index)
             .onAppear { recordVisibleLine(index) }
     }
 
-    private var readerNavigation: some View {
-        HStack {
-            Button("Previous Chapter", systemImage: "chevron.left") { navigate(by: -1) }
-                .disabled(currentIndex == 0)
-            Spacer()
-            Button("Next Chapter", systemImage: "chevron.right") { navigate(by: 1) }
-                .labelStyle(.titleAndIcon)
-                .disabled(currentIndex >= chapters.count - 1)
-        }
-    }
-
-    @ToolbarContentBuilder
-    private var readerToolbar: some ToolbarContent {
-        ToolbarItemGroup(placement: .navigation) {
-            Button("Previous Chapter", systemImage: "chevron.left") { navigate(by: -1) }
-                .disabled(currentIndex == 0 || isLoading)
-                .keyboardShortcut(.leftArrow, modifiers: [.command, .option])
-            Button("Next Chapter", systemImage: "chevron.right") { navigate(by: 1) }
-                .disabled(currentIndex >= chapters.count - 1 || isLoading)
-                .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
-        }
-
-        ToolbarItemGroup {
-            Button("Smaller Text", systemImage: "textformat.size.smaller") {
-                fontSize = max(14, fontSize - 1)
-            }
-            Button("Larger Text", systemImage: "textformat.size.larger") {
-                fontSize = min(30, fontSize + 1)
-            }
-            Button("Save Chapter…", systemImage: "square.and.arrow.down") {
-                exportsChapter = true
-            }
-            .disabled(chapter == nil)
-        }
+    private var chapterProgress: Double {
+        guard let chapter else { return 0 }
+        let total = max(chapter.paragraphs.count - 1, 1)
+        return min(1, max(0, Double(currentLine) / Double(total)))
     }
 
     private var exportFilename: String {
@@ -285,6 +274,112 @@ struct ReaderView: View {
     }
 }
 
+private struct ReaderTopBar: View {
+    let novelTitle: String
+    let chapterTitle: String
+    let chapterNumber: Int
+    let canGoBack: Bool
+    let canGoForward: Bool
+    let onBack: () -> Void
+    let onForward: () -> Void
+    let onSmallerText: () -> Void
+    let onLargerText: () -> Void
+    let onExport: () -> Void
+
+    var body: some View {
+        ZStack {
+            VStack(spacing: 2) {
+                Text(novelTitle)
+                    .font(.asterionDisplay(14, weight: .medium))
+                    .foregroundStyle(ReaderInkPalette.text)
+                    .lineLimit(1)
+                Text("Chapter \(chapterNumber) · \(chapterTitle)")
+                    .font(.system(size: 11, weight: .regular))
+                    .tracking(0.4)
+                    .foregroundStyle(ReaderInkPalette.faint)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: 560)
+
+            HStack(spacing: 8) {
+                ReaderChromeButton(systemImage: "chevron.left", help: "Previous chapter", action: onBack)
+                    .disabled(!canGoBack)
+                ReaderChromeButton(systemImage: "chevron.right", help: "Next chapter", action: onForward)
+                    .disabled(!canGoForward)
+
+                Spacer(minLength: 0)
+
+                ReaderChromeButton(systemImage: "textformat.size.smaller", help: "Smaller text", action: onSmallerText)
+                ReaderChromeButton(systemImage: "textformat.size.larger", help: "Larger text", action: onLargerText)
+                ReaderChromeButton(systemImage: "square.and.arrow.down", help: "Save chapter", action: onExport)
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 12)
+        .background(
+            ReaderInkPalette.background
+                .overlay(alignment: .bottom) {
+                    Rectangle().fill(ReaderInkPalette.border).frame(height: 0.5)
+                }
+        )
+    }
+}
+
+private struct ReaderChromeButton: View {
+    let systemImage: String
+    let help: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 13, weight: .regular))
+                .foregroundStyle(ReaderInkPalette.muted)
+                .frame(width: 30, height: 30)
+                .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .help(help)
+    }
+}
+
+private struct ReaderBottomBar: View {
+    let progress: Double
+    let label: String
+
+    var body: some View {
+        VStack(spacing: 8) {
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    Rectangle()
+                        .fill(ReaderInkPalette.border)
+                    Rectangle()
+                        .fill(ReaderInkPalette.muted)
+                        .frame(width: geometry.size.width * min(1, max(0, progress)))
+                }
+            }
+            .frame(height: 2)
+
+            HStack {
+                Text(label)
+                    .font(.system(size: 11, weight: .regular))
+                    .tracking(0.4)
+                    .foregroundStyle(ReaderInkPalette.faint)
+                Spacer()
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 10)
+        .padding(.bottom, 12)
+        .background(
+            ReaderInkPalette.background
+                .overlay(alignment: .top) {
+                    Rectangle().fill(ReaderInkPalette.border).frame(height: 0.5)
+                }
+        )
+    }
+}
+
 private struct ReaderWebSpreadView: NSViewRepresentable {
     let novelTitle: String
     let chapter: Chapter
@@ -369,13 +464,13 @@ private struct ReaderWebSpreadView: NSViewRepresentable {
           <meta name="viewport" content="width=device-width, initial-scale=1">
           <style>
             :root {
-              --asterion-accent: #9C2335;
-              --asterion-bg: #F2F3F5;
-              --asterion-text: #202126;
-              --asterion-muted: #555C66;
-              --asterion-page-gap: clamp(44px, 4vw, 80px);
+              --asterion-accent: #9A968D;
+              --asterion-bg: #0F0F10;
+              --asterion-text: #E8E6E1;
+              --asterion-muted: #5A5851;
+              --asterion-page-gap: clamp(20px, 2.5vw, 48px);
               --asterion-page-width: calc((100vw - var(--asterion-page-gap)) / 2);
-              --asterion-page-inset: clamp(44px, 3.5vw, 76px);
+              --asterion-page-inset: clamp(24px, 3vw, 64px);
             }
             html, body {
               width: 100%;
@@ -417,7 +512,7 @@ private struct ReaderWebSpreadView: NSViewRepresentable {
             }
             .novel {
               margin: 0 0 16px;
-              color: var(--asterion-accent);
+              color: var(--asterion-muted);
               font: 700 12px -apple-system, BlinkMacSystemFont, sans-serif;
               letter-spacing: 0.22em;
               text-transform: uppercase;
@@ -450,8 +545,8 @@ private struct ReaderWebSpreadView: NSViewRepresentable {
           <script>
             (() => {
               const pageMetrics = () => {
-                const gap = Math.min(80, Math.max(44, window.innerWidth * 0.04));
-                const inset = Math.min(76, Math.max(44, window.innerWidth * 0.035));
+                const gap = Math.min(48, Math.max(20, window.innerWidth * 0.025));
+                const inset = Math.min(64, Math.max(24, window.innerWidth * 0.03));
                 const width = Math.max(320, (window.innerWidth - gap) / 2);
                 const pageUnit = width + gap;
                 const turnUnit = window.innerWidth + gap;
