@@ -37,7 +37,6 @@ struct AsterionApp: App {
             ContentView()
                 .environmentObject(model)
                 .environment(Clerk.shared)
-                .preferredColorScheme(.light)
                 .task { await model.start() }
         }
         .defaultSize(width: 1420, height: 780)
@@ -50,7 +49,6 @@ struct AsterionApp: App {
             if let route {
                 ReaderView(route: route)
                     .environmentObject(model)
-                    .preferredColorScheme(.light)
             }
         }
         .defaultSize(width: 840, height: 900)
@@ -58,14 +56,12 @@ struct AsterionApp: App {
         WindowGroup("Sign In to Asterion", id: "authentication") {
             AsterionAuthenticationView()
                 .environment(Clerk.shared)
-                .preferredColorScheme(.light)
         }
         .defaultSize(width: 438, height: 548)
         .windowResizability(.contentMinSize)
 
         Settings {
             SettingsView()
-                .preferredColorScheme(.light)
         }
     }
 }

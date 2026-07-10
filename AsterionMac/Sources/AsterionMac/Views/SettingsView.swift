@@ -29,6 +29,5 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .frame(width: 520, height: 260)
-        .preferredColorScheme(.light)
     }
 }

@@ -1,22 +1,23 @@
+import AppKit
 import CoreText
 import SwiftUI
 
 extension Color {
-    static let asterionBackground = Color(red: 0.949, green: 0.953, blue: 0.961)
-    static let asterionSidebar = Color(red: 0.925, green: 0.933, blue: 0.945)
-    static let asterionSurface = Color.white
-    static let asterionCard = Color(red: 0.910, green: 0.918, blue: 0.929)
-    static let asterionText = Color(red: 0.102, green: 0.106, blue: 0.122)
+    static let asterionBackground = Color(nsColor: .windowBackgroundColor)
+    static let asterionSidebar = Color(nsColor: .windowBackgroundColor)
+    static let asterionSurface = Color(nsColor: .controlBackgroundColor)
+    static let asterionCard = Color(nsColor: .underPageBackgroundColor)
+    static let asterionText = Color.primary
     static let asterionAccent = Color(red: 0.612, green: 0.137, blue: 0.208)
-    static let asterionAccentSoft = Color(red: 0.953, green: 0.867, blue: 0.886)
-    static let asterionMuted = Color(red: 0.333, green: 0.361, blue: 0.400)
-    static let asterionBorder = Color(red: 0.788, green: 0.808, blue: 0.835)
-    static let asterionReaderText = Color(red: 0.125, green: 0.129, blue: 0.149)
-    static let asterionProgressTrack = Color(red: 0.843, green: 0.859, blue: 0.878)
-    static let asterionSidebarText = Color(red: 0.133, green: 0.137, blue: 0.153)
-    static let asterionSidebarMuted = Color(red: 0.392, green: 0.416, blue: 0.451)
-    static let asterionSidebarSelection = Color.white
-    static let asterionSidebarAccent = Color(red: 0.612, green: 0.137, blue: 0.208)
+    static let asterionAccentSoft = asterionAccent.opacity(0.14)
+    static let asterionMuted = Color.secondary
+    static let asterionBorder = Color(nsColor: .separatorColor)
+    static let asterionReaderText = Color.primary
+    static let asterionProgressTrack = Color(nsColor: .separatorColor)
+    static let asterionSidebarText = Color.primary
+    static let asterionSidebarMuted = Color.secondary
+    static let asterionSidebarSelection = Color(nsColor: .selectedContentBackgroundColor)
+    static let asterionSidebarAccent = asterionAccent
 }
 
 extension Font {
