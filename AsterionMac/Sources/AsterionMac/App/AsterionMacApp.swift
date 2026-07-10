@@ -6,18 +6,6 @@ import SwiftUI
 final class AsterionAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(windowToolbarDidChange(_:)),
-            name: NSWindow.didUpdateNotification,
-            object: nil
-        )
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(toolbarWillAddItem(_:)),
-            name: NSToolbar.willAddItemNotification,
-            object: nil
-        )
         DispatchQueue.main.async {
             NSApp.activate(ignoringOtherApps: true)
             NSApp.windows.first?.makeKeyAndOrderFront(nil)
@@ -25,31 +13,7 @@ final class AsterionAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    @objc private func windowToolbarDidChange(_ notification: Notification) {
-        configureWindowChrome()
-    }
-
-    @objc private func toolbarWillAddItem(_ notification: Notification) {
-        DispatchQueue.main.async { [weak self] in
-            self?.removeSidebarToggles()
-        }
-    }
-
-    private func removeSidebarToggles() {
-        for window in NSApp.windows {
-            guard let toolbar = window.toolbar else { continue }
-            for index in toolbar.items.indices.reversed() {
-                let item = toolbar.items[index]
-                if containsSidebarToggle(item) {
-                    toolbar.removeItem(at: index)
-                }
-            }
-        }
-    }
-
     private func configureWindowChrome() {
-        removeSidebarToggles()
-
         for window in NSApp.windows where window.identifier?.rawValue.hasPrefix("main-") == true {
             if window.titlebarAppearsTransparent {
                 window.titlebarAppearsTransparent = false
@@ -58,24 +22,6 @@ final class AsterionAppDelegate: NSObject, NSApplicationDelegate {
                 window.styleMask.remove(.fullSizeContentView)
             }
         }
-    }
-
-    private func containsSidebarToggle(_ item: NSToolbarItem) -> Bool {
-        if item.itemIdentifier == .toggleSidebar {
-            return true
-        }
-        if let group = item as? NSToolbarItemGroup,
-           group.subitems.contains(where: containsSidebarToggle) {
-            return true
-        }
-        let action = item.action.map(NSStringFromSelector) ?? ""
-        return [
-            item.itemIdentifier.rawValue,
-            item.label,
-            item.paletteLabel,
-            item.toolTip ?? "",
-            action,
-        ].joined(separator: " ").localizedCaseInsensitiveContains("sidebar")
     }
 }
 
@@ -106,7 +52,7 @@ struct AsterionApp: App {
                 .preferredColorScheme(.light)
                 .task { await model.start() }
         }
-        .defaultSize(width: 1240, height: 780)
+        .defaultSize(width: 1420, height: 780)
         .windowResizability(.contentMinSize)
         .commands {
             CommandGroup(replacing: .sidebar) {}

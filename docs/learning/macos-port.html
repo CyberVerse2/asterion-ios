@@ -33,7 +33,7 @@
       <li><code>AsterionMacApp</code> gives Clerk an app-owned Keychain service, while the staging script gives every build the same signed application identity.</li>
       <li><code>AsterionAppDelegate</code> is the only AppKit bridge; it activates the staged SwiftPM app bundle and brings its SwiftUI window forward.</li>
       <li><code>ContentView</code> owns window-scoped sidebar and novel selection with <code>@SceneStorage</code>.</li>
-      <li><code>AppModel</code> owns the catalog, Clerk session, server library, and chapter cache.</li>
+      <li><code>AppModel</code> owns the catalog, Clerk session, server library, chapter cache, and independent per-novel offline download state.</li>
       <li><code>OfflineLibraryStore</code> owns downloaded novels and full chapter files under Application Support.</li>
       <li><code>APIClient</code> is an actor, so token and request state are serialized away from view code.</li>
       <li><code>ReaderView</code> owns each reader window's active chapter, chapter navigator visibility, visible line, export, and preference bindings.</li>
@@ -41,7 +41,7 @@
   </div>
 
   <h2>Desktop decisions</h2>
-  <p>The mobile tab bar and push stacks were replaced with a stable three-column <code>NavigationSplitView</code>. A novel stays selected while the user moves between the list and detail surface. Reading opens in a value-driven <code>WindowGroup</code>, allowing multiple books or chapters to remain open without hiding catalog context. Reader windows use a Chicken-style shell with in-app chrome, a centered chapter readout, a slim progress bar, and Paper, Sepia, and Ink themes that style both the text surface and surrounding chrome. The selected theme is an app preference shared by reader windows. Facing pages appear at desktop width; turning past a chapter edge opens the neighboring chapter so the book keeps moving forward or backward. Narrow windows keep a single page so the text never feels compressed. Downloaded novels become local library items and can be opened without a network session. Account preferences live in the system Settings scene, while account identity remains an app section.</p>
+  <p>The mobile tab bar and push stacks were replaced with a stable three-column <code>NavigationSplitView</code>. A novel stays selected while the user moves between the list and detail surface. The detail column has a 640-point floor and the workspace minimum includes all three column floors, preventing split-view restoration or resizing from compressing the novel detail below its designed measure. Reading opens in a value-driven <code>WindowGroup</code>, allowing multiple books or chapters to remain open without hiding catalog context. Reader windows use a Chicken-style shell with in-app chrome, a centered chapter readout, a slim progress bar, and Paper, Sepia, and Ink themes that style both the text surface and surrounding chrome. The selected theme is an app preference shared by reader windows. Facing pages appear at desktop width; turning past a chapter edge opens the neighboring chapter so the book keeps moving forward or backward. Narrow windows keep a single page so the text never feels compressed. Downloaded novels become local library items and can be opened without a network session. Account preferences live in the system Settings scene, while account identity remains an app section.</p>
 
   <h2>Behavior walkthrough</h2>
   <ol>
@@ -49,7 +49,8 @@
     <li>Sidebar selection chooses a catalog projection: alphabetical, ranked, or saved.</li>
     <li>Selecting a novel renders its metadata and lazily fetches its complete chapter list.</li>
     <li>Read opens a new reader window using the novel and chapter identifiers as the route.</li>
-    <li>Download fetches every chapter with content and writes one JSON package per novel to the offline library.</li>
+    <li>Download fetches chapter bodies through a bounded 32-request task group, preserves chapter order before storage, and writes one JSON package per novel to the offline library.</li>
+    <li>Each download publishes its own completed and total chapter counts; the selected novel shows inline progress while the sidebar download center shows every active, completed, or failed novel.</li>
     <li>Catalog and chapter lookups merge downloaded data with live API data, so downloaded books remain readable offline.</li>
     <li>The reader lays chapter text into a WebKit-powered two-page spread when the window is wide enough.</li>
     <li>The chapter-list button reveals a searchable, theme-aware navigator that highlights and scrolls to the current chapter; selecting a result cancels any older chapter load before opening the new one.</li>
@@ -63,6 +64,9 @@
   <h2>Keychain identity</h2>
   <p>Clerk persists its client and environment records in the macOS Keychain. Keychain access is authorized against the executable's designated code requirement, not just the bundle identifier written in <code>Info.plist</code>. The staging script therefore signs the executable with an installed Apple code-signing identity and verifies that it satisfies the Asterion identifier plus Apple's certificate anchor. Clerk uses the explicit service <code>cloud.cyberverse.AsterionMac.clerk</code>, keeping authentication records scoped to this app.</p>
   <p>A raw SwiftPM executable only has an ad-hoc, hash-based designated requirement. Copying that executable into an app bundle without re-signing changes its trusted identity whenever the binary changes, which makes macOS request password confirmation for every existing Clerk record. A stable signed requirement removes that authorization loop.</p>
+
+  <h2>Toolbar ownership</h2>
+  <p>SwiftUI exclusively owns toolbar composition through <code>.searchable</code>, <code>.toolbar(removing:)</code>, and scene commands. AppKit notifications must not remove <code>NSToolbarItem</code> instances while SwiftUI is replacing a toolbar: Account navigation changes search availability, and concurrent imperative removal can trigger duplicate KVO teardown inside <code>AppKitWindowController</code>. The app delegate only configures window chrome after launch.</p>
 
   <h2>Verification</h2>
   <p><code>swift build</code> proves source and current dependency compatibility. <code>swift test</code> verifies backend decoding, rank normalization, and chapter HTML cleanup. Every staging run verifies the executable's signature and designated Asterion requirement before launch. <code>./script/build_and_run.sh --verify</code> also stages a real <code>.app</code> bundle—including SwiftPM dependency resource bundles—and proves the macOS process launches.</p>

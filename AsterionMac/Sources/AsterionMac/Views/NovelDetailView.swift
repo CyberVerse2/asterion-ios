@@ -10,6 +10,7 @@ struct NovelDetailView: View {
     @State private var progress: ReadingProgress?
     @State private var isLoading = false
     @State private var errorMessage: String?
+    @State private var downloadRequestError: String?
     @State private var scrollPosition: String?
     @State private var showsFullSynopsis = false
 
@@ -22,8 +23,10 @@ struct NovelDetailView: View {
     }
 
     private var isDownloading: Bool {
-        model.isDownloadingOfflineNovelIDs.contains(novel.id)
+        offlineDownload?.isDownloading == true
     }
+
+    private var offlineDownload: OfflineDownload? { model.offlineDownload(for: novel.id) }
 
     private var visibleChapters: [Chapter] {
         Array(chapters.suffix(5).reversed())
@@ -168,18 +171,18 @@ struct NovelDetailView: View {
 
                 Button {
                     Task {
+                        downloadRequestError = nil
                         do {
                             try await model.downloadForOffline(novel: novel)
-                            errorMessage = nil
                         } catch {
-                            errorMessage = error.localizedDescription
+                            downloadRequestError = error.localizedDescription
                         }
                     }
                 } label: {
                     Label {
                         Text(downloadButtonTitle)
                     } icon: {
-                        Image(systemName: isDownloaded ? "checkmark.circle.fill" : "arrow.down.circle")
+                        Image(systemName: downloadButtonIcon)
                             .contentTransition(.symbolEffect(.replace))
                     }
                         .frame(minWidth: 116)
@@ -197,6 +200,8 @@ struct NovelDetailView: View {
                 .animation(reduceMotion ? nil : AsterionMotion.hover, value: isDownloaded)
             }
 
+            downloadStatus
+
             if let progress {
                 HStack(spacing: 10) {
                     ProgressView(value: min(1, max(0, progress.percentage / 100)))
@@ -207,6 +212,30 @@ struct NovelDetailView: View {
                         .foregroundStyle(Color.asterionMuted)
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private var downloadStatus: some View {
+        if let download = offlineDownload, download.phase == .downloading {
+            HStack(spacing: 10) {
+                if download.totalChapters == 0 {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Preparing offline download…")
+                } else {
+                    ProgressView(value: download.progress)
+                        .tint(Color.asterionAccent)
+                    Text("\(download.completedChapters)/\(download.totalChapters) · \(download.progress, format: .percent.precision(.fractionLength(0)))")
+                        .monospacedDigit()
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(Color.asterionMuted)
+        } else if let message = offlineDownload?.errorMessage ?? downloadRequestError {
+            Label(message, systemImage: "exclamationmark.triangle.fill")
+                .font(.caption)
+                .foregroundStyle(Color.red)
         }
     }
 
@@ -307,8 +336,18 @@ struct NovelDetailView: View {
 
     private var downloadButtonTitle: String {
         if isDownloaded { return "Downloaded" }
-        if isDownloading { return "Downloading..." }
+        if let download = offlineDownload, download.isDownloading {
+            guard download.totalChapters > 0 else { return "Preparing…" }
+            return "Downloading \(Int(download.progress * 100))%"
+        }
+        if offlineDownload?.phase == .failed { return "Retry Download" }
         return "Download"
+    }
+
+    private var downloadButtonIcon: String {
+        if isDownloaded { return "checkmark.circle.fill" }
+        if offlineDownload?.phase == .failed { return "arrow.clockwise.circle" }
+        return "arrow.down.circle"
     }
 
     private var chapterCountLabel: String? {

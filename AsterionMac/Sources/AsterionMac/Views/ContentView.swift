@@ -1,6 +1,21 @@
 import SwiftUI
 
 struct ContentView: View {
+    private enum Layout {
+        static let compactSidebarWidth = 64.0
+        static let sidebarMinimumWidth = 190.0
+        static let sidebarIdealWidth = 220.0
+        static let sidebarMaximumWidth = 240.0
+        static let catalogMinimumWidth = 520.0
+        static let catalogIdealWidth = 680.0
+        static let catalogMaximumWidth = 1_200.0
+        static let detailMinimumWidth = 640.0
+        static let detailIdealWidth = 680.0
+        static let detailMaximumWidth = 800.0
+        static let expandedWorkspaceMinimumWidth =
+            sidebarMinimumWidth + catalogMinimumWidth + detailMinimumWidth
+    }
+
     @EnvironmentObject private var model: AppModel
     @SceneStorage("selectedSection") private var selectedSectionRaw = AppSection.discover.rawValue
     @SceneStorage("selectedNovelID") private var selectedNovelID = ""
@@ -26,17 +41,27 @@ struct ContentView: View {
         HSplitView {
             SidebarView(selection: section, isCompact: $isSidebarCompact)
                 .frame(
-                    minWidth: isSidebarCompact ? 64 : 190,
-                    idealWidth: isSidebarCompact ? 64 : 220,
-                    maxWidth: isSidebarCompact ? 64 : 240,
+                    minWidth: isSidebarCompact ? Layout.compactSidebarWidth : Layout.sidebarMinimumWidth,
+                    idealWidth: isSidebarCompact ? Layout.compactSidebarWidth : Layout.sidebarIdealWidth,
+                    maxWidth: isSidebarCompact ? Layout.compactSidebarWidth : Layout.sidebarMaximumWidth,
                     maxHeight: .infinity
                 )
 
             catalogColumn
-                .frame(minWidth: 520, idealWidth: 680, maxWidth: 1_200, maxHeight: .infinity)
+                .frame(
+                    minWidth: Layout.catalogMinimumWidth,
+                    idealWidth: Layout.catalogIdealWidth,
+                    maxWidth: Layout.catalogMaximumWidth,
+                    maxHeight: .infinity
+                )
 
             detailColumn
-                .frame(minWidth: 400, idealWidth: 500, maxWidth: 800, maxHeight: .infinity)
+                .frame(
+                    minWidth: Layout.detailMinimumWidth,
+                    idealWidth: Layout.detailIdealWidth,
+                    maxWidth: Layout.detailMaximumWidth,
+                    maxHeight: .infinity
+                )
         }
         .catalogSearch(
             text: $searchText,
@@ -46,7 +71,11 @@ struct ContentView: View {
         .focusedSceneValue(\.asterionSection, section)
         .tint(.asterionAccent)
         .background(Color.asterionBackground)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(
+            minWidth: Layout.expandedWorkspaceMinimumWidth,
+            maxWidth: .infinity,
+            maxHeight: .infinity
+        )
         .preferredColorScheme(.light)
         .onAppear {
             if selectedNovelID.isEmpty {

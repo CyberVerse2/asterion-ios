@@ -86,4 +86,52 @@ struct DomainModelTests {
         #expect(try await reader.chapters(for: "novel-1")?.map(\.id) == ["chapter-1", "chapter-2"])
         #expect(try await reader.chapter(id: "chapter-2")?.paragraphs == ["Second."])
     }
+
+    @Test func offlineDownloadReportsBoundedChapterProgress() {
+        var download = OfflineDownload(
+            novelID: "novel-1",
+            novelTitle: "Offline Book",
+            completedChapters: 3,
+            totalChapters: 12,
+            phase: .downloading,
+            errorMessage: nil,
+            updatedAt: .now
+        )
+
+        #expect(download.id == "novel-1")
+        #expect(download.progress == 0.25)
+        #expect(download.isDownloading)
+
+        download.completedChapters = 13
+        #expect(download.progress == 1)
+
+        download.totalChapters = 0
+        #expect(download.progress == 0)
+    }
+
+    @Test func offlineDownloadDistinguishesCompletionAndFailure() {
+        let completed = OfflineDownload(
+            novelID: "novel-1",
+            novelTitle: "Complete Book",
+            completedChapters: 2,
+            totalChapters: 2,
+            phase: .completed,
+            errorMessage: nil,
+            updatedAt: .now
+        )
+        let failed = OfflineDownload(
+            novelID: "novel-2",
+            novelTitle: "Failed Book",
+            completedChapters: 1,
+            totalChapters: 2,
+            phase: .failed,
+            errorMessage: "The connection was lost.",
+            updatedAt: .now
+        )
+
+        #expect(completed.progress == 1)
+        #expect(!completed.isDownloading)
+        #expect(failed.phase == .failed)
+        #expect(failed.errorMessage == "The connection was lost.")
+    }
 }

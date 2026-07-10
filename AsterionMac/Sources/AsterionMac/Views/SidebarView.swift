@@ -6,6 +6,7 @@ struct SidebarView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Binding var selection: AppSection
     @Binding var isCompact: Bool
+    @State private var showsDownloads = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -65,6 +66,10 @@ struct SidebarView: View {
             .padding(.horizontal, 14)
 
             Spacer(minLength: 20)
+
+            downloadsButton
+                .padding(.horizontal, 14)
+                .padding(.bottom, 8)
 
             compactToggle
                 .frame(maxWidth: .infinity, alignment: isCompact ? .center : .trailing)
@@ -179,6 +184,50 @@ struct SidebarView: View {
         .buttonStyle(AsterionPressButtonStyle())
         .help(isCompact ? "Expand Sidebar" : "Compact Sidebar")
         .accessibilityLabel(isCompact ? "Expand Sidebar" : "Compact Sidebar")
+    }
+
+    private var downloadsButton: some View {
+        let activeCount = model.offlineDownloads.count(where: { $0.isDownloading })
+
+        return Button {
+            showsDownloads.toggle()
+        } label: {
+            HStack(spacing: isCompact ? 0 : 10) {
+                Image(systemName: activeCount > 0 ? "arrow.down.circle.fill" : "arrow.down.circle")
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(width: 18)
+                    .symbolEffect(.pulse, isActive: activeCount > 0 && !reduceMotion)
+
+                if !isCompact {
+                    Text("Downloads")
+                        .font(.asterionDisplay(13, weight: .medium))
+                    Spacer()
+                    if activeCount > 0 {
+                        Text(activeCount.formatted())
+                            .font(.caption2.monospacedDigit().weight(.semibold))
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(Color.asterionAccent, in: Capsule())
+                            .foregroundStyle(.white)
+                    }
+                }
+            }
+            .foregroundStyle(activeCount > 0 ? Color.asterionAccent : Color.asterionSidebarMuted)
+            .frame(maxWidth: .infinity, alignment: isCompact ? .center : .leading)
+            .padding(.horizontal, isCompact ? 10 : 12)
+            .padding(.vertical, 9)
+            .background(Color.asterionSurface.opacity(0.72), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(activeCount > 0 ? Color.asterionAccent.opacity(0.45) : Color.asterionBorder)
+            }
+        }
+        .buttonStyle(AsterionPressButtonStyle())
+        .help("Downloads")
+        .popover(isPresented: $showsDownloads, arrowEdge: .leading) {
+            DownloadCenterView()
+                .environmentObject(model)
+        }
     }
 
     private func toggleCompactSidebar() {

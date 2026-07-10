@@ -3,6 +3,8 @@ import Foundation
 
 @MainActor
 final class AppModel: ObservableObject {
+    private static let offlineDownloadConcurrency = 32
+
     struct ContinueReadingEntry: Identifiable {
         let novel: Novel
         let progress: ReadingProgress
@@ -24,7 +26,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var signedInUser: SignedInUser?
     @Published private(set) var isLoadingCatalog = false
     @Published private(set) var isUpdatingLibrary = false
-    @Published private(set) var isDownloadingOfflineNovelIDs: Set<String> = []
+    @Published private(set) var offlineDownloadByNovelID: [String: OfflineDownload] = [:]
     @Published var catalogError: String?
     @Published var accountError: String?
 
@@ -37,6 +39,15 @@ final class AppModel: ObservableObject {
     private var authEventsTask: Task<Void, Never>?
 
     var isSignedIn: Bool { signedInUser != nil }
+
+    var offlineDownloads: [OfflineDownload] {
+        offlineDownloadByNovelID.values.sorted { lhs, rhs in
+            if lhs.isDownloading != rhs.isDownloading {
+                return lhs.isDownloading
+            }
+            return lhs.updatedAt > rhs.updatedAt
+        }
+    }
 
     var featuredNovels: [Novel] {
         Array(
@@ -192,29 +203,92 @@ final class AppModel: ObservableObject {
     }
 
     func downloadForOffline(novel: Novel) async throws {
-        guard !isDownloadingOfflineNovelIDs.contains(novel.id) else { return }
-        isDownloadingOfflineNovelIDs.insert(novel.id)
-        defer { isDownloadingOfflineNovelIDs.remove(novel.id) }
+        guard offlineDownloadByNovelID[novel.id]?.isDownloading != true else {
+            throw OfflineDownloadError.alreadyInProgress(novelTitle: novel.title)
+        }
 
-        let chapterSummaries = try await api.fetchAllChapters(novelID: novel.id)
-        var fullChapters: [Chapter] = []
-        fullChapters.reserveCapacity(chapterSummaries.count)
-        for summary in chapterSummaries {
-            if summary.content?.isEmpty == false {
-                fullChapters.append(summary)
-            } else {
-                fullChapters.append(try await api.fetchChapter(id: summary.id))
+        offlineDownloadByNovelID[novel.id] = OfflineDownload(
+            novelID: novel.id,
+            novelTitle: novel.title,
+            completedChapters: 0,
+            totalChapters: 0,
+            phase: .downloading,
+            errorMessage: nil,
+            updatedAt: Date()
+        )
+
+        do {
+            let chapterSummaries = try await api.fetchAllChapters(novelID: novel.id)
+            updateOfflineDownload(novelID: novel.id) { download in
+                download.totalChapters = chapterSummaries.count
             }
-        }
 
-        let sortedChapters = fullChapters.sorted { $0.chapterNumber < $1.chapterNumber }
-        try await offlineLibrary.save(novel: novel, chapters: sortedChapters)
-        downloadedNovelIDs.insert(novel.id)
-        chaptersByNovelID[novel.id] = sortedChapters
-        for chapter in sortedChapters {
-            chapterByID[chapter.id] = chapter
+            let fullChapters = try await fetchChaptersForOfflineDownload(
+                chapterSummaries,
+                novelID: novel.id
+            )
+
+            let sortedChapters = fullChapters.sorted { $0.chapterNumber < $1.chapterNumber }
+            try await offlineLibrary.save(novel: novel, chapters: sortedChapters)
+            downloadedNovelIDs.insert(novel.id)
+            chaptersByNovelID[novel.id] = sortedChapters
+            for chapter in sortedChapters {
+                chapterByID[chapter.id] = chapter
+            }
+            novels = mergedNovels(primary: novels, secondary: [novel])
+            updateOfflineDownload(novelID: novel.id) { download in
+                download.phase = .completed
+                download.completedChapters = download.totalChapters
+                download.errorMessage = nil
+            }
+        } catch {
+            updateOfflineDownload(novelID: novel.id) { download in
+                download.phase = .failed
+                download.errorMessage = error.localizedDescription
+            }
+            throw error
         }
-        novels = mergedNovels(primary: novels, secondary: [novel])
+    }
+
+    func offlineDownload(for novelID: String) -> OfflineDownload? {
+        offlineDownloadByNovelID[novelID]
+    }
+
+    private func fetchChaptersForOfflineDownload(
+        _ summaries: [Chapter],
+        novelID: String
+    ) async throws -> [Chapter] {
+        let api = api
+        let workerCount = min(Self.offlineDownloadConcurrency, summaries.count)
+        var iterator = summaries.makeIterator()
+        var completed: [Chapter] = []
+        completed.reserveCapacity(summaries.count)
+
+        return try await withThrowingTaskGroup(of: Chapter.self) { group in
+            for _ in 0..<workerCount {
+                guard let summary = iterator.next() else { break }
+                group.addTask {
+                    if summary.content?.isEmpty == false { return summary }
+                    return try await api.fetchChapter(id: summary.id)
+                }
+            }
+
+            while let chapter = try await group.next() {
+                completed.append(chapter)
+                updateOfflineDownload(novelID: novelID) { download in
+                    download.completedChapters = completed.count
+                }
+
+                if let summary = iterator.next() {
+                    group.addTask {
+                        if summary.content?.isEmpty == false { return summary }
+                        return try await api.fetchChapter(id: summary.id)
+                    }
+                }
+            }
+
+            return completed
+        }
     }
 
     func toggleLibrary(novelID: String) async {
@@ -334,5 +408,15 @@ final class AppModel: ObservableObject {
             result.append(novel)
         }
         return result
+    }
+
+    private func updateOfflineDownload(
+        novelID: String,
+        update: (inout OfflineDownload) -> Void
+    ) {
+        guard var download = offlineDownloadByNovelID[novelID] else { return }
+        update(&download)
+        download.updatedAt = Date()
+        offlineDownloadByNovelID[novelID] = download
     }
 }
