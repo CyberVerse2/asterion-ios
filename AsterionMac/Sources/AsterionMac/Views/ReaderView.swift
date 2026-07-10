@@ -1,15 +1,81 @@
+import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
 
-private enum ReaderInkPalette {
-    static let background = Color(red: 0.059, green: 0.059, blue: 0.063)
-    static let surface = Color(red: 0.102, green: 0.102, blue: 0.106)
-    static let surfaceAlt = Color(red: 0.145, green: 0.145, blue: 0.153)
-    static let text = Color(red: 0.910, green: 0.902, blue: 0.882)
-    static let muted = Color(red: 0.604, green: 0.588, blue: 0.553)
-    static let faint = Color(red: 0.353, green: 0.345, blue: 0.318)
-    static let border = Color.white.opacity(0.08)
+private enum ReaderTheme: String, CaseIterable, Identifiable {
+    case paper
+    case sepia
+    case ink
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .paper: "Paper"
+        case .sepia: "Sepia"
+        case .ink: "Ink"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .paper: "sun.max"
+        case .sepia: "book.closed"
+        case .ink: "moon.fill"
+        }
+    }
+
+    var preferredColorScheme: ColorScheme { self == .ink ? .dark : .light }
+
+    var palette: ReaderPalette {
+        switch self {
+        case .paper:
+            ReaderPalette(
+                background: Color(red: 0.961, green: 0.945, blue: 0.910),
+                text: Color(red: 0.122, green: 0.106, blue: 0.086),
+                muted: Color(red: 0.420, green: 0.396, blue: 0.357),
+                faint: Color(red: 0.659, green: 0.627, blue: 0.584),
+                border: Color(red: 0.122, green: 0.106, blue: 0.086).opacity(0.10),
+                backgroundHex: "#F5F1E8",
+                textHex: "#1F1B16",
+                mutedHex: "#6B655B"
+            )
+        case .sepia:
+            ReaderPalette(
+                background: Color(red: 0.937, green: 0.890, blue: 0.800),
+                text: Color(red: 0.227, green: 0.165, blue: 0.094),
+                muted: Color(red: 0.478, green: 0.353, blue: 0.251),
+                faint: Color(red: 0.659, green: 0.565, blue: 0.439),
+                border: Color(red: 0.227, green: 0.165, blue: 0.094).opacity(0.14),
+                backgroundHex: "#EFE3CC",
+                textHex: "#3A2A18",
+                mutedHex: "#7A5A40"
+            )
+        case .ink:
+            ReaderPalette(
+                background: Color(red: 0.059, green: 0.059, blue: 0.063),
+                text: Color(red: 0.910, green: 0.902, blue: 0.882),
+                muted: Color(red: 0.604, green: 0.588, blue: 0.553),
+                faint: Color(red: 0.353, green: 0.345, blue: 0.318),
+                border: Color.white.opacity(0.08),
+                backgroundHex: "#0F0F10",
+                textHex: "#E8E6E1",
+                mutedHex: "#5A5851"
+            )
+        }
+    }
+}
+
+private struct ReaderPalette {
+    let background: Color
+    let text: Color
+    let muted: Color
+    let faint: Color
+    let border: Color
+    let backgroundHex: String
+    let textHex: String
+    let mutedHex: String
 }
 
 struct ReaderView: View {
@@ -19,6 +85,7 @@ struct ReaderView: View {
     @AppStorage("readerFontSize") private var fontSize = 19.0
     @AppStorage("readerLineSpacing") private var lineSpacing = 8.0
     @AppStorage("readerColumnWidth") private var columnWidth = 640.0
+    @AppStorage("readerTheme") private var readerThemeRawValue = ReaderTheme.ink.rawValue
 
     @State private var novel: Novel?
     @State private var chapters: [Chapter] = []
@@ -30,6 +97,12 @@ struct ReaderView: View {
     @State private var isLoading = true
     @State private var progressTask: Task<Void, Never>?
     @State private var exportsChapter = false
+
+    private var readerTheme: ReaderTheme {
+        ReaderTheme(rawValue: readerThemeRawValue) ?? .ink
+    }
+
+    private var palette: ReaderPalette { readerTheme.palette }
 
     var body: some View {
         Group {
@@ -48,8 +121,9 @@ struct ReaderView: View {
             }
         }
         .frame(minWidth: 560, minHeight: 560)
-        .background(ReaderInkPalette.background)
-        .preferredColorScheme(.dark)
+        .background(palette.background)
+        .preferredColorScheme(readerTheme.preferredColorScheme)
+        .animation(.easeInOut(duration: 0.3), value: readerTheme)
         .navigationTitle(chapter?.title ?? "Reader")
         .safeAreaInset(edge: .bottom) {
             if let error = model.accountError {
@@ -91,6 +165,9 @@ struct ReaderView: View {
                 onForward: { navigate(by: 1) },
                 onSmallerText: { fontSize = max(14, fontSize - 1) },
                 onLargerText: { fontSize = min(30, fontSize + 1) },
+                theme: readerTheme,
+                palette: palette,
+                onThemeChange: { readerThemeRawValue = $0.rawValue },
                 onExport: { exportsChapter = true }
             )
 
@@ -104,6 +181,7 @@ struct ReaderView: View {
                             chapter: chapter,
                             fontSize: fontSize,
                             lineSpacing: lineSpacing,
+                            palette: palette,
                             initialLine: restoredLine ?? currentLine,
                             onVisibleLineChange: recordVisibleLine,
                             onChapterTurn: navigate
@@ -123,7 +201,7 @@ struct ReaderView: View {
                             .frame(maxWidth: .infinity)
                         }
                         .hidingScrollIndicators()
-                        .background(ReaderInkPalette.background)
+                        .background(palette.background)
                     }
                 }
                 .onChange(of: chapter.id) {
@@ -140,7 +218,8 @@ struct ReaderView: View {
 
             ReaderBottomBar(
                 progress: chapterProgress,
-                label: "\(Int(chapterProgress * 100))% of chapter"
+                label: "\(Int(chapterProgress * 100))% of chapter",
+                palette: palette
             )
         }
     }
@@ -150,10 +229,10 @@ struct ReaderView: View {
             Text(novel?.title.uppercased() ?? "ASTERION")
                 .font(.caption.weight(.medium))
                 .tracking(1.5)
-                .foregroundStyle(ReaderInkPalette.faint)
+                .foregroundStyle(palette.faint)
             Text(chapter.title)
                 .font(.asterionReading(32, weight: .semibold))
-                .foregroundStyle(ReaderInkPalette.text)
+                .foregroundStyle(palette.text)
                 .textSelection(.enabled)
         }
     }
@@ -167,7 +246,7 @@ struct ReaderView: View {
     private func paragraphText(_ paragraph: String, index: Int) -> some View {
         Text(paragraph)
             .font(.asterionReading(fontSize))
-            .foregroundStyle(ReaderInkPalette.text)
+            .foregroundStyle(palette.text)
             .lineSpacing(lineSpacing)
             .textSelection(.enabled)
             .id(index)
@@ -284,6 +363,9 @@ private struct ReaderTopBar: View {
     let onForward: () -> Void
     let onSmallerText: () -> Void
     let onLargerText: () -> Void
+    let theme: ReaderTheme
+    let palette: ReaderPalette
+    let onThemeChange: (ReaderTheme) -> Void
     let onExport: () -> Void
 
     var body: some View {
@@ -291,35 +373,36 @@ private struct ReaderTopBar: View {
             VStack(spacing: 2) {
                 Text(novelTitle)
                     .font(.asterionDisplay(14, weight: .medium))
-                    .foregroundStyle(ReaderInkPalette.text)
+                    .foregroundStyle(palette.text)
                     .lineLimit(1)
                 Text("Chapter \(chapterNumber) · \(chapterTitle)")
                     .font(.system(size: 11, weight: .regular))
                     .tracking(0.4)
-                    .foregroundStyle(ReaderInkPalette.faint)
+                    .foregroundStyle(palette.faint)
                     .lineLimit(1)
             }
             .frame(maxWidth: 560)
 
             HStack(spacing: 8) {
-                ReaderChromeButton(systemImage: "chevron.left", help: "Previous chapter", action: onBack)
+                ReaderChromeButton(systemImage: "chevron.left", help: "Previous chapter", palette: palette, action: onBack)
                     .disabled(!canGoBack)
-                ReaderChromeButton(systemImage: "chevron.right", help: "Next chapter", action: onForward)
+                ReaderChromeButton(systemImage: "chevron.right", help: "Next chapter", palette: palette, action: onForward)
                     .disabled(!canGoForward)
 
                 Spacer(minLength: 0)
 
-                ReaderChromeButton(systemImage: "textformat.size.smaller", help: "Smaller text", action: onSmallerText)
-                ReaderChromeButton(systemImage: "textformat.size.larger", help: "Larger text", action: onLargerText)
-                ReaderChromeButton(systemImage: "square.and.arrow.down", help: "Save chapter", action: onExport)
+                ReaderChromeButton(systemImage: "textformat.size.smaller", help: "Smaller text", palette: palette, action: onSmallerText)
+                ReaderChromeButton(systemImage: "textformat.size.larger", help: "Larger text", palette: palette, action: onLargerText)
+                ReaderThemeMenu(theme: theme, palette: palette, onSelect: onThemeChange)
+                ReaderChromeButton(systemImage: "square.and.arrow.down", help: "Save chapter", palette: palette, action: onExport)
             }
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 12)
         .background(
-            ReaderInkPalette.background
+            palette.background
                 .overlay(alignment: .bottom) {
-                    Rectangle().fill(ReaderInkPalette.border).frame(height: 0.5)
+                    Rectangle().fill(palette.border).frame(height: 0.5)
                 }
         )
     }
@@ -328,13 +411,14 @@ private struct ReaderTopBar: View {
 private struct ReaderChromeButton: View {
     let systemImage: String
     let help: String
+    let palette: ReaderPalette
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(.system(size: 13, weight: .regular))
-                .foregroundStyle(ReaderInkPalette.muted)
+                .foregroundStyle(palette.muted)
                 .frame(width: 30, height: 30)
                 .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
         }
@@ -343,18 +427,47 @@ private struct ReaderChromeButton: View {
     }
 }
 
+private struct ReaderThemeMenu: View {
+    let theme: ReaderTheme
+    let palette: ReaderPalette
+    let onSelect: (ReaderTheme) -> Void
+
+    var body: some View {
+        Menu {
+            ForEach(ReaderTheme.allCases) { option in
+                Button {
+                    onSelect(option)
+                } label: {
+                    Label(option.label, systemImage: option == theme ? "checkmark" : option.icon)
+                }
+            }
+        } label: {
+            Image(systemName: theme.icon)
+                .font(.system(size: 13, weight: .regular))
+                .foregroundStyle(palette.muted)
+                .frame(width: 30, height: 30)
+                .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Theme: \(theme.label)")
+    }
+}
+
 private struct ReaderBottomBar: View {
     let progress: Double
     let label: String
+    let palette: ReaderPalette
 
     var body: some View {
         VStack(spacing: 8) {
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
                     Rectangle()
-                        .fill(ReaderInkPalette.border)
+                        .fill(palette.border)
                     Rectangle()
-                        .fill(ReaderInkPalette.muted)
+                        .fill(palette.muted)
                         .frame(width: geometry.size.width * min(1, max(0, progress)))
                 }
             }
@@ -364,7 +477,7 @@ private struct ReaderBottomBar: View {
                 Text(label)
                     .font(.system(size: 11, weight: .regular))
                     .tracking(0.4)
-                    .foregroundStyle(ReaderInkPalette.faint)
+                    .foregroundStyle(palette.faint)
                 Spacer()
             }
         }
@@ -372,9 +485,9 @@ private struct ReaderBottomBar: View {
         .padding(.top, 10)
         .padding(.bottom, 12)
         .background(
-            ReaderInkPalette.background
+            palette.background
                 .overlay(alignment: .top) {
-                    Rectangle().fill(ReaderInkPalette.border).frame(height: 0.5)
+                    Rectangle().fill(palette.border).frame(height: 0.5)
                 }
         )
     }
@@ -385,6 +498,7 @@ private struct ReaderWebSpreadView: NSViewRepresentable {
     let chapter: Chapter
     let fontSize: Double
     let lineSpacing: Double
+    let palette: ReaderPalette
     let initialLine: Int
     let onVisibleLineChange: (Int) -> Void
     let onChapterTurn: (Int) -> Void
@@ -395,11 +509,13 @@ private struct ReaderWebSpreadView: NSViewRepresentable {
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = context.coordinator
         webView.setValue(false, forKey: "drawsBackground")
+        Self.hideScrollers(in: webView)
         return webView
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {
         context.coordinator.parent = self
+        Self.hideScrollers(in: webView)
         let html = makeHTML()
         guard context.coordinator.lastHTML != html else { return }
         context.coordinator.lastHTML = html
@@ -426,6 +542,7 @@ private struct ReaderWebSpreadView: NSViewRepresentable {
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             DispatchQueue.main.async { [weak webView] in
                 guard let webView, let window = webView.window else { return }
+                ReaderWebSpreadView.hideScrollers(in: webView)
                 window.makeFirstResponder(webView)
             }
             webView.evaluateJavaScript("window.__asterionRestoreLine(\(parent.initialLine));", completionHandler: nil)
@@ -449,6 +566,15 @@ private struct ReaderWebSpreadView: NSViewRepresentable {
         }
     }
 
+    private static func hideScrollers(in view: NSView) {
+        if let scrollView = view as? NSScrollView {
+            scrollView.hasHorizontalScroller = false
+            scrollView.hasVerticalScroller = false
+            scrollView.autohidesScrollers = true
+        }
+        view.subviews.forEach(hideScrollers)
+    }
+
     private func makeHTML() -> String {
         let effectiveFontSize = max(fontSize + 2, fontSize * 1.12)
         let effectiveLineHeight = max(1.35, (effectiveFontSize + lineSpacing) / effectiveFontSize)
@@ -465,9 +591,9 @@ private struct ReaderWebSpreadView: NSViewRepresentable {
           <style>
             :root {
               --asterion-accent: #9A968D;
-              --asterion-bg: #0F0F10;
-              --asterion-text: #E8E6E1;
-              --asterion-muted: #5A5851;
+              --asterion-bg: \(palette.backgroundHex);
+              --asterion-text: \(palette.textHex);
+              --asterion-muted: \(palette.mutedHex);
               --asterion-page-gap: clamp(20px, 2.5vw, 48px);
               --asterion-page-width: calc((100vw - var(--asterion-page-gap)) / 2);
               --asterion-page-inset: clamp(24px, 3vw, 64px);

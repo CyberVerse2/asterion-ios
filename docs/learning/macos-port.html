@@ -41,7 +41,7 @@
   </div>
 
   <h2>Desktop decisions</h2>
-  <p>The mobile tab bar and push stacks were replaced with a stable three-column <code>NavigationSplitView</code>. A novel stays selected while the user moves between the list and detail surface. Reading opens in a value-driven <code>WindowGroup</code>, allowing multiple books or chapters to remain open without hiding catalog context. Reader windows use an ink-themed, Chicken-style shell with in-app chrome, a centered chapter readout, a slim progress bar, and facing pages on desktop-width windows. Turning past a chapter edge opens the neighboring chapter so the book keeps moving forward or backward. Narrow windows keep a single page so the text never feels compressed. Downloaded novels become local library items and can be opened without a network session. Account preferences live in the system Settings scene, while account identity remains an app section.</p>
+  <p>The mobile tab bar and push stacks were replaced with a stable three-column <code>NavigationSplitView</code>. A novel stays selected while the user moves between the list and detail surface. Reading opens in a value-driven <code>WindowGroup</code>, allowing multiple books or chapters to remain open without hiding catalog context. Reader windows use a Chicken-style shell with in-app chrome, a centered chapter readout, a slim progress bar, and Paper, Sepia, and Ink themes that style both the text surface and surrounding chrome. The selected theme is an app preference shared by reader windows. Facing pages appear at desktop width; turning past a chapter edge opens the neighboring chapter so the book keeps moving forward or backward. Narrow windows keep a single page so the text never feels compressed. Downloaded novels become local library items and can be opened without a network session. Account preferences live in the system Settings scene, while account identity remains an app section.</p>
 
   <h2>Behavior walkthrough</h2>
   <ol>
@@ -52,6 +52,8 @@
     <li>Download fetches every chapter with content and writes one JSON package per novel to the offline library.</li>
     <li>Catalog and chapter lookups merge downloaded data with live API data, so downloaded books remain readable offline.</li>
     <li>The reader lays chapter text into a WebKit-powered two-page spread when the window is wide enough.</li>
+    <li>The theme menu applies Paper, Sepia, or Ink colors to SwiftUI chrome and WebKit content from one palette and persists the selection with <code>@AppStorage</code>.</li>
+    <li>The native WebKit scroll view keeps its horizontal and vertical scrollers disabled while wheel, keyboard, and trackpad page turns remain active.</li>
     <li>The page-turn bridge computes spread width from the viewport instead of parsing CSS <code>calc()</code> or <code>clamp()</code> strings.</li>
     <li>At the first or last spread of a chapter, page-turn input loads the previous or next chapter.</li>
     <li>The reader debounces visible-line changes before syncing authenticated progress.</li>
