@@ -5,6 +5,8 @@ MODE="${1:-run}"
 APP_NAME="Asterion"
 BUNDLE_ID="cloud.cyberverse.Asterion"
 MIN_SYSTEM_VERSION="15.0"
+APP_VERSION="${ASTERION_VERSION:-0.1.0}"
+BUILD_NUMBER="${ASTERION_BUILD_NUMBER:-1}"
 CODE_SIGN_IDENTITY="${ASTERION_CODE_SIGN_IDENTITY:-}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -15,6 +17,16 @@ APP_MACOS="$APP_CONTENTS/MacOS"
 APP_RESOURCES="$APP_CONTENTS/Resources"
 APP_BINARY="$APP_MACOS/$APP_NAME"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
+DMG_PATH="$DIST_DIR/$APP_NAME.dmg"
+DMG_CHECKSUM_PATH="$DMG_PATH.sha256"
+DMG_STAGING="$DIST_DIR/.dmg-staging"
+DMG_MOUNT="$DIST_DIR/.dmg-mount"
+DMG_ATTACHED=false
+
+BUILD_CONFIGURATION="debug"
+if [[ "$MODE" == "--package" || "$MODE" == "package" ]]; then
+  BUILD_CONFIGURATION="release"
+fi
 
 if [[ -z "$CODE_SIGN_IDENTITY" ]]; then
   CODE_SIGN_IDENTITY="$(
@@ -22,6 +34,18 @@ if [[ -z "$CODE_SIGN_IDENTITY" ]]; then
       | /usr/bin/sed -En 's/^[[:space:]]*[0-9]+\) ([0-9A-F]{40}) ".*"$/\1/p' \
       | /usr/bin/sed -n '1p'
   )"
+fi
+
+if [[ "$MODE" == "--package" || "$MODE" == "package" ]]; then
+  if ! /usr/bin/security find-identity -v -p codesigning \
+    | /usr/bin/grep -F "$CODE_SIGN_IDENTITY" \
+    | /usr/bin/grep -q '"Developer ID Application:'; then
+    echo "warning: no Developer ID Application identity is selected" >&2
+    echo "warning: the DMG will be development-signed and cannot be notarized for public distribution" >&2
+  else
+    echo "warning: this SwiftPM wrapper is not a sealed, notarization-ready distribution bundle" >&2
+    echo "warning: the DMG is for installation testing until the app is archived with a distribution target" >&2
+  fi
 fi
 
 if [[ -z "$CODE_SIGN_IDENTITY" ]]; then
@@ -34,18 +58,31 @@ pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 pkill -x "AsterionMac" >/dev/null 2>&1 || true
 
 cd "$ROOT_DIR"
-swift build
-BIN_DIR="$(swift build --show-bin-path)"
+swift build -c "$BUILD_CONFIGURATION"
+BIN_DIR="$(swift build -c "$BUILD_CONFIGURATION" --show-bin-path)"
 BUILD_BINARY="$BIN_DIR/$APP_NAME"
 mkdir -p "$DIST_DIR"
 SIGNED_BINARY="$(/usr/bin/mktemp "$DIST_DIR/.${APP_NAME}.XXXXXX")"
-trap 'rm -f "$SIGNED_BINARY"' EXIT
+VERIFICATION_BINARY=""
+
+cleanup() {
+  if [[ "$DMG_ATTACHED" == true ]]; then
+    /usr/bin/hdiutil detach "$DMG_MOUNT" -force >/dev/null 2>&1 || true
+  fi
+  rm -f "$SIGNED_BINARY"
+  if [[ -n "$VERIFICATION_BINARY" ]]; then
+    rm -f "$VERIFICATION_BINARY"
+  fi
+  rm -rf "$DMG_STAGING" "$DMG_MOUNT"
+}
+trap cleanup EXIT
 
 cp "$BUILD_BINARY" "$SIGNED_BINARY"
 chmod +x "$SIGNED_BINARY"
 
 /usr/bin/codesign \
   --force \
+  --timestamp=none \
   --sign "$CODE_SIGN_IDENTITY" \
   --identifier "$BUNDLE_ID" \
   "$SIGNED_BINARY"
@@ -97,6 +134,10 @@ cat >"$INFO_PLIST" <<PLIST
   <string>Asterion</string>
   <key>CFBundleDisplayName</key>
   <string>Asterion</string>
+  <key>CFBundleShortVersionString</key>
+  <string>$APP_VERSION</string>
+  <key>CFBundleVersion</key>
+  <string>$BUILD_NUMBER</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleIconFile</key>
@@ -110,6 +151,58 @@ cat >"$INFO_PLIST" <<PLIST
 </dict>
 </plist>
 PLIST
+
+package_dmg() {
+  rm -rf "$DMG_STAGING" "$DMG_MOUNT"
+  rm -f "$DMG_PATH" "$DMG_CHECKSUM_PATH"
+  mkdir -p "$DMG_STAGING" "$DMG_MOUNT"
+  cp -R "$APP_BUNDLE" "$DMG_STAGING/$APP_NAME.app"
+  ln -s /Applications "$DMG_STAGING/Applications"
+
+  /usr/bin/hdiutil create \
+    -volname "$APP_NAME" \
+    -srcfolder "$DMG_STAGING" \
+    -format UDZO \
+    -imagekey zlib-level=9 \
+    -ov \
+    "$DMG_PATH"
+
+  /usr/bin/codesign \
+    --force \
+    --timestamp=none \
+    --sign "$CODE_SIGN_IDENTITY" \
+    "$DMG_PATH"
+  /usr/bin/codesign --verify --verbose=2 "$DMG_PATH"
+  /usr/bin/hdiutil verify "$DMG_PATH"
+
+  /usr/bin/hdiutil attach \
+    -mountpoint "$DMG_MOUNT" \
+    -nobrowse \
+    -readonly \
+    "$DMG_PATH" >/dev/null
+  DMG_ATTACHED=true
+
+  [[ -d "$DMG_MOUNT/$APP_NAME.app" ]]
+  [[ -L "$DMG_MOUNT/Applications" ]]
+  [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$DMG_MOUNT/$APP_NAME.app/Contents/Info.plist")" == "$BUNDLE_ID" ]]
+  VERIFICATION_BINARY="$(/usr/bin/mktemp "$DIST_DIR/.${APP_NAME}-verify.XXXXXX")"
+  cp "$DMG_MOUNT/$APP_NAME.app/Contents/MacOS/$APP_NAME" "$VERIFICATION_BINARY"
+  chmod +x "$VERIFICATION_BINARY"
+  /usr/bin/codesign \
+    --verify \
+    --strict \
+    -R="identifier \"$BUNDLE_ID\" and anchor apple generic" \
+    "$VERIFICATION_BINARY"
+  rm -f "$VERIFICATION_BINARY"
+  VERIFICATION_BINARY=""
+
+  /usr/bin/hdiutil detach "$DMG_MOUNT" >/dev/null
+  DMG_ATTACHED=false
+  /usr/bin/shasum -a 256 "$DMG_PATH" >"$DMG_CHECKSUM_PATH"
+
+  echo "DMG: $DMG_PATH"
+  echo "SHA-256: $DMG_CHECKSUM_PATH"
+}
 
 open_app() {
   /usr/bin/open -n "$APP_BUNDLE"
@@ -135,8 +228,11 @@ case "$MODE" in
     sleep 2
     pgrep -x "$APP_NAME" >/dev/null
     ;;
+  --package|package)
+    package_dmg
+    ;;
   *)
-    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify]" >&2
+    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify|--package]" >&2
     exit 2
     ;;
 esac

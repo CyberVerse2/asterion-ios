@@ -70,8 +70,11 @@
   <h2>Toolbar ownership</h2>
   <p>SwiftUI exclusively owns toolbar composition through <code>.searchable</code>, <code>.toolbar(removing:)</code>, and scene commands. AppKit notifications must not remove <code>NSToolbarItem</code> instances while SwiftUI is replacing a toolbar: Account navigation changes search availability, and concurrent imperative removal can trigger duplicate KVO teardown inside <code>AppKitWindowController</code>. The app delegate only configures window chrome after launch.</p>
 
+  <h2>DMG packaging</h2>
+  <p><code>./script/build_and_run.sh --package</code> builds the release executable, stages the app with version metadata and SwiftPM resource bundles, creates a compressed <code>Asterion.dmg</code> containing the app and an Applications shortcut, signs the image, mounts it read-only, validates the mounted executable and bundle identifier, and emits a SHA-256 checksum. The current machine has an Apple Development identity, so its artifact is suitable for local installation and testing. Public distribution additionally requires a Developer ID Application identity, hardened runtime, a fully sealed app bundle, and notarization.</p>
+
   <h2>Verification</h2>
-  <p><code>swift build</code> proves source and current dependency compatibility. <code>swift test</code> verifies backend decoding, rank normalization, and chapter HTML cleanup. Every staging run verifies the executable's signature and designated Asterion requirement before launch. <code>./script/build_and_run.sh --verify</code> also stages a real <code>.app</code> bundle—including SwiftPM dependency resource bundles—and proves the macOS process launches.</p>
+  <p><code>swift build</code> proves source and current dependency compatibility. <code>swift test</code> verifies backend decoding, rank normalization, and chapter HTML cleanup. Every staging run verifies the executable's signature and designated Asterion requirement before launch. <code>./script/build_and_run.sh --verify</code> stages a real <code>.app</code> bundle—including SwiftPM dependency resource bundles—and proves the macOS process launches. The package workflow additionally verifies the DMG filesystem, mounts the image, checks the installed layout, and records the image checksum; the release handoff check launches the app directly from that mounted image.</p>
 
   <h2>Quiz</h2>
   <div class="quiz" data-answer="reader">
