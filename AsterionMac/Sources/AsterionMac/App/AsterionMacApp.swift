@@ -9,18 +9,6 @@ final class AsterionAppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.async {
             NSApp.activate(ignoringOtherApps: true)
             NSApp.windows.first?.makeKeyAndOrderFront(nil)
-            self.configureWindowChrome()
-        }
-    }
-
-    private func configureWindowChrome() {
-        for window in NSApp.windows where window.identifier?.rawValue.hasPrefix("main-") == true {
-            if window.titlebarAppearsTransparent {
-                window.titlebarAppearsTransparent = false
-            }
-            if window.styleMask.contains(.fullSizeContentView) {
-                window.styleMask.remove(.fullSizeContentView)
-            }
         }
     }
 }
@@ -55,7 +43,6 @@ struct AsterionApp: App {
         .defaultSize(width: 1420, height: 780)
         .windowResizability(.contentMinSize)
         .commands {
-            CommandGroup(replacing: .sidebar) {}
             AsterionNavigationCommands()
         }
 

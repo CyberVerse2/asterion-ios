@@ -65,24 +65,8 @@ struct EditorialCatalogView: View {
                 .hidingScrollIndicators()
             }
         }
-        .background(Color.asterionBackground)
+        .background(.background)
         .navigationTitle(section.title)
-        .toolbar {
-            ToolbarItem {
-                Button {
-                    Task { await model.loadCatalog() }
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 13, weight: .semibold))
-                        .frame(width: 34, height: 30)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(AsterionPressButtonStyle())
-                .fixedSize()
-                .help("Refresh Catalog")
-                .accessibilityLabel("Refresh Catalog")
-            }
-        }
     }
 
     private func shelf(
@@ -177,7 +161,7 @@ struct EditorialCatalogView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.asterionBackground)
+        .background(.background)
     }
 }
 

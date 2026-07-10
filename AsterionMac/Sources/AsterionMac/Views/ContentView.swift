@@ -1,26 +1,12 @@
 import SwiftUI
 
 struct ContentView: View {
-    private enum Layout {
-        static let compactSidebarWidth = 64.0
-        static let sidebarMinimumWidth = 190.0
-        static let sidebarIdealWidth = 220.0
-        static let sidebarMaximumWidth = 240.0
-        static let catalogMinimumWidth = 520.0
-        static let catalogIdealWidth = 680.0
-        static let catalogMaximumWidth = 1_200.0
-        static let detailMinimumWidth = 640.0
-        static let detailIdealWidth = 680.0
-        static let detailMaximumWidth = 800.0
-        static let expandedWorkspaceMinimumWidth =
-            sidebarMinimumWidth + catalogMinimumWidth + detailMinimumWidth
-    }
-
     @EnvironmentObject private var model: AppModel
     @SceneStorage("selectedSection") private var selectedSectionRaw = AppSection.discover.rawValue
     @SceneStorage("selectedNovelID") private var selectedNovelID = ""
+    @State private var columnVisibility = NavigationSplitViewVisibility.all
     @State private var searchText = ""
-    @State private var isSidebarCompact = false
+    @State private var showsDownloads = false
 
     private var section: Binding<AppSection> {
         Binding(
@@ -37,46 +23,57 @@ struct ContentView: View {
         model.novel(id: selectedNovelID)
     }
 
+    private var activeDownloadCount: Int {
+        model.offlineDownloads.count(where: \.isDownloading)
+    }
+
     var body: some View {
-        HSplitView {
-            SidebarView(selection: section, isCompact: $isSidebarCompact)
-                .frame(
-                    minWidth: isSidebarCompact ? Layout.compactSidebarWidth : Layout.sidebarMinimumWidth,
-                    idealWidth: isSidebarCompact ? Layout.compactSidebarWidth : Layout.sidebarIdealWidth,
-                    maxWidth: isSidebarCompact ? Layout.compactSidebarWidth : Layout.sidebarMaximumWidth,
-                    maxHeight: .infinity
-                )
-
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            SidebarView(selection: section)
+                .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 260)
+        } content: {
             catalogColumn
-                .frame(
-                    minWidth: Layout.catalogMinimumWidth,
-                    idealWidth: Layout.catalogIdealWidth,
-                    maxWidth: Layout.catalogMaximumWidth,
-                    maxHeight: .infinity
-                )
-
+                .navigationSplitViewColumnWidth(min: 480, ideal: 620, max: 900)
+        } detail: {
             detailColumn
-                .frame(
-                    minWidth: Layout.detailMinimumWidth,
-                    idealWidth: Layout.detailIdealWidth,
-                    maxWidth: Layout.detailMaximumWidth,
-                    maxHeight: .infinity
-                )
+                .navigationSplitViewColumnWidth(min: 520, ideal: 660, max: 900)
         }
+        .navigationSplitViewStyle(.balanced)
         .catalogSearch(
             text: $searchText,
             isEnabled: section.wrappedValue != .account
         )
-        .toolbar(removing: .sidebarToggle)
+        .toolbar {
+            if section.wrappedValue != .account {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        Task { await model.loadCatalog() }
+                    } label: {
+                        Label("Refresh Catalog", systemImage: "arrow.clockwise")
+                    }
+                    .help("Refresh Catalog")
+                }
+            }
+
+            ToolbarSpacer(.fixed)
+
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    showsDownloads.toggle()
+                } label: {
+                    Label("Downloads", systemImage: activeDownloadCount > 0 ? "arrow.down.circle.fill" : "arrow.down.circle")
+                }
+                .badge(activeDownloadCount)
+                .help("Downloads")
+                .popover(isPresented: $showsDownloads, arrowEdge: .top) {
+                    DownloadCenterView()
+                        .environmentObject(model)
+                }
+            }
+        }
         .focusedSceneValue(\.asterionSection, section)
         .tint(.asterionAccent)
-        .background(Color.asterionBackground)
-        .frame(
-            minWidth: Layout.expandedWorkspaceMinimumWidth,
-            maxWidth: .infinity,
-            maxHeight: .infinity
-        )
-        .preferredColorScheme(.light)
+        .frame(minWidth: 1_040, minHeight: 640)
         .onAppear {
             if selectedNovelID.isEmpty {
                 selectFirstNovel(in: section.wrappedValue)
@@ -153,7 +150,7 @@ struct ContentView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.asterionSurface)
+        .background(.background)
     }
 
     private func selectFirstNovel(in section: AppSection) {
@@ -181,7 +178,6 @@ struct ContentView: View {
             selectFirstNovel(in: section.wrappedValue)
         }
     }
-
 }
 
 private extension View {
