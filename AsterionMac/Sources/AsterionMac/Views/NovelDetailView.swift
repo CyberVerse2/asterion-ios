@@ -61,7 +61,7 @@ struct NovelDetailView: View {
                     chapterList
                 }
             }
-            .frame(maxWidth: 560, alignment: .leading)
+            .frame(maxWidth: 640, alignment: .leading)
             .padding(.horizontal, 30)
             .padding(.top, 28)
             .padding(.bottom, 44)
@@ -124,11 +124,13 @@ struct NovelDetailView: View {
                     openPreferredChapter()
                 } label: {
                     Label(readButtonTitle, systemImage: "book.pages")
+                        .lineLimit(1)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 11)
                         .foregroundStyle(.white)
                         .background(Color.asterionAccent, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
                 }
+                .layoutPriority(1)
                 .buttonStyle(AsterionPressButtonStyle())
                 .keyboardShortcut(.return, modifiers: .command)
                 .disabled(chapters.isEmpty)
