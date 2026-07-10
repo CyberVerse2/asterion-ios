@@ -450,11 +450,10 @@ private struct ReaderWebSpreadView: NSViewRepresentable {
           <script>
             (() => {
               const pageMetrics = () => {
-                const cs = window.getComputedStyle(document.body);
-                const width = parseFloat(cs.getPropertyValue('--asterion-page-width')) || window.innerWidth / 2;
-                const gap = parseFloat(cs.getPropertyValue('--asterion-page-gap')) || 128;
-                const pageUnit = Math.max(320, width + gap);
-                const turnUnit = pageUnit * 2;
+                const gap = Math.min(160, Math.max(96, window.innerWidth * 0.07));
+                const width = Math.max(320, (window.innerWidth - gap) / 2);
+                const pageUnit = width + gap;
+                const turnUnit = window.innerWidth + gap;
                 const maxX = Math.max(0, document.body.scrollWidth - window.innerWidth);
                 const turnCount = Math.max(1, Math.ceil((maxX + turnUnit) / turnUnit));
                 return { pageUnit, turnUnit, maxX, turnCount };

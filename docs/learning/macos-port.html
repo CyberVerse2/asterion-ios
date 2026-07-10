@@ -49,6 +49,7 @@
     <li>Selecting a novel renders its metadata and lazily fetches its complete chapter list.</li>
     <li>Read opens a new reader window using the novel and chapter identifiers as the route.</li>
     <li>The reader lays chapter text into a WebKit-powered two-page spread when the window is wide enough.</li>
+    <li>The page-turn bridge computes spread width from the viewport instead of parsing CSS <code>calc()</code> or <code>clamp()</code> strings.</li>
     <li>At the first or last spread of a chapter, page-turn input loads the previous or next chapter.</li>
     <li>The reader debounces visible-line changes before syncing authenticated progress.</li>
   </ol>
