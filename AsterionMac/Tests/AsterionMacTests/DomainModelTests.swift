@@ -49,4 +49,29 @@ struct DomainModelTests {
 
         #expect(novel.authorDisplayName == "Cuttlefish That Loves Diving")
     }
+
+    @Test func offlineLibraryPersistsDownloadedNovelAndChapters() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let novel = Novel(
+            id: "novel-1", title: "Offline Book", author: "Ada", rank: "#1",
+            totalChapters: "2", views: nil, bookmarks: nil, status: nil,
+            genres: ["Fantasy"], summary: nil, imageURL: nil, rating: nil
+        )
+        let chapters = [
+            Chapter(id: "chapter-1", chapterNumber: 1, title: "One", content: "<p>First.</p>", url: nil),
+            Chapter(id: "chapter-2", chapterNumber: 2, title: "Two", content: "<p>Second.</p>", url: nil),
+        ]
+
+        let writer = OfflineLibraryStore(directory: directory)
+        try await writer.save(novel: novel, chapters: chapters)
+
+        let reader = OfflineLibraryStore(directory: directory)
+        #expect(try await reader.downloadedNovelIDs() == ["novel-1"])
+        #expect(try await reader.downloadedNovels().map(\.id) == ["novel-1"])
+        #expect(try await reader.chapters(for: "novel-1")?.map(\.id) == ["chapter-1", "chapter-2"])
+        #expect(try await reader.chapter(id: "chapter-2")?.paragraphs == ["Second."])
+    }
 }

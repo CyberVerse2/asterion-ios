@@ -373,9 +373,9 @@ private struct ReaderWebSpreadView: NSViewRepresentable {
               --asterion-bg: #F2F3F5;
               --asterion-text: #202126;
               --asterion-muted: #555C66;
-              --asterion-page-gap: clamp(96px, 7vw, 160px);
+              --asterion-page-gap: clamp(44px, 4vw, 80px);
               --asterion-page-width: calc((100vw - var(--asterion-page-gap)) / 2);
-              --asterion-page-inset: clamp(56px, 4.6vw, 104px);
+              --asterion-page-inset: clamp(44px, 3.5vw, 76px);
             }
             html, body {
               width: 100%;
@@ -450,13 +450,14 @@ private struct ReaderWebSpreadView: NSViewRepresentable {
           <script>
             (() => {
               const pageMetrics = () => {
-                const gap = Math.min(160, Math.max(96, window.innerWidth * 0.07));
+                const gap = Math.min(80, Math.max(44, window.innerWidth * 0.04));
+                const inset = Math.min(76, Math.max(44, window.innerWidth * 0.035));
                 const width = Math.max(320, (window.innerWidth - gap) / 2);
                 const pageUnit = width + gap;
                 const turnUnit = window.innerWidth + gap;
                 const maxX = Math.max(0, document.body.scrollWidth - window.innerWidth);
                 const turnCount = Math.max(1, Math.ceil((maxX + turnUnit) / turnUnit));
-                return { pageUnit, turnUnit, maxX, turnCount };
+                return { pageUnit, turnUnit, maxX, turnCount, inset };
               };
 
               const currentTurn = () => {
@@ -465,9 +466,10 @@ private struct ReaderWebSpreadView: NSViewRepresentable {
               };
 
               const scrollToTurn = (turn, behavior = 'smooth') => {
-                const { turnUnit, maxX, turnCount } = pageMetrics();
+                const { turnUnit, maxX, turnCount, inset } = pageMetrics();
                 const target = Math.max(0, Math.min(turnCount - 1, Math.round(turn)));
-                window.scrollTo({ left: Math.min(maxX, target * turnUnit), top: 0, behavior });
+                const targetX = Math.max(0, target * turnUnit - (target > 0 ? inset : 0));
+                window.scrollTo({ left: Math.min(maxX, targetX), top: 0, behavior });
               };
 
               const turnPage = (direction) => {

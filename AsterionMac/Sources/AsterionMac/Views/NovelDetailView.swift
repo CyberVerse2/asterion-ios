@@ -17,6 +17,14 @@ struct NovelDetailView: View {
         model.libraryNovelIDs.contains(novel.id)
     }
 
+    private var isDownloaded: Bool {
+        model.downloadedNovelIDs.contains(novel.id)
+    }
+
+    private var isDownloading: Bool {
+        model.isDownloadingOfflineNovelIDs.contains(novel.id)
+    }
+
     private var visibleChapters: [Chapter] {
         Array(chapters.suffix(5).reversed())
     }
@@ -157,6 +165,36 @@ struct NovelDetailView: View {
                 .buttonStyle(AsterionPressButtonStyle())
                 .disabled(!model.isSignedIn || model.isUpdatingLibrary)
                 .animation(reduceMotion ? nil : AsterionMotion.hover, value: isInLibrary)
+
+                Button {
+                    Task {
+                        do {
+                            try await model.downloadForOffline(novel: novel)
+                            errorMessage = nil
+                        } catch {
+                            errorMessage = error.localizedDescription
+                        }
+                    }
+                } label: {
+                    Label {
+                        Text(downloadButtonTitle)
+                    } icon: {
+                        Image(systemName: isDownloaded ? "checkmark.circle.fill" : "arrow.down.circle")
+                            .contentTransition(.symbolEffect(.replace))
+                    }
+                        .frame(minWidth: 116)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .foregroundStyle(isDownloaded ? Color.asterionAccent : Color.asterionText)
+                        .background(Color.asterionSurface, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .stroke(isDownloaded ? Color.asterionAccent : Color.asterionBorder)
+                        }
+                }
+                .buttonStyle(AsterionPressButtonStyle())
+                .disabled(isDownloaded || isDownloading || chapters.isEmpty)
+                .animation(reduceMotion ? nil : AsterionMotion.hover, value: isDownloaded)
             }
 
             if let progress {
@@ -265,6 +303,12 @@ struct NovelDetailView: View {
             return "Continue Reading"
         }
         return "Continue Reading · Chapter \(chapter.chapterNumber)"
+    }
+
+    private var downloadButtonTitle: String {
+        if isDownloaded { return "Downloaded" }
+        if isDownloading { return "Downloading..." }
+        return "Download"
     }
 
     private var chapterCountLabel: String? {

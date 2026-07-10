@@ -34,13 +34,14 @@
       <li><code>AsterionAppDelegate</code> is the only AppKit bridge; it activates the staged SwiftPM app bundle and brings its SwiftUI window forward.</li>
       <li><code>ContentView</code> owns window-scoped sidebar and novel selection with <code>@SceneStorage</code>.</li>
       <li><code>AppModel</code> owns the catalog, Clerk session, server library, and chapter cache.</li>
+      <li><code>OfflineLibraryStore</code> owns downloaded novels and full chapter files under Application Support.</li>
       <li><code>APIClient</code> is an actor, so token and request state are serialized away from view code.</li>
       <li><code>ReaderView</code> owns each reader window's active chapter, visible line, export, and preference bindings.</li>
     </ul>
   </div>
 
   <h2>Desktop decisions</h2>
-  <p>The mobile tab bar and push stacks were replaced with a stable three-column <code>NavigationSplitView</code>. A novel stays selected while the user moves between the list and detail surface. Reading opens in a value-driven <code>WindowGroup</code>, allowing multiple books or chapters to remain open without hiding catalog context. Desktop-width reader windows use a facing-page spread by default; turning past a chapter edge opens the neighboring chapter so the book keeps moving forward or backward. Narrow windows keep a single page so the text never feels compressed. Account preferences live in the system Settings scene, while account identity remains an app section.</p>
+  <p>The mobile tab bar and push stacks were replaced with a stable three-column <code>NavigationSplitView</code>. A novel stays selected while the user moves between the list and detail surface. Reading opens in a value-driven <code>WindowGroup</code>, allowing multiple books or chapters to remain open without hiding catalog context. Desktop-width reader windows use a facing-page spread by default; turning past a chapter edge opens the neighboring chapter so the book keeps moving forward or backward. Narrow windows keep a single page so the text never feels compressed. Downloaded novels become local library items and can be opened without a network session. Account preferences live in the system Settings scene, while account identity remains an app section.</p>
 
   <h2>Behavior walkthrough</h2>
   <ol>
@@ -48,6 +49,8 @@
     <li>Sidebar selection chooses a catalog projection: alphabetical, ranked, or saved.</li>
     <li>Selecting a novel renders its metadata and lazily fetches its complete chapter list.</li>
     <li>Read opens a new reader window using the novel and chapter identifiers as the route.</li>
+    <li>Download fetches every chapter with content and writes one JSON package per novel to the offline library.</li>
+    <li>Catalog and chapter lookups merge downloaded data with live API data, so downloaded books remain readable offline.</li>
     <li>The reader lays chapter text into a WebKit-powered two-page spread when the window is wide enough.</li>
     <li>The page-turn bridge computes spread width from the viewport instead of parsing CSS <code>calc()</code> or <code>clamp()</code> strings.</li>
     <li>At the first or last spread of a chapter, page-turn input loads the previous or next chapter.</li>
@@ -95,6 +98,13 @@
     <button data-value="sync">Progress sync requires two columns</button>
     <button data-value="width">Each page needs enough measure to stay readable</button>
     <button data-value="export">Export only works from split view</button>
+    <p class="feedback" aria-live="polite"></p>
+  </div>
+  <div class="quiz" data-answer="offline">
+    <p>Which layer owns durable downloaded chapters?</p>
+    <button data-value="api"><code>APIClient</code></button>
+    <button data-value="offline"><code>OfflineLibraryStore</code></button>
+    <button data-value="detail"><code>NovelDetailView</code></button>
     <p class="feedback" aria-live="polite"></p>
   </div>
   <script>

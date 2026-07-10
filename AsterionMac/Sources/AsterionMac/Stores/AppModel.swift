@@ -20,13 +20,16 @@ final class AppModel: ObservableObject {
     @Published private(set) var novels: [Novel] = []
     @Published private(set) var libraryNovelIDs: Set<String> = []
     @Published private(set) var progressByNovelID: [String: ReadingProgress] = [:]
+    @Published private(set) var downloadedNovelIDs: Set<String> = []
     @Published private(set) var signedInUser: SignedInUser?
     @Published private(set) var isLoadingCatalog = false
     @Published private(set) var isUpdatingLibrary = false
+    @Published private(set) var isDownloadingOfflineNovelIDs: Set<String> = []
     @Published var catalogError: String?
     @Published var accountError: String?
 
     let api = APIClient()
+    private let offlineLibrary = OfflineLibraryStore()
 
     private var chaptersByNovelID: [String: [Chapter]] = [:]
     private var chapterByID: [String: Chapter] = [:]
@@ -75,6 +78,7 @@ final class AppModel: ObservableObject {
         guard !hasStarted else { return }
         hasStarted = true
 
+        await loadOfflineLibrary()
         async let catalog: Void = loadCatalog()
         async let session: Void = restoreSession()
         _ = await (catalog, session)
@@ -91,10 +95,18 @@ final class AppModel: ObservableObject {
         isLoadingCatalog = true
         defer { isLoadingCatalog = false }
         do {
-            novels = try await api.fetchAllNovels()
+            let remoteNovels = try await api.fetchAllNovels()
+            let offlineNovels = try await offlineLibrary.downloadedNovels()
+            novels = mergedNovels(primary: remoteNovels, secondary: offlineNovels)
             catalogError = nil
         } catch {
-            catalogError = error.localizedDescription
+            do {
+                let offlineNovels = try await offlineLibrary.downloadedNovels()
+                novels = offlineNovels
+                catalogError = offlineNovels.isEmpty ? error.localizedDescription : nil
+            } catch {
+                catalogError = error.localizedDescription
+            }
         }
     }
 
@@ -111,7 +123,7 @@ final class AppModel: ObservableObject {
                 return $0.numericRank < $1.numericRank
             }
         case .library:
-            source = novels.filter { libraryNovelIDs.contains($0.id) }
+            source = novels.filter { libraryNovelIDs.contains($0.id) || downloadedNovelIDs.contains($0.id) }
                 .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
         case .account:
             source = []
@@ -134,7 +146,27 @@ final class AppModel: ObservableObject {
         if !forceRefresh, let cached = chaptersByNovelID[novelID] {
             return cached
         }
-        let chapters = try await api.fetchAllChapters(novelID: novelID)
+
+        if !forceRefresh, let offlineChapters = try await offlineLibrary.chapters(for: novelID) {
+            chaptersByNovelID[novelID] = offlineChapters
+            for chapter in offlineChapters {
+                if chapter.content?.isEmpty == false {
+                    chapterByID[chapter.id] = chapter
+                }
+            }
+            return offlineChapters
+        }
+
+        let chapters: [Chapter]
+        do {
+            chapters = try await api.fetchAllChapters(novelID: novelID)
+        } catch {
+            if let offlineChapters = try await offlineLibrary.chapters(for: novelID) {
+                chaptersByNovelID[novelID] = offlineChapters
+                return offlineChapters
+            }
+            throw error
+        }
         chaptersByNovelID[novelID] = chapters
         for chapter in chapters {
             if chapter.content?.isEmpty == false {
@@ -148,9 +180,41 @@ final class AppModel: ObservableObject {
         if let cached = chapterByID[id], cached.content?.isEmpty == false {
             return cached
         }
+
+        if let offlineChapter = try await offlineLibrary.chapter(id: id) {
+            chapterByID[id] = offlineChapter
+            return offlineChapter
+        }
+
         let chapter = try await api.fetchChapter(id: id)
         chapterByID[id] = chapter
         return chapter
+    }
+
+    func downloadForOffline(novel: Novel) async throws {
+        guard !isDownloadingOfflineNovelIDs.contains(novel.id) else { return }
+        isDownloadingOfflineNovelIDs.insert(novel.id)
+        defer { isDownloadingOfflineNovelIDs.remove(novel.id) }
+
+        let chapterSummaries = try await api.fetchAllChapters(novelID: novel.id)
+        var fullChapters: [Chapter] = []
+        fullChapters.reserveCapacity(chapterSummaries.count)
+        for summary in chapterSummaries {
+            if summary.content?.isEmpty == false {
+                fullChapters.append(summary)
+            } else {
+                fullChapters.append(try await api.fetchChapter(id: summary.id))
+            }
+        }
+
+        let sortedChapters = fullChapters.sorted { $0.chapterNumber < $1.chapterNumber }
+        try await offlineLibrary.save(novel: novel, chapters: sortedChapters)
+        downloadedNovelIDs.insert(novel.id)
+        chaptersByNovelID[novel.id] = sortedChapters
+        for chapter in sortedChapters {
+            chapterByID[chapter.id] = chapter
+        }
+        novels = mergedNovels(primary: novels, secondary: [novel])
     }
 
     func toggleLibrary(novelID: String) async {
@@ -250,5 +314,25 @@ final class AppModel: ObservableObject {
         } catch {
             accountError = error.localizedDescription
         }
+    }
+
+    private func loadOfflineLibrary() async {
+        do {
+            downloadedNovelIDs = try await offlineLibrary.downloadedNovelIDs()
+            let offlineNovels = try await offlineLibrary.downloadedNovels()
+            novels = mergedNovels(primary: novels, secondary: offlineNovels)
+        } catch {
+            catalogError = error.localizedDescription
+        }
+    }
+
+    private func mergedNovels(primary: [Novel], secondary: [Novel]) -> [Novel] {
+        var seen = Set<String>()
+        var result: [Novel] = []
+        for novel in primary + secondary where !seen.contains(novel.id) {
+            seen.insert(novel.id)
+            result.append(novel)
+        }
+        return result
     }
 }
