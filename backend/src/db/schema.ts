@@ -23,7 +23,7 @@ export const users = pgTable("users", {
 
 export const readingProgress = pgTable("reading_progress", {
   id: text("id").primaryKey(),
-  userId: text("user_id").notNull(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   novelId: text("novel_id").notNull(),
   chapterId: text("chapter_id").notNull(),
   currentLine: integer("current_line").notNull().default(0),
@@ -39,7 +39,7 @@ export const readingProgress = pgTable("reading_progress", {
 
 export const bookmarks = pgTable("bookmarks", {
   id: text("id").primaryKey(),
-  userId: text("user_id").notNull(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   novelId: text("novel_id").notNull(),
   chapterId: text("chapter_id").notNull(),
   note: text("note"),
@@ -53,7 +53,7 @@ export const bookmarks = pgTable("bookmarks", {
 
 export const readingHistory = pgTable("reading_history", {
   id: text("id").primaryKey(),
-  userId: text("user_id").notNull(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   novelId: text("novel_id").notNull(),
   chapterId: text("chapter_id").notNull(),
   visitedAt: timestamp("visited_at", { withTimezone: false, mode: "date" }).notNull().defaultNow(),
@@ -66,7 +66,7 @@ export const readingHistory = pgTable("reading_history", {
 
 export const userPreferences = pgTable("user_preferences", {
   id: text("id").primaryKey(),
-  userId: text("user_id").notNull(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   readingGoal: integer("reading_goal").notNull().default(30),
   darkMode: boolean("dark_mode").notNull().default(true),
   notificationsOn: boolean("notifications_on").notNull().default(true),
@@ -79,7 +79,7 @@ export const userPreferences = pgTable("user_preferences", {
 
 export const userLibraryNovels = pgTable("user_library_novels", {
   id: text("id").primaryKey(),
-  userId: text("user_id").notNull(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   novelId: text("novel_id").notNull(),
   createdAt: timestamp("created_at", { withTimezone: false, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: false, mode: "date" }).notNull().defaultNow(),
@@ -90,7 +90,7 @@ export const userLibraryNovels = pgTable("user_library_novels", {
 
 export const mediaBookmarks = pgTable("media_bookmarks", {
   id: text("id").primaryKey(),
-  userId: text("user_id").notNull(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   mediaType: text("media_type").notNull(),
   contentId: text("content_id").notNull(),
   title: text("title").notNull(),
@@ -107,7 +107,7 @@ export const mediaBookmarks = pgTable("media_bookmarks", {
 
 export const mediaPlaybackProgress = pgTable("media_playback_progress", {
   id: text("id").primaryKey(),
-  userId: text("user_id").notNull(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   mediaType: text("media_type").notNull(),
   contentId: text("content_id").notNull(),
   title: text("title").notNull(),
@@ -130,7 +130,7 @@ export const mediaPlaybackProgress = pgTable("media_playback_progress", {
 
 export const mediaPlaybackSessions = pgTable("media_playback_sessions", {
   id: text("id").primaryKey(),
-  userId: text("user_id").notNull(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   sessionId: text("session_id").notNull(),
   mediaType: text("media_type").notNull(),
   contentId: text("content_id").notNull(),
@@ -144,7 +144,7 @@ export const mediaPlaybackSessions = pgTable("media_playback_sessions", {
 
 export const mediaViewingHistory = pgTable("media_viewing_history", {
   id: text("id").primaryKey(),
-  userId: text("user_id").notNull(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   mediaType: text("media_type").notNull(),
   contentId: text("content_id").notNull(),
   title: text("title").notNull(),
