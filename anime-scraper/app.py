@@ -245,12 +245,13 @@ def api_amp_stream(anime_id, episode):
     sources = animixplay.get_all_streams(anime_id, episode)
     result = []
     for s in sources:
-        m3u8 = animixplay.resolve_source(s.url)
+        full = animixplay.resolve_source_full(s.url) or {}
         result.append({
             "server": s.server,
             "url": s.url,
             "quality": s.quality,
-            "source": f"/proxy/m3u8?url={quote(m3u8, safe='')}" if m3u8 else None,
+            "source": full.get("source"),
+            "tracks": full.get("tracks", []),
         })
     return result
 
@@ -675,6 +676,23 @@ function showAmpPlayer(idx) {
     if (hls) { hls.destroy(); hls = null; }
     const m3u8Url = '/proxy/m3u8?url=' + encodeURIComponent(src.source);
     hls = new Hls({ enableWorker: false });
+
+    // Clear existing tracks
+    $('#player-video').find('track').remove();
+
+    // Add subtitle tracks if available
+    if (src.tracks && src.tracks.length) {
+      src.tracks.forEach((track, i) => {
+        const trackEl = document.createElement('track');
+        trackEl.kind = track.kind || 'subtitles';
+        trackEl.label = track.label || 'English';
+        trackEl.srclang = track.srclang || 'en';
+        trackEl.src = track.file;
+        trackEl.default = track.default || i === 0;
+        $('#player-video').append(trackEl);
+      });
+    }
+
     hls.loadSource(m3u8Url);
     hls.attachMedia($('#player-video'));
     hls.on(Hls.Events.MANIFEST_PARSED, () => {
