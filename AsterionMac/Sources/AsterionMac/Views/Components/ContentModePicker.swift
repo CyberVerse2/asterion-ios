@@ -20,7 +20,8 @@ struct ContentModePicker: View {
                         )
                         .glassEffect(.regular.interactive(), in: .capsule)
                         .offset(
-                            x: trackInset + (segmentWidth * CGFloat(selectedIndex(in: modes)))
+                            x: trackInset + (segmentWidth * CGFloat(selectedIndex(in: modes))),
+                            y: trackInset
                         )
                 }
 
@@ -45,11 +46,6 @@ struct ContentModePicker: View {
                     }
                     .padding(.horizontal, trackInset)
                 }
-            }
-            .overlay {
-                Capsule()
-                    .stroke(.primary.opacity(0.12), lineWidth: 1)
-                    .allowsHitTesting(false)
             }
         }
         .frame(height: 42)
