@@ -11,7 +11,7 @@
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
-    "db:migrate:deploy": "drizzle-kit push",
+    "db:migrate:deploy": "node scripts/run-migrations.mjs",
     "watch": "tsx src/animepahe/watch-server.ts"
   },
   "keywords": [],
