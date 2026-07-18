@@ -65,6 +65,26 @@ class ParseCardsTests(unittest.TestCase):
         self.assertEqual(result[0].title, "Example Movie")
         self.assertIsNone(result[0].year)
 
+    def test_reads_unique_genres_from_navigation(self):
+        html = """
+        <nav>
+          <a href="https://ww25.soap2day.day/genre/action-3scq8/">Action</a>
+          <a href="https://ww25.soap2day.day/genre/drama-d89qv/">Drama</a>
+          <a href="https://ww25.soap2day.day/genre/action-3scq8/">Action</a>
+        </nav>
+        """
+        original_get = soap2day._get
+        soap2day._get = lambda _: html
+        try:
+            genres = soap2day.genres()
+        finally:
+            soap2day._get = original_get
+
+        self.assertEqual(
+            [(genre.slug, genre.title) for genre in genres],
+            [("action-3scq8", "Action"), ("drama-d89qv", "Drama")],
+        )
+
     def test_reads_seasons_and_episode_paths(self):
         html = """
         <div class="tvseason">

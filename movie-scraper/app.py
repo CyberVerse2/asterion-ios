@@ -63,6 +63,12 @@ def api_search():
     return _search_result_list(soap2day.search(q))
 
 
+@app.route("/api/genres")
+@_json_or_error
+def api_genres():
+    return [genre.__dict__ for genre in soap2day.genres()]
+
+
 @app.route("/api/movies")
 @_json_or_error
 def api_movies():

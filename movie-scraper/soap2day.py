@@ -42,6 +42,12 @@ class SearchResult:
 
 
 @dataclass
+class Genre:
+    slug: str
+    title: str
+
+
+@dataclass
 class Episode:
     id: str
     season: int
@@ -134,7 +140,7 @@ def _parse_cards(html: str) -> list[SearchResult]:
         ]
         title = next((candidate.strip() for candidate in title_candidates if candidate and candidate.strip()), "")
 
-        image_url = img.get("data-original") or img.get("src", "") if img else None
+        image_url = (img.get("data-original") or img.get("src", "")).strip() if img else None
         imdb_el = item.select_one(".mli-add .imdb")
         imdb_rating = _text(imdb_el) if imdb_el else None
         runtime_el = item.select_one(".mli-add .runtime")
@@ -180,6 +186,23 @@ def _parse_pagination(html: str) -> dict:
 def search(query: str) -> list[SearchResult]:
     url = f"{BASE}/?s={quote_plus(query)}"
     return _parse_cards(_get(url))
+
+
+def genres() -> list[Genre]:
+    soup = _soup(_get(BASE))
+    results: list[Genre] = []
+    seen: set[str] = set()
+    for link in soup.select("a[href*='/genre/']"):
+        parts = urlparse(link.get("href", "")).path.strip("/").split("/")
+        if len(parts) < 2 or parts[-2] != "genre":
+            continue
+        slug = parts[-1]
+        title = _text(link)
+        if not slug or not title or slug in seen:
+            continue
+        seen.add(slug)
+        results.append(Genre(slug=slug, title=title))
+    return results
 
 
 def movies(page: int = 1) -> list[SearchResult]:
