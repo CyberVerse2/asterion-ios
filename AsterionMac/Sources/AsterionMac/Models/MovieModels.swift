@@ -130,8 +130,8 @@ struct MoviePlaybackOption: Identifiable, Hashable, Sendable {
     }
 
     static func preferred(from options: [MoviePlaybackOption]) -> MoviePlaybackOption? {
-        options.first { $0.kind == .web && $0.title.localizedCaseInsensitiveContains("VidNest") }
-            ?? options.first { $0.kind == .web && $0.title.localizedCaseInsensitiveContains("2Embed") }
+        options.first { $0.kind == .web && $0.url.host()?.localizedCaseInsensitiveContains("videasy.net") == true }
+            ?? options.first { $0.kind == .web && $0.title.localizedCaseInsensitiveContains("VidNest") }
             ?? options.first { $0.kind == .web }
             ?? options.first
     }

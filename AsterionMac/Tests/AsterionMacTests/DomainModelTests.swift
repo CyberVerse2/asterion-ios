@@ -58,9 +58,15 @@ struct DomainModelTests {
                 url: try #require(URL(string: "https://vidnest.fun/movie/1")),
                 title: "VidNest (Ad-Free) · Direct Player"
             ),
+            MoviePlaybackOption(
+                id: "web-3",
+                kind: .web,
+                url: try #require(URL(string: "https://player.videasy.net/movie/1")),
+                title: "Server 4 · HD 1080P"
+            ),
         ]
 
-        #expect(MoviePlaybackOption.preferred(from: options)?.id == "web-2")
+        #expect(MoviePlaybackOption.preferred(from: options)?.id == "web-3")
     }
 
     @Test func animeTitleDecodesTheLiveServiceShapeAndFindsItsShowSlug() throws {
