@@ -40,6 +40,14 @@ swift test
 
 Packaging builds the release configuration, stages `dist/Asterion.app`, creates `dist/Asterion.dmg` with an Applications shortcut, signs the disk image, mounts it read-only, validates its contents and executable identity, and writes `dist/Asterion.dmg.sha256`.
 
+For development sharing while Clerk still uses a development instance, run:
+
+```sh
+./script/build_and_run.sh --package-development
+```
+
+This builds the debug configuration with the development Clerk key, signs the app and DMG with the installed Apple Development identity, and performs the same image validation. The stable development signature prevents repeated Keychain authorization prompts across rebuilds on this Mac. It does not add hardened runtime or notarization.
+
 Set `ASTERION_CLERK_PUBLISHABLE_KEY` to the production Clerk publishable key before packaging. Release exports reject development keys so they cannot be shipped accidentally.
 
 Set `ASTERION_VERSION`, `ASTERION_BUILD_NUMBER`, and `ASTERION_CODE_SIGN_IDENTITY` to override the default `0.1.0`, build `1`, and selected signing identity.

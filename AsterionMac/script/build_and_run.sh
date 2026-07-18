@@ -24,8 +24,13 @@ DMG_STAGING="$DIST_DIR/.dmg-staging"
 DMG_MOUNT="$DIST_DIR/.dmg-mount"
 DMG_ATTACHED=false
 
-BUILD_CONFIGURATION="debug"
+RELEASE_PACKAGE_MODE=false
 if [[ "$MODE" == "--package" || "$MODE" == "package" ]]; then
+  RELEASE_PACKAGE_MODE=true
+fi
+
+BUILD_CONFIGURATION="debug"
+if [[ "$RELEASE_PACKAGE_MODE" == true ]]; then
   BUILD_CONFIGURATION="release"
 fi
 
@@ -37,7 +42,7 @@ if [[ -z "$CODE_SIGN_IDENTITY" ]]; then
   )"
 fi
 
-if [[ "$MODE" == "--package" || "$MODE" == "package" ]]; then
+if [[ "$RELEASE_PACKAGE_MODE" == true ]]; then
   if [[ "$CLERK_PUBLISHABLE_KEY" != pk_live_* ]]; then
     echo "error: ASTERION_CLERK_PUBLISHABLE_KEY must contain a production Clerk publishable key" >&2
     exit 1
@@ -151,10 +156,16 @@ if [[ -n "$CLERK_PUBLISHABLE_KEY" ]]; then
     "$INFO_PLIST"
 fi
 
+CODE_SIGN_ARGUMENTS=(
+  --force
+  --timestamp=none
+)
+if [[ "$RELEASE_PACKAGE_MODE" == true ]]; then
+  CODE_SIGN_ARGUMENTS+=(--options runtime)
+fi
+
 /usr/bin/codesign \
-  --force \
-  --timestamp=none \
-  --options runtime \
+  "${CODE_SIGN_ARGUMENTS[@]}" \
   --sign "$CODE_SIGN_IDENTITY" \
   --identifier "$BUNDLE_ID" \
   "$APP_BUNDLE"
@@ -241,8 +252,11 @@ case "$MODE" in
   --package|package)
     package_dmg
     ;;
+  --package-development|package-development)
+    package_dmg
+    ;;
   *)
-    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify|--package]" >&2
+    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify|--package|--package-development]" >&2
     exit 2
     ;;
 esac
