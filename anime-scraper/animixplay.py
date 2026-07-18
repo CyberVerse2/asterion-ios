@@ -174,7 +174,8 @@ def _listing(path: str, page: int = 1, query: dict[str, str] | None = None) -> l
     if page > 1:
         params["page"] = str(page)
     suffix = f"?{urlencode(params)}" if params else ""
-    return _parse_cards(_get(f"{BASE}{path}{suffix}"))
+    html = _get(f"{BASE}{path}{suffix}")
+    return _parse_cards(_listing_content(html))
 
 
 def search(query: str, page: int = 1) -> list[SearchResult]:
@@ -195,6 +196,16 @@ def new_releases(page: int = 1) -> list[SearchResult]:
 
 def by_genre(genre: str, page: int = 1) -> list[SearchResult]:
     return _listing(f"/genre/{quote_plus(genre.lower())}", page=page)
+
+
+def _listing_content(html: str) -> str:
+    match = re.search(
+        r'<aside class="content">([\s\S]*?)(?=<aside class="sidebar">|</main>)',
+        html,
+    )
+    if not match:
+        raise ValueError("Animixplay listing content was not found")
+    return match.group(1)
 
 
 def _parse_cards(html: str) -> list[SearchResult]:
