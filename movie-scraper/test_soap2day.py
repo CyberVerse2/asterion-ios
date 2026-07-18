@@ -28,6 +28,7 @@ class ParseCardsTests(unittest.TestCase):
 
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0].title, "Obsession")
+        self.assertEqual(result[0].slug, "obsession-soap2day")
         self.assertEqual(result[0].year, "2026")
         self.assertEqual(result[0].imdb_rating, "8.0")
         self.assertEqual(result[0].runtime, "1h 48min")
@@ -47,6 +48,7 @@ class ParseCardsTests(unittest.TestCase):
         result = soap2day._parse_cards(html)
 
         self.assertEqual(result[0].title, "Example Show")
+        self.assertEqual(result[0].slug, "series/example-show")
         self.assertEqual(result[0].type, "tv")
 
     def test_uses_image_alt_as_final_source_title(self):
@@ -62,6 +64,33 @@ class ParseCardsTests(unittest.TestCase):
 
         self.assertEqual(result[0].title, "Example Movie")
         self.assertIsNone(result[0].year)
+
+    def test_reads_seasons_and_episode_paths(self):
+        html = """
+        <div class="tvseason">
+          <a class="les-title"><strong>Season 2</strong></a>
+          <div class="les-content">
+            <a href="https://ww25.soap2day.day/episode/example-season-2-episode-1/">Episode 1 - HD</a>
+            <a href="https://ww25.soap2day.day/episode/example-season-2-episode-2/">Episode 2 - HD</a>
+          </div>
+        </div>
+        <div class="tvseason">
+          <a class="les-title"><strong>Season 1</strong></a>
+          <div class="les-content">
+            <a href="https://ww25.soap2day.day/episode/example-season-1-episode-1/">Episode 1 - HD</a>
+          </div>
+        </div>
+        """
+        original_get = soap2day._get
+        soap2day._get = lambda _: html
+        try:
+            episodes = soap2day.series_episodes("series/example")
+        finally:
+            soap2day._get = original_get
+
+        self.assertEqual([(episode.season, episode.number) for episode in episodes], [(2, 1), (2, 2), (1, 1)])
+        self.assertEqual(episodes[0].id, "episode/example-season-2-episode-1")
+        self.assertEqual(episodes[0].title, "Episode 1")
 
 
 if __name__ == "__main__":

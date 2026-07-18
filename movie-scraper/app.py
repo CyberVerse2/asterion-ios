@@ -122,7 +122,7 @@ def api_episodes():
     return _search_result_list(soap2day.episodes_listing(page))
 
 
-@app.route("/api/show/<slug>")
+@app.route("/api/show/<path:slug>")
 @_json_or_error
 def api_show(slug):
     detail = soap2day.show_detail(slug)
@@ -133,7 +133,7 @@ def api_show(slug):
     return result
 
 
-@app.route("/api/show/<slug>/episodes")
+@app.route("/api/show/<path:slug>/episodes")
 @_json_or_error
 def api_show_episodes(slug):
     eps = soap2day.series_episodes(slug)
@@ -445,16 +445,35 @@ function playServer(idx){
   $('#player-tabs').querySelectorAll('button').forEach((b,i)=>b.classList.toggle('active',i===idx));
   $('#player-extlink').href=s.embed_url||'#';
   $('#player-extlink').style.display='block';
+  $('#subtitle-bar').style.display='none';$('#subtitle-select').innerHTML='';
+  $('#subtitle-extlink').style.display='none';
 
   if(s.is_hls){
     $('#player-frame').style.display='none';$('#player-frame').src='';
     var v=$('#player-video');v.style.display='block';
     $('#player-wrap').classList.add('visible');
+    // Show 2embed link for subtitles
+    var subSrc=currentStreams.find(function(x){return x.label&&x.label.indexOf('2Embed')>=0});
+    if(subSrc){$('#subtitle-extlink').href=subSrc.embed_url;$('#subtitle-extlink').style.display='inline'}
     if(window.Hls&&Hls.isSupported()){
       if(hlsInstance)hlsInstance.destroy();
       hlsInstance=new Hls({enableWorker:false});
       hlsInstance.loadSource(s.proxy_url||s.embed_url);
       hlsInstance.attachMedia(v);
+      hlsInstance.on(Hls.Events.MANIFEST_PARSED,function(){
+        var tracks=hlsInstance.subtitleTracks;
+        if(tracks.length>0){
+          $('#subtitle-bar').style.display='flex';
+          tracks.forEach(function(t,i){
+            var opt=document.createElement('option');
+            opt.value=i;opt.textContent=t.name||t.lang||'Track '+(i+1);
+            $('#subtitle-select').appendChild(opt);
+          });
+          $('#subtitle-select').onchange=function(){
+            hlsInstance.subtitleTrack=parseInt(this.value);
+          };
+        }
+      });
     }else if(v.canPlayType('application/vnd.apple.mpegurl')){
       v.src=s.proxy_url||s.embed_url;
     }
@@ -464,6 +483,11 @@ function playServer(idx){
     $('#player-frame').style.display='block';
     $('#player-frame').src=s.embed_url;
     $('#player-wrap').classList.add('visible');
+    // If not already a subtitle-capable embed, show link
+    if(s.label.indexOf('2Embed')<0&&s.label.indexOf('VidCore')<0&&s.label.indexOf('VidNest')<0){
+      var subSrc=currentStreams.find(function(x){return x.label&&x.label.indexOf('2Embed')>=0});
+      if(subSrc){$('#subtitle-extlink').href=subSrc.embed_url;$('#subtitle-extlink').style.display='inline'}
+    }
   }
 }
 

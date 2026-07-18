@@ -6,7 +6,7 @@ import re
 import json
 from dataclasses import dataclass, field
 from typing import Optional
-from urllib.parse import quote_plus, urljoin
+from urllib.parse import quote_plus, urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -30,6 +30,7 @@ XPASS_PLAYLIST_BASE = "https://play.xpass.top"
 @dataclass
 class SearchResult:
     id: str
+    slug: str
     title: str
     url: str
     image_url: Optional[str] = None
@@ -43,6 +44,7 @@ class SearchResult:
 @dataclass
 class Episode:
     id: str
+    season: int
     number: int
     title: str
     url: str
@@ -144,6 +146,7 @@ def _parse_cards(html: str) -> list[SearchResult]:
         is_tv = "/series/" in href or "tv" in item.get("class", [])
         results.append(SearchResult(
             id=mid,
+            slug=urlparse(href).path.strip("/"),
             title=title or "?",
             url=href,
             image_url=image_url,
@@ -244,8 +247,8 @@ def popular_tv() -> list[SearchResult]:
 
 def show_detail(slug: str) -> Optional[ShowDetail]:
     """Parse a movie or TV show detail page. Slug is the URL path segment."""
-    url = f"{BASE}/{slug}/"
-    html = _get(url)
+    page_url = f"{BASE}/{slug.strip('/')}/"
+    html = _get(page_url)
     soup = _soup(html)
 
     post_id = ""
@@ -262,6 +265,7 @@ def show_detail(slug: str) -> Optional[ShowDetail]:
     is_tv = soup.select_one(".mvici-left p:has(strong:contains('TV'))") is not None
     is_tv = is_tv or soup.select_one(".seasons") is not None
     is_tv = is_tv or soup.select_one(".episodes-list") is not None
+    is_tv = is_tv or soup.select_one(".tvseason") is not None
 
     image_url = None
     splash_el = soup.select_one(".splash-image")
@@ -352,7 +356,7 @@ def show_detail(slug: str) -> Optional[ShowDetail]:
             country = _text(country_a)
 
     seasons: list[str] = []
-    for seas_el in soup.select(".seasons a, .season-item"):
+    for seas_el in soup.select(".tvseason .les-title strong, .seasons a, .season-item"):
         s = _text(seas_el)
         if s:
             seasons.append(s)
@@ -405,13 +409,13 @@ def show_detail(slug: str) -> Optional[ShowDetail]:
                 ("VidNest (Ad-Free)", f"https://vidnest.fun/movie/{tmdb_id}?autostart=true"),
                 ("Peachify", f"https://peachify.top/embed/movie/{tmdb_id}?autostart=true"),
             ]
-        for label, url in clean_embeds:
-            if not any(url in s.embed_url for s in streams):
+        for label, embed_url in clean_embeds:
+            if not any(embed_url in s.embed_url for s in streams):
                 streams.insert(len(hls_sources), StreamServer(
                     server_id=0,
                     label=label,
                     quality="Direct Player",
-                    embed_url=url,
+                    embed_url=embed_url,
                 ))  # prepend HLS before embed servers
     # Renumber sequentially
     for i, s in enumerate(streams):
@@ -421,7 +425,7 @@ def show_detail(slug: str) -> Optional[ShowDetail]:
         id=post_id,
         title=title,
         slug=slug,
-        url=url,
+        url=page_url,
         type="tv" if is_tv else "movie",
         image_url=image_url,
         description=description,
@@ -540,26 +544,29 @@ def get_hls_sources(imdb_id: str) -> list[StreamServer]:
 
 def series_episodes(slug: str) -> list[Episode]:
     """Extract episode list from a TV series detail page."""
-    detail = show_detail(slug)
-    if not detail:
-        return []
-    url = detail.url
-    html = _get(url)
+    page_url = f"{BASE}/{slug.strip('/')}/"
+    html = _get(page_url)
     soup = _soup(html)
     eps: list[Episode] = []
-    for ep_el in soup.select(".episodes-list a, .eplister a, a.episode-link"):
-        ep_url = ep_el.get("href", "")
-        ep_title = _text(ep_el) or ep_el.get("title", "")
-        ep_num = 0
-        m_num = re.search(r"(\d+)", ep_title)
-        if m_num:
-            ep_num = int(m_num.group(1))
-        eps.append(Episode(
-            id="",
-            number=ep_num,
-            title=ep_title,
-            url=ep_url,
-        ))
+    for season_el in soup.select(".tvseason"):
+        season_title = _text(season_el.select_one(".les-title strong"))
+        season_match = re.search(r"(\d+)", season_title)
+        season_number = int(season_match.group(1)) if season_match else 0
+
+        for ep_el in season_el.select(".les-content a[href]"):
+            ep_url = ep_el.get("href", "")
+            ep_title = _text(ep_el) or ep_el.get("title", "")
+            ep_match = re.search(r"Episode\s*(\d+)", ep_title, re.I)
+            if not ep_match:
+                continue
+            episode_number = int(ep_match.group(1))
+            eps.append(Episode(
+                id=urlparse(ep_url).path.strip("/"),
+                season=season_number,
+                number=episode_number,
+                title=f"Episode {episode_number}",
+                url=ep_url,
+            ))
     return eps
 
 
