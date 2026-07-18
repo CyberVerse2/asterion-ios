@@ -6,6 +6,7 @@ RC4 crypto for AJAX endpoints.
 import re
 import json
 import base64
+from html import unescape
 from html.parser import HTMLParser
 from urllib.request import Request, urlopen
 from urllib.parse import quote_plus, quote, urlencode, urlparse
@@ -124,6 +125,16 @@ class Show:
 class EpisodeInfo:
     number: int
     server_ids: str = ""  # base64 blob for fetching servers
+
+
+@dataclass
+class RelatedSeason:
+    id: str
+    title: str
+    slug: str
+    type: str
+    image_url: Optional[str] = None
+    episodes_count: int = 0
 
 
 @dataclass
@@ -431,6 +442,36 @@ def get_episodes(anime_id: str) -> list[EpisodeInfo]:
     for m in re.finditer(r'data-num="(\d+)"[^>]*data-ids="([^"]*)"', html):
         eps.append(EpisodeInfo(number=int(m.group(1)), server_ids=m.group(2)))
     return eps
+
+
+def related_seasons(anime_id: str) -> list[RelatedSeason]:
+    """Return the provider's chronological TV watch order for a series."""
+    data = _get_json(f"{BASE}/api/watch-order/{quote(anime_id)}")
+    if data.get("status") != 200:
+        return []
+
+    result = data.get("result", "")
+    seasons = []
+    for chunk in result.split('class="piece flexserieslist"')[1:]:
+        slug = _re_first(r'href="(?:https?://[^"/]+)?/watch/([^"/?]+)', chunk)
+        season_id = _re_first(r'data-tip="(\d+)"', chunk)
+        if not slug or not season_id:
+            continue
+
+        title = _re_first(r'class="ani-name"[^>]*>([\s\S]*?)</a>', chunk) or slug
+        anime_type = _re_first(r'class="small text-muted dot"[^>]*>([\s\S]*?)</span>', chunk) or ""
+        episode_count = _re_first(r'class="small dot"[^>]*>\s*(\d+)\s+Eps', chunk)
+        image_url = _re_first(r'<img[^>]+src="([^"]+)"', chunk)
+        seasons.append(RelatedSeason(
+            id=season_id,
+            title=unescape(_strip_tags(title)),
+            slug=slug,
+            type=unescape(_strip_tags(anime_type)),
+            image_url=unescape(image_url) if image_url else None,
+            episodes_count=int(episode_count) if episode_count else 0,
+        ))
+
+    return seasons
 
 
 def get_stream(anime_id: str, episode: int) -> Optional[str]:

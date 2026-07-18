@@ -163,6 +163,14 @@ actor AnimeAPI {
         )
     }
 
+    func fetchRelatedSeasons(showID: String) async throws -> [AnimeRelatedSeason] {
+        try await request(
+            path: "/api/amp/seasons/\(showID)",
+            namespace: Self.detailCacheNamespace,
+            cacheLifetime: 900
+        )
+    }
+
     func fetchStream(animeID: String, episodeNumber: Int) async throws -> [AnimeStreamSource] {
         let sources: [AnimeStreamSource] = try await request(
             path: "/api/amp/stream/\(animeID)/\(episodeNumber)",

@@ -1,5 +1,16 @@
 import Foundation
 
+enum MediaDownloadQuality: Int, CaseIterable, Codable, Hashable, Identifiable, Sendable {
+    case p1080 = 1080
+    case p720 = 720
+    case p480 = 480
+    case p360 = 360
+
+    var id: Int { rawValue }
+    var title: String { "\(rawValue)p" }
+    var selectionDetail: String { "\(title) or best available below" }
+}
+
 enum MediaDownloadPhase: String, Codable, Hashable, Sendable {
     case preparing
     case downloading
@@ -19,6 +30,7 @@ struct MediaDownloadRecord: Identifiable, Codable, Hashable, Sendable {
     let animeEpisode: AnimeEpisode?
     let movieShow: MovieShow?
     let movieEpisode: MovieEpisode?
+    let downloadQuality: MediaDownloadQuality?
     var phase: MediaDownloadPhase
     var progress: Double
     var localAssetURL: URL?

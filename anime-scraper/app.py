@@ -369,6 +369,12 @@ def api_amp_episodes(anime_id):
     ]
 
 
+@app.route("/api/amp/seasons/<anime_id>")
+@_json_or_error
+def api_amp_seasons(anime_id):
+    return [season.__dict__ for season in animixplay.related_seasons(anime_id)]
+
+
 @app.route("/api/amp/stream/<anime_id>/<int:episode>")
 @_json_or_error
 def api_amp_stream(anime_id, episode):

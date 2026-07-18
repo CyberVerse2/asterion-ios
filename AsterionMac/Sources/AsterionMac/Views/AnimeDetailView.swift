@@ -9,6 +9,8 @@ struct AnimeDetailView: View {
     @State private var scrollPosition: String?
     @State private var showsFullSynopsis = false
     @State private var downloadError: String?
+    @State private var downloadPlan: AnimeDownloadPlan?
+    @State private var isPreparingDownloadPlan = false
 
     var body: some View {
         Group {
@@ -35,6 +37,15 @@ struct AnimeDetailView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.background)
+        .sheet(item: $downloadPlan) { plan in
+            MediaDownloadPlannerView(
+                title: plan.title,
+                groups: plannerGroups(for: plan.groups),
+                initiallySelectedItemIDs: plan.initialSelection
+            ) { quality, selectedIDs in
+                Task { await startDownloads(plan, selectedIDs: selectedIDs, quality: quality) }
+            }
+        }
     }
 
     private func detail(_ show: AnimeShow) -> some View {
@@ -163,9 +174,7 @@ struct AnimeDetailView: View {
 
                 mediaBookmarkButton(show)
 
-                if let episode = preferredEpisode(for: show) {
-                    animeDownloadButton(show: show, episode: episode, showsLabel: true)
-                }
+                animeCollectionDownloadButton(show)
             }
 
             if let error = model.mediaBookmarkError {
@@ -273,7 +282,7 @@ struct AnimeDetailView: View {
         let label = downloadLabel(for: record)
 
         return Button {
-            Task { await handleDownload(record: record, show: show, episode: episode) }
+            presentEpisodeDownload(show: show, episode: episode)
         } label: {
             if record?.isActive == true {
                 ProgressView(value: record?.progress ?? 0)
@@ -295,23 +304,136 @@ struct AnimeDetailView: View {
         .accessibilityLabel(label.help)
     }
 
-    private func handleDownload(
-        record: MediaDownloadRecord?,
-        show: AnimeShow,
-        episode: AnimeEpisode
-    ) async {
-        downloadError = nil
-        do {
-            if let record, record.phase == .failed {
-                try await mediaDownloads.retry(record)
-            } else if record?.phase == .completed {
-                return
+    private func animeCollectionDownloadButton(_ show: AnimeShow) -> some View {
+        Button {
+            Task { await prepareSeriesDownload(show) }
+        } label: {
+            if isPreparingDownloadPlan {
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(width: 84)
             } else {
-                try await mediaDownloads.downloadAnime(show: show, episode: episode)
+                Label("Download", systemImage: "arrow.down.circle")
+                    .frame(width: 84)
             }
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.large)
+        .disabled(isPreparingDownloadPlan || store.episodes.isEmpty)
+        .help("Choose episodes and quality across every season")
+    }
+
+    private func presentEpisodeDownload(show: AnimeShow, episode: AnimeEpisode) {
+        let group = AnimeDownloadGroup(show: show, episodes: [episode])
+        let itemID = plannerItemID(show: show, episode: episode)
+        downloadPlan = AnimeDownloadPlan(
+            title: "Download \(show.displayTitle)",
+            groups: [group],
+            initialSelection: plannerItemIsUnavailable(show: show, episode: episode) ? [] : [itemID]
+        )
+    }
+
+    private func prepareSeriesDownload(_ show: AnimeShow) async {
+        downloadError = nil
+        isPreparingDownloadPlan = true
+        defer { isPreparingDownloadPlan = false }
+        do {
+            let groups = try await store.downloadGroups(for: show)
+            let selection = Set(
+                groups.flatMap { group in
+                    group.episodes.compactMap { episode in
+                        plannerItemIsUnavailable(show: group.show, episode: episode)
+                            ? nil
+                            : plannerItemID(show: group.show, episode: episode)
+                    }
+                }
+            )
+            downloadPlan = AnimeDownloadPlan(
+                title: "Download \(show.displayTitle)",
+                groups: groups,
+                initialSelection: selection
+            )
         } catch {
             downloadError = error.localizedDescription
         }
+    }
+
+    private func startDownloads(
+        _ plan: AnimeDownloadPlan,
+        selectedIDs: Set<String>,
+        quality: MediaDownloadQuality
+    ) async {
+        downloadError = nil
+        var failures: [String] = []
+        for group in plan.groups {
+            for episode in group.episodes
+            where selectedIDs.contains(plannerItemID(show: group.show, episode: episode)) {
+                do {
+                    try await mediaDownloads.downloadAnime(
+                        show: group.show,
+                        episode: episode,
+                        quality: quality
+                    )
+                } catch {
+                    failures.append("\(group.show.displayTitle), episode \(episode.number): \(error.localizedDescription)")
+                }
+            }
+        }
+        if !failures.isEmpty {
+            downloadError = downloadFailureMessage(failures)
+        }
+    }
+
+    private func plannerGroups(for groups: [AnimeDownloadGroup]) -> [MediaDownloadPlannerGroup] {
+        groups.map { group in
+            MediaDownloadPlannerGroup(
+                id: group.id,
+                title: group.show.displayTitle,
+                countLabel: group.episodes.count == 1 ? "1 episode" : "\(group.episodes.count) episodes",
+                items: group.episodes.map { episode in
+                    let record = mediaDownloads.record(
+                        mediaType: .anime,
+                        contentID: group.show.slug,
+                        unitID: episode.id
+                    )
+                    return MediaDownloadPlannerItem(
+                        id: plannerItemID(show: group.show, episode: episode),
+                        title: "Episode \(episode.number)",
+                        detail: nil,
+                        isUnavailable: record?.isActive == true || record?.phase == .completed,
+                        status: plannerStatus(for: record)
+                    )
+                }
+            )
+        }
+    }
+
+    private func plannerItemID(show: AnimeShow, episode: AnimeEpisode) -> String {
+        "\(show.slug)|\(episode.id)"
+    }
+
+    private func plannerItemIsUnavailable(show: AnimeShow, episode: AnimeEpisode) -> Bool {
+        let record = mediaDownloads.record(
+            mediaType: .anime,
+            contentID: show.slug,
+            unitID: episode.id
+        )
+        return record?.isActive == true || record?.phase == .completed
+    }
+
+    private func plannerStatus(for record: MediaDownloadRecord?) -> String? {
+        switch record?.phase {
+        case .preparing, .downloading: "Downloading"
+        case .completed: "Downloaded"
+        case .failed: "Retry"
+        case nil: nil
+        }
+    }
+
+    private func downloadFailureMessage(_ failures: [String]) -> String {
+        let summary = failures.prefix(3).joined(separator: "\n")
+        let remainder = failures.count - min(3, failures.count)
+        return remainder > 0 ? "\(summary)\n…and \(remainder) more." : summary
     }
 
     private func downloadLabel(
@@ -409,6 +531,13 @@ struct AnimeDetailView: View {
             content()
         }
     }
+}
+
+private struct AnimeDownloadPlan: Identifiable {
+    let id = UUID()
+    let title: String
+    let groups: [AnimeDownloadGroup]
+    let initialSelection: Set<String>
 }
 
 private struct AnimeMetadataLine: View {

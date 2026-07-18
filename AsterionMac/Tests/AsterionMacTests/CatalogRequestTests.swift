@@ -358,6 +358,7 @@ private actor AnimeCatalogStub: AnimeCatalogServing {
     }
 
     func fetchEpisodes(showID: String) async throws -> [AnimeEpisode] { [] }
+    func fetchRelatedSeasons(showID: String) async throws -> [AnimeRelatedSeason] { [] }
 }
 
 private actor MovieCatalogStub: MovieCatalogServing {

@@ -15,6 +15,7 @@ protocol AnimeCatalogServing: Sendable {
     func search(query: String, page: Int) async throws -> [AnimeTitle]
     func fetchShow(slug: String) async throws -> AnimeShow
     func fetchEpisodes(showID: String) async throws -> [AnimeEpisode]
+    func fetchRelatedSeasons(showID: String) async throws -> [AnimeRelatedSeason]
 }
 
 extension AnimeCatalogServing {
@@ -329,6 +330,52 @@ final class AnimeStore: ObservableObject {
             return
         }
         await select(title, force: true)
+    }
+
+    func downloadGroups(for currentShow: AnimeShow) async throws -> [AnimeDownloadGroup] {
+        let related = try await api.fetchRelatedSeasons(showID: currentShow.id)
+        let currentEpisodes = episodes
+        var orderedSeasons = related.filter(\.isTVSeason)
+
+        if !orderedSeasons.contains(where: { $0.slug == currentShow.slug }) {
+            orderedSeasons.append(
+                AnimeRelatedSeason(
+                    id: currentShow.id,
+                    title: currentShow.displayTitle,
+                    slug: currentShow.slug,
+                    type: currentShow.type ?? "TV",
+                    imageURL: currentShow.imageURL,
+                    episodesCount: currentShow.episodesCount
+                )
+            )
+        }
+
+        return try await withThrowingTaskGroup(
+            of: (Int, AnimeDownloadGroup).self,
+            returning: [AnimeDownloadGroup].self
+        ) { group in
+            for (index, season) in orderedSeasons.enumerated() {
+                group.addTask { [api] in
+                    if season.slug == currentShow.slug {
+                        return (
+                            index,
+                            AnimeDownloadGroup(show: currentShow, episodes: currentEpisodes)
+                        )
+                    }
+
+                    let show = try await api.fetchShow(slug: season.slug)
+                    let episodes = try await api.fetchEpisodes(showID: show.id)
+                        .sorted { $0.number < $1.number }
+                    return (index, AnimeDownloadGroup(show: show, episodes: episodes))
+                }
+            }
+
+            var results: [(Int, AnimeDownloadGroup)] = []
+            for try await result in group {
+                results.append(result)
+            }
+            return results.sorted { $0.0 < $1.0 }.map(\.1)
+        }
     }
 
     private func fetchTitles(

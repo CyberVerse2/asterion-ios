@@ -170,6 +170,30 @@ struct AnimeEpisode: Identifiable, Codable, Hashable, Sendable {
     }
 }
 
+struct AnimeRelatedSeason: Identifiable, Codable, Hashable, Sendable {
+    let id: String
+    let title: String
+    let slug: String
+    let type: String
+    let imageURL: URL?
+    let episodesCount: Int
+
+    var isTVSeason: Bool { type.localizedCaseInsensitiveCompare("TV") == .orderedSame }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, title, slug, type
+        case imageURL = "image_url"
+        case episodesCount = "episodes_count"
+    }
+}
+
+struct AnimeDownloadGroup: Identifiable, Hashable, Sendable {
+    let show: AnimeShow
+    let episodes: [AnimeEpisode]
+
+    var id: String { show.slug }
+}
+
 struct AnimeEpisodeRange: Identifiable, Equatable, Sendable {
     static let pageSize = 100
 

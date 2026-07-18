@@ -103,7 +103,11 @@ final class MediaDownloadManager: NSObject, ObservableObject, AVAssetDownloadDel
         }
     }
 
-    func downloadAnime(show: AnimeShow, episode: AnimeEpisode) async throws {
+    func downloadAnime(
+        show: AnimeShow,
+        episode: AnimeEpisode,
+        quality: MediaDownloadQuality
+    ) async throws {
         let id = MediaDownloadRecord.identifier(
             mediaType: .anime,
             contentID: show.slug,
@@ -123,6 +127,7 @@ final class MediaDownloadManager: NSObject, ObservableObject, AVAssetDownloadDel
             animeEpisode: episode,
             movieShow: nil,
             movieEpisode: nil,
+            downloadQuality: quality,
             phase: .preparing,
             progress: 0,
             localAssetURL: nil,
@@ -146,7 +151,8 @@ final class MediaDownloadManager: NSObject, ObservableObject, AVAssetDownloadDel
                 recordID: id,
                 streamURL: streamURL,
                 title: "\(show.displayTitle) · Episode \(episode.number)",
-                subtitleTracks: tracks
+                subtitleTracks: tracks,
+                quality: quality
             )
         } catch {
             failRecord(id: id, message: error.localizedDescription)
@@ -154,7 +160,11 @@ final class MediaDownloadManager: NSObject, ObservableObject, AVAssetDownloadDel
         }
     }
 
-    func downloadMovie(show: MovieShow, episode: MovieEpisode?) async throws {
+    func downloadMovie(
+        show: MovieShow,
+        episode: MovieEpisode?,
+        quality: MediaDownloadQuality
+    ) async throws {
         let unitID = episode?.id ?? show.slug
         let unitTitle = episode.map { "S\($0.season) E\($0.number)" } ?? "Movie"
         let id = MediaDownloadRecord.identifier(
@@ -177,6 +187,7 @@ final class MediaDownloadManager: NSObject, ObservableObject, AVAssetDownloadDel
             animeEpisode: nil,
             movieShow: storedShow,
             movieEpisode: episode,
+            downloadQuality: quality,
             phase: .preparing,
             progress: 0,
             localAssetURL: nil,
@@ -195,7 +206,8 @@ final class MediaDownloadManager: NSObject, ObservableObject, AVAssetDownloadDel
                 recordID: id,
                 streamURL: streamURL,
                 title: "\(show.displayTitle) · \(unitTitle)",
-                subtitleTracks: []
+                subtitleTracks: [],
+                quality: quality
             )
         } catch {
             failRecord(id: id, message: error.localizedDescription)
@@ -205,18 +217,19 @@ final class MediaDownloadManager: NSObject, ObservableObject, AVAssetDownloadDel
 
     func retry(_ record: MediaDownloadRecord) async throws {
         try await remove(record)
+        let quality = record.downloadQuality ?? .p1080
         switch record.mediaType {
         case .anime:
             guard let show = record.animeShow,
                   let episode = record.animeEpisode else {
                 throw MediaDownloadError.invalidStoredDownload
             }
-            try await downloadAnime(show: show, episode: episode)
+            try await downloadAnime(show: show, episode: episode, quality: quality)
         case .movie:
             guard let show = record.movieShow else {
                 throw MediaDownloadError.invalidStoredDownload
             }
-            try await downloadMovie(show: show, episode: record.movieEpisode)
+            try await downloadMovie(show: show, episode: record.movieEpisode, quality: quality)
         case .football:
             throw MediaDownloadError.invalidStoredDownload
         }
@@ -264,11 +277,24 @@ final class MediaDownloadManager: NSObject, ObservableObject, AVAssetDownloadDel
         recordID: String,
         streamURL: URL,
         title: String,
-        subtitleTracks: [AnimeSubtitleTrack]
+        subtitleTracks: [AnimeSubtitleTrack],
+        quality: MediaDownloadQuality
     ) throws {
         let asset = AVURLAsset(url: streamURL)
         let configuration = AVAssetDownloadConfiguration(asset: asset, title: title)
         configuration.auxiliaryContentConfigurations = []
+        let exactHeight = AVAssetVariantQualifier.predicate(
+            forPresentationHeight: CGFloat(quality.rawValue),
+            operatorType: .equalTo
+        )
+        let maximumHeight = AVAssetVariantQualifier.predicate(
+            forPresentationHeight: CGFloat(quality.rawValue),
+            operatorType: .lessThanOrEqualTo
+        )
+        configuration.primaryContentConfiguration.variantQualifiers = [
+            AVAssetVariantQualifier(predicate: exactHeight),
+            AVAssetVariantQualifier(predicate: maximumHeight),
+        ]
         let task = session.makeAssetDownloadTask(downloadConfiguration: configuration)
         task.taskDescription = recordID
         activeTasks[recordID] = task

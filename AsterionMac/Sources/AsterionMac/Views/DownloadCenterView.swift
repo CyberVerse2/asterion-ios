@@ -103,7 +103,7 @@ private struct MediaDownloadRow: View {
                         .font(.asterionDisplay(14, weight: .semibold))
                         .foregroundStyle(Color.asterionText)
                         .lineLimit(1)
-                    Text("\(download.detailLabel) · \(statusText)")
+                    Text(downloadDetailText)
                         .font(.caption)
                         .foregroundStyle(download.phase == .failed ? Color.red : Color.asterionMuted)
                         .lineLimit(2)
@@ -195,6 +195,12 @@ private struct MediaDownloadRow: View {
         case .completed: "Available offline"
         case .failed: download.errorMessage ?? "Download failed"
         }
+    }
+
+    private var downloadDetailText: String {
+        [download.detailLabel, download.downloadQuality?.title, statusText]
+            .compactMap { $0 }
+            .joined(separator: " · ")
     }
 
     private func retry() async {

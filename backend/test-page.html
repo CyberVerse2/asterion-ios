@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Golazo API Test</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    background: #0a0a0a;
+    color: #e5e5e5;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+  #bg-video {
+    position: fixed; inset: 0; width: 100%; height: 100%;
+    object-fit: cover; opacity: 0.25; z-index: 0;
+  }
+  .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 1; }
+  .app { position: relative; z-index: 2; max-width: 900px; margin: 0 auto; padding: 24px 16px; }
+  header { text-align: center; padding: 40px 0 24px; }
+  header h1 { font-family: 'Playfair Display', Georgia, serif; font-size: 56px; letter-spacing: -1px; color: #fff; }
+  header p { font-size: 11px; text-transform: uppercase; letter-spacing: 0.3em; color: #666; margin-top: 8px; }
+  .status { display: flex; gap: 8px; justify-content: center; align-items: center; margin-top: 12px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .dot.online { background: #22c55e; box-shadow: 0 0 8px #22c55e; }
+  .dot.offline { background: #ef4444; }
+  .dot.loading { background: #f59e0b; animation: pulse 0.8s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+  /* Sports tabs */
+  .sports-bar {
+    display: flex; gap: 6px; overflow-x: auto; padding: 8px 0 20px;
+    scrollbar-width: none; -ms-overflow-style: none;
+    mask-image: linear-gradient(to right, transparent, #000 4%, #000 96%, transparent);
+  }
+  .sports-bar::-webkit-scrollbar { display: none; }
+  .sport-tab {
+    flex-shrink: 0; padding: 7px 16px; border-radius: 999px;
+    border: 1px solid #222; background: #111;
+    color: #888; font-size: 12px; font-weight: 500;
+    text-transform: uppercase; letter-spacing: 0.05em;
+    cursor: pointer; transition: all 0.2s;
+    white-space: nowrap;
+  }
+  .sport-tab:hover { border-color: #444; color: #ccc; }
+  .sport-tab.active { background: #2563eb; border-color: #2563eb; color: #fff; }
+
+  /* Match cards */
+  .match-list { display: flex; flex-direction: column; gap: 8px; }
+  .match-card {
+    background: #111; border: 1px solid #1a1a1a; border-radius: 12px;
+    padding: 16px; cursor: pointer; transition: all 0.2s;
+    display: flex; align-items: center; gap: 16px;
+  }
+  .match-card:hover { border-color: #333; background: #151515; }
+  .match-card.expanded { border-color: #2563eb; background: #151520; }
+  .match-date { font-size: 10px; color: #555; text-transform: uppercase; letter-spacing: 0.1em; min-width: 80px; text-align: center; }
+  .match-teams { flex: 1; display: flex; align-items: center; gap: 12px; }
+  .team { display: flex; align-items: center; gap: 8px; flex: 1; }
+  .team:last-child { justify-content: flex-end; text-align: right; }
+  .team img { width: 28px; height: 28px; border-radius: 4px; object-fit: contain; background: #1a1a1a; }
+  .team .name { font-size: 14px; font-weight: 500; color: #ddd; }
+  .team .name.small { font-size: 12px; color: #888; }
+  .vs { font-size: 11px; color: #444; font-weight: 600; flex-shrink: 0; }
+  .badge-row { display: flex; gap: 4px; }
+  .badge { font-size: 9px; padding: 2px 8px; border-radius: 99px; font-weight: 600; text-transform: uppercase; }
+  .badge.popular { background: rgba(234,179,8,0.15); color: #eab308; }
+  .badge.live { background: rgba(239,68,68,0.15); color: #ef4444; animation: pulse 1.5s infinite; }
+  .badge.sources { background: rgba(37,99,235,0.15); color: #60a5fa; }
+
+  /* Streams panel */
+  .streams-panel {
+    border-top: 1px solid #1a1a1a; margin-top: 12px; padding-top: 12px;
+    display: none; flex-direction: column; gap: 8px;
+  }
+  .match-card.expanded .streams-panel { display: flex; }
+  .stream-item {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 14px; border-radius: 8px;
+    background: #0a0a0a; border: 1px solid #1a1a1a;
+    transition: all 0.15s;
+  }
+  .stream-item:hover { border-color: #333; }
+  .stream-source { font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: #555; min-width: 50px; }
+  .stream-label { flex: 1; font-size: 13px; color: #ccc; }
+  .stream-hd { font-size: 10px; padding: 2px 7px; border-radius: 99px; background: rgba(34,197,94,0.15); color: #22c55e; }
+  .stream-link { font-size: 11px; color: #60a5fa; text-decoration: none; padding: 4px 12px; border: 1px solid #1a1a1a; border-radius: 6px; }
+  .stream-link:hover { background: #1a1a1a; }
+
+  /* Loading states */
+  .loading-row { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 40px 0; color: #444; font-size: 13px; }
+  .spinner { width: 18px; height: 18px; border: 2px solid #222; border-top-color: #555; border-radius: 50%; animation: spin 0.6s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .empty { text-align: center; padding: 60px 0; color: #333; font-size: 13px; }
+  .error { text-align: center; padding: 20px; color: #ef4444; font-size: 13px; }
+
+  /* Player modal */
+  .modal { display: none; position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,0.95); }
+  .modal.open { display: flex; flex-direction: column; }
+  .modal-bar { display: flex; align-items: center; gap: 16px; padding: 12px 20px; background: #111; border-bottom: 1px solid #1a1a1a; }
+  .modal-close { padding: 6px 16px; border-radius: 6px; background: #222; color: #fff; border: none; cursor: pointer; font-size: 13px; }
+  .modal-title { font-size: 14px; color: #ddd; }
+  .modal-frame { flex: 1; border: none; width: 100%; }
+</style>
+</head>
+<body>
+<video id="bg-video" autoplay loop muted playsinline>
+  <source src="https://storage.yondo.lol/desktop-background_pmfpeb.mp4" type="video/mp4">
+</video>
+<div class="overlay"></div>
+
+<div class="app">
+  <header>
+    <h1>Golazo</h1>
+    <p>API Test Console</p>
+    <div class="status">
+      <div class="dot loading" id="status-dot"></div>
+      <span style="font-size:11px;color:#555" id="status-text">Connecting...</span>
+    </div>
+  </header>
+
+  <div class="sports-bar" id="sports-bar"></div>
+
+  <div id="content">
+    <div class="loading-row"><div class="spinner"></div>Select a sport above</div>
+  </div>
+</div>
+
+<div class="modal" id="player-modal">
+  <div class="modal-bar">
+    <button class="modal-close" onclick="closePlayer()">Close</button>
+    <span class="modal-title" id="modal-title"></span>
+  </div>
+  <iframe class="modal-frame" id="modal-frame" allowfullscreen allow="autoplay; encrypted-media"></iframe>
+</div>
+
+<script>
+const API = 'http://localhost:3001/api';
+let currentSport = 'football';
+
+async function api(path) {
+  try {
+    const res = await fetch(API + path);
+    const data = await res.json();
+    return data;
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}
+
+async function apiPost(path, body) {
+  try {
+    const res = await fetch(API + path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    return await res.json();
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}
+
+function setStatus(state, text) {
+  const dot = document.getElementById('status-dot');
+  const label = document.getElementById('status-text');
+  dot.className = 'dot ' + state;
+  label.textContent = text;
+}
+
+function badgeImg(code) {
+  if (!code) return '';
+  return `https://streamed.pk/api/images/badge/${code}.webp`;
+}
+
+function formatDate(ts) {
+  const d = new Date(ts);
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) +
+    ' ' + d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+}
+
+// ── Sports tabs ──
+async function loadSports() {
+  const bar = document.getElementById('sports-bar');
+  const data = await api('/sports');
+  if (!data.success || !data.data) {
+    setStatus('offline', 'Failed to load sports');
+    return;
+  }
+  setStatus('online', 'Connected');
+
+  bar.innerHTML = data.data.map(s =>
+    `<button class="sport-tab${s.id === currentSport ? ' active' : ''}" onclick="selectSport('${s.id}')">${s.name}</button>`
+  ).join('');
+}
+
+// ── Matches ──
+async function loadMatches(sport) {
+  const content = document.getElementById('content');
+  content.innerHTML = '<div class="loading-row"><div class="spinner"></div>Loading matches...</div>';
+
+  const data = await api('/matches?sport=' + sport);
+  if (!data.success) {
+    content.innerHTML = '<div class="error">Failed to load: ' + (data.error || 'Unknown') + '</div>';
+    return;
+  }
+
+  const matches = data.data || [];
+  if (!matches.length) {
+    content.innerHTML = '<div class="empty">No matches scheduled for this sport.</div>';
+    return;
+  }
+
+  content.innerHTML = '<div class="match-list">' + matches.map(m => {
+    const badges = [];
+    if (m.popular) badges.push('<span class="badge popular">Popular</span>');
+    if (m.isLive) badges.push('<span class="badge live">LIVE</span>');
+    badges.push(`<span class="badge sources">${m.sources?.length || 0} sources</span>`);
+
+    return `
+    <div class="match-card" data-id="${m.id}" onclick="toggleMatch(this, '${m.id}')">
+      <div class="match-date">${formatDate(m.date)}</div>
+      <div class="match-teams">
+        <div class="team">
+          <img src="${badgeImg(m.teams?.home?.badge)}" onerror="this.style.display='none'" alt="">
+          <span class="name${m.teams?.home?.name.length > 15 ? ' small' : ''}">${m.teams?.home?.name || 'TBD'}</span>
+        </div>
+        <span class="vs">VS</span>
+        <div class="team">
+          <span class="name${m.teams?.away?.name.length > 15 ? ' small' : ''}">${m.teams?.away?.name || 'TBD'}</span>
+          <img src="${badgeImg(m.teams?.away?.badge)}" onerror="this.style.display='none'" alt="">
+        </div>
+      </div>
+      <div class="badge-row">${badges.join('')}</div>
+      <div class="streams-panel" id="streams-${m.id}">
+        <div class="loading-row"><div class="spinner"></div>Loading streams...</div>
+      </div>
+    </div>`;
+  }).join('') + '</div>';
+}
+
+// ── Stream resolution ──
+async function toggleMatch(el, matchId) {
+  const wasExpanded = el.classList.contains('expanded');
+
+  // close all others
+  document.querySelectorAll('.match-card.expanded').forEach(c => c.classList.remove('expanded'));
+
+  if (wasExpanded) return;
+  el.classList.add('expanded');
+
+  const panel = document.getElementById('streams-' + matchId);
+  if (panel.dataset.loaded) return;
+
+  const match = await api('/matches/' + matchId);
+  if (!match.success || !match.data) {
+    panel.innerHTML = '<div class="error">Match not found</div>';
+    return;
+  }
+
+  const m = match.data;
+  const result = await apiPost('/streams', {
+    matchId: m.id,
+    sources: m.sources,
+    homeTeam: m.teams?.home?.name || '',
+    awayTeam: m.teams?.away?.name || '',
+  });
+
+  panel.dataset.loaded = 'true';
+
+  if (!result.success) {
+    panel.innerHTML = '<div class="error">' + (result.error || 'No streams available') + '</div>';
+    return;
+  }
+
+  const streams = result.data?.streams || [];
+  panel.innerHTML = streams.map(s => `
+    <div class="stream-item">
+      <span class="stream-source">${s.source}</span>
+      <span class="stream-label">Stream ${s.streamNo} — ${s.language || 'Multi'} ${s.viewers ? '· ' + s.viewers + ' viewers' : ''}</span>
+      ${s.hd ? '<span class="stream-hd">HD</span>' : ''}
+      <a class="stream-link" href="#" onclick="openPlayer(event, '${s.embedUrl}', '${m.title}')">Watch</a>
+    </div>
+  `).join('');
+}
+
+function openPlayer(e, url, title) {
+  e.preventDefault();
+  document.getElementById('modal-title').textContent = title;
+  document.getElementById('modal-frame').src = url;
+  document.getElementById('player-modal').classList.add('open');
+}
+
+function closePlayer() {
+  document.getElementById('player-modal').classList.remove('open');
+  document.getElementById('modal-frame').src = '';
+}
+
+function selectSport(sport) {
+  currentSport = sport;
+  document.querySelectorAll('.sport-tab').forEach(t => t.classList.remove('active'));
+  document.querySelector(`.sport-tab[onclick="selectSport('${sport}')"]`)?.classList.add('active');
+  loadMatches(sport);
+}
+
+// Init
+loadSports();
+selectSport('football');
+</script>
+</body>
+</html>

@@ -9,6 +9,7 @@ struct MovieDetailView: View {
     @State private var selectedSeason: Int?
     @State private var showsFullSynopsis = false
     @State private var downloadError: String?
+    @State private var downloadPlan: MovieDownloadPlan?
 
     var body: some View {
         Group {
@@ -35,6 +36,15 @@ struct MovieDetailView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.background)
+        .sheet(item: $downloadPlan) { plan in
+            MediaDownloadPlannerView(
+                title: plan.title,
+                groups: plannerGroups(for: plan),
+                initiallySelectedItemIDs: plan.initialSelection
+            ) { quality, selectedIDs in
+                Task { await startDownloads(plan, selectedIDs: selectedIDs, quality: quality) }
+            }
+        }
     }
 
     private func detail(_ show: MovieShow) -> some View {
@@ -160,11 +170,7 @@ struct MovieDetailView: View {
 
                 mediaBookmarkButton(show)
 
-                movieDownloadButton(
-                    show: show,
-                    episode: show.isSeries ? preferredEpisode(for: show) : nil,
-                    showsLabel: true
-                )
+                movieCollectionDownloadButton(show)
             }
 
             if let error = model.mediaBookmarkError {
@@ -287,7 +293,7 @@ struct MovieDetailView: View {
         let label = downloadLabel(for: record, isEpisode: episode != nil)
 
         return Button {
-            Task { await handleDownload(record: record, show: show, episode: episode) }
+            presentMovieDownload(show: show, selectedEpisode: episode)
         } label: {
             if record?.isActive == true {
                 ProgressView(value: record?.progress ?? 0)
@@ -313,22 +319,120 @@ struct MovieDetailView: View {
         .accessibilityLabel(label.help)
     }
 
-    private func handleDownload(
-        record: MediaDownloadRecord?,
-        show: MovieShow,
-        episode: MovieEpisode?
+    private func movieCollectionDownloadButton(_ show: MovieShow) -> some View {
+        Button {
+            presentMovieDownload(show: show, selectedEpisode: nil)
+        } label: {
+            Label("Download", systemImage: "arrow.down.circle")
+                .frame(width: 84)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.large)
+        .disabled(show.isSeries && store.episodes.isEmpty)
+        .help(show.isSeries ? "Choose episodes and quality across every season" : "Choose download quality")
+    }
+
+    private func presentMovieDownload(show: MovieShow, selectedEpisode: MovieEpisode?) {
+        let units: [MovieDownloadUnit]
+        if let selectedEpisode {
+            units = [MovieDownloadUnit(show: show, episode: selectedEpisode)]
+        } else if show.isSeries {
+            units = store.episodes.map { MovieDownloadUnit(show: show, episode: $0) }
+        } else {
+            units = [MovieDownloadUnit(show: show, episode: nil)]
+        }
+
+        let selection = Set(units.compactMap { unit in
+            plannerItemIsUnavailable(unit) ? nil : unit.id
+        })
+        downloadPlan = MovieDownloadPlan(
+            title: "Download \(show.displayTitle)",
+            units: units,
+            initialSelection: selection
+        )
+    }
+
+    private func startDownloads(
+        _ plan: MovieDownloadPlan,
+        selectedIDs: Set<String>,
+        quality: MediaDownloadQuality
     ) async {
         downloadError = nil
-        do {
-            if let record, record.phase == .failed {
-                try await mediaDownloads.retry(record)
-            } else if record?.phase == .completed {
-                return
-            } else {
-                try await mediaDownloads.downloadMovie(show: show, episode: episode)
+        var failures: [String] = []
+        for unit in plan.units where selectedIDs.contains(unit.id) {
+            do {
+                try await mediaDownloads.downloadMovie(
+                    show: unit.show,
+                    episode: unit.episode,
+                    quality: quality
+                )
+            } catch {
+                failures.append("\(unit.title): \(error.localizedDescription)")
             }
-        } catch {
-            downloadError = error.localizedDescription
+        }
+        if !failures.isEmpty {
+            let summary = failures.prefix(3).joined(separator: "\n")
+            let remainder = failures.count - min(3, failures.count)
+            downloadError = remainder > 0 ? "\(summary)\n…and \(remainder) more." : summary
+        }
+    }
+
+    private func plannerGroups(for plan: MovieDownloadPlan) -> [MediaDownloadPlannerGroup] {
+        let grouped = Dictionary(grouping: plan.units) { unit in
+            unit.episode?.season
+        }
+        let seasonKeys = grouped.keys.sorted { left, right in
+            switch (left, right) {
+            case (.some(let lhs), .some(let rhs)): lhs < rhs
+            case (.none, .some): true
+            case (.some, .none): false
+            case (.none, .none): false
+            }
+        }
+
+        return seasonKeys.compactMap { season in
+            guard let units = grouped[season] else { return nil }
+            let title = season.map { "Season \($0)" } ?? plan.units.first?.show.displayTitle ?? "Movie"
+            let countLabel = season == nil
+                ? "1 movie"
+                : (units.count == 1 ? "1 episode" : "\(units.count) episodes")
+            return MediaDownloadPlannerGroup(
+                id: season.map { "season-\($0)" } ?? "movie",
+                title: title,
+                countLabel: countLabel,
+                items: units.map { unit in
+                    let record = record(for: unit)
+                    return MediaDownloadPlannerItem(
+                        id: unit.id,
+                        title: unit.title,
+                        detail: nil,
+                        isUnavailable: record?.isActive == true || record?.phase == .completed,
+                        status: plannerStatus(for: record)
+                    )
+                }
+            )
+        }
+    }
+
+    private func record(for unit: MovieDownloadUnit) -> MediaDownloadRecord? {
+        mediaDownloads.record(
+            mediaType: .movie,
+            contentID: unit.show.slug,
+            unitID: unit.episode?.id ?? unit.show.slug
+        )
+    }
+
+    private func plannerItemIsUnavailable(_ unit: MovieDownloadUnit) -> Bool {
+        let record = record(for: unit)
+        return record?.isActive == true || record?.phase == .completed
+    }
+
+    private func plannerStatus(for record: MediaDownloadRecord?) -> String? {
+        switch record?.phase {
+        case .preparing, .downloading: "Downloading"
+        case .completed: "Downloaded"
+        case .failed: "Retry"
+        case nil: nil
         }
     }
 
@@ -523,6 +627,23 @@ struct MovieDetailView: View {
         }
         return prefix + "…"
     }
+}
+
+private struct MovieDownloadUnit: Identifiable {
+    let show: MovieShow
+    let episode: MovieEpisode?
+
+    var id: String { "\(show.slug)|\(episode?.id ?? show.slug)" }
+    var title: String {
+        episode.map { "Episode \($0.number)" } ?? "Movie"
+    }
+}
+
+private struct MovieDownloadPlan: Identifiable {
+    let id = UUID()
+    let title: String
+    let units: [MovieDownloadUnit]
+    let initialSelection: Set<String>
 }
 
 private struct MovieEpisodeProgress {
