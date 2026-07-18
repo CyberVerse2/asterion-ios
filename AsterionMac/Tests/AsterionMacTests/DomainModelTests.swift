@@ -3,6 +3,45 @@ import Testing
 @testable import AsterionMac
 
 struct DomainModelTests {
+    @Test func footballMatchDecodesTheDeployedServiceShape() throws {
+        let data = Data(
+            ##"{"id":"nashville-atlanta","title":"Nashville SC vs Atlanta United","category":"football","date":1784350800000,"poster":"poster-id","posterURL":"https://streamed.pk/api/images/proxy/poster.webp","popular":true,"isLive":true,"teams":{"home":{"name":"Nashville SC","badge":"nashville","badgeURL":"https://streamed.pk/api/images/badge/nashville.webp"},"away":{"name":"Atlanta United","badge":"atlanta","badgeURL":"https://streamed.pk/api/images/badge/atlanta.webp"}},"sources":[{"source":"admin","id":"match-1"},{"source":"delta","id":"match-2"}]}"##.utf8
+        )
+
+        let match = try animeDecoder.decode(FootballMatch.self, from: data)
+
+        #expect(match.displayTitle == "Nashville SC vs Atlanta United")
+        #expect(match.homeTeam?.name == "Nashville SC")
+        #expect(match.awayTeam?.badgeURL?.host == "streamed.pk")
+        #expect(match.isLive)
+        #expect(match.sources.map(\.source) == ["admin", "delta"])
+        #expect(Int64(match.kickoff.timeIntervalSince1970 * 1_000) == 1_784_350_800_000)
+    }
+
+    @Test func footballSupportsMissingTeamsAndArbitraryStreamProviders() throws {
+        let matchData = Data(
+            ##"{"id":"international-match","title":"International Match","category":"football","date":1784350800000,"poster":null,"posterURL":null,"popular":false,"isLive":false,"teams":null,"sources":[{"source":"new-provider","id":"source-42"}]}"##.utf8
+        )
+        let streamData = Data(
+            ##"{"streams":[{"id":"source-42","streamNo":3,"language":"English","hd":true,"embedUrl":"https://player.example/embed/source-42","source":"new-provider","viewers":1250}],"matchId":"international-match","homeTeam":null,"awayTeam":null}"##.utf8
+        )
+
+        let match = try animeDecoder.decode(FootballMatch.self, from: matchData)
+        let collection = try animeDecoder.decode(FootballStreamCollection.self, from: streamData)
+        let stream = try #require(collection.streams.first)
+        let route = FootballPlayerRoute(match: match)
+        let roundTrippedRoute = try animeDecoder.decode(
+            FootballPlayerRoute.self,
+            from: JSONEncoder().encode(route)
+        )
+
+        #expect(match.teams == nil)
+        #expect(match.sources.first?.source == "new-provider")
+        #expect(stream.optionID == "new-provider-source-42-3")
+        #expect(stream.displayName == "New-Provider · ENGLISH · HD")
+        #expect(roundTrippedRoute == route)
+    }
+
     @Test func movieCatalogAndPlaybackDecodeTheLiveServiceShape() throws {
         let titleData = Data(
             ##"{"id":"568145","slug":"obsession-soap2day","title":"Obsession","image_url":"https://example.com/poster.jpg","imdb_rating":"8.0","runtime":"1h 48min","year":"2026","type":"movie","quality":null}"##.utf8
