@@ -24,6 +24,18 @@ AJAX_HEADERS = {
     "Referer": BASE + "/",
 }
 
+ALL_GENRES = [
+    "action", "adventure", "boys-love", "cars", "comedy", "dementia",
+    "demons", "drama", "ecchi", "erotica", "fantasy", "game",
+    "girls-love", "gourmet", "harem", "historical", "horror", "isekai",
+    "josei", "kids", "magic", "mahou-shoujo", "martial-arts", "mecha",
+    "military", "music", "mystery", "parody", "police", "psychological",
+    "romance", "samurai", "school", "sci-fi", "seinen", "shoujo",
+    "shoujo-ai", "shounen", "shounen-ai", "slice-of-life", "space",
+    "sports", "super-power", "supernatural", "suspense", "thriller",
+    "vampire",
+]
+
 
 # ---------------------------------------------------------------------------
 # Crypto
@@ -157,20 +169,32 @@ def _strip_tags(text: str) -> str:
 # Search & Discovery
 # ---------------------------------------------------------------------------
 
-def search(query: str) -> list[SearchResult]:
-    return _parse_cards(_get(f"{BASE}/filter?keyword={quote_plus(query)}"))
+def _listing(path: str, page: int = 1, query: dict[str, str] | None = None) -> list[SearchResult]:
+    params = dict(query or {})
+    if page > 1:
+        params["page"] = str(page)
+    suffix = f"?{urlencode(params)}" if params else ""
+    return _parse_cards(_get(f"{BASE}{path}{suffix}"))
 
 
-def popular() -> list[SearchResult]:
-    return _parse_cards(_get(f"{BASE}/most-viewed"))
+def search(query: str, page: int = 1) -> list[SearchResult]:
+    return _listing("/filter", page=page, query={"keyword": query})
 
 
-def latest_updated() -> list[SearchResult]:
-    return _parse_cards(_get(f"{BASE}/latest-updated"))
+def popular(page: int = 1) -> list[SearchResult]:
+    return _listing("/most-viewed", page=page)
 
 
-def by_genre(genre: str) -> list[SearchResult]:
-    return _parse_cards(_get(f"{BASE}/genre/{quote_plus(genre.lower())}"))
+def latest_updated(page: int = 1) -> list[SearchResult]:
+    return _listing("/latest-updated", page=page)
+
+
+def new_releases(page: int = 1) -> list[SearchResult]:
+    return _listing("/new-release", page=page)
+
+
+def by_genre(genre: str, page: int = 1) -> list[SearchResult]:
+    return _listing(f"/genre/{quote_plus(genre.lower())}", page=page)
 
 
 def _parse_cards(html: str) -> list[SearchResult]:
@@ -184,12 +208,12 @@ def _parse_cards(html: str) -> list[SearchResult]:
             title = _re_first(r'class="ani-name"[^>]*>([^<]+)<', chunk)
         ani_type = _re_first(r'class="[^"]*dot"[^>]*>\s*(\w+)\s*<', chunk)
         eps = _re_first(r'class="total">(\d+)<', chunk)
-        rid, slug = "", ""
+        slug = ""
         if href:
             m = re.search(r'/watch/([^/]+)', href)
             if m: slug = m.group(1)
         results.append(SearchResult(
-            id=rid, title=title or "?", slug=slug,
+            id=slug, title=(title or "?").strip(), slug=slug,
             japanese_title=jp, image_url=img,
             type=ani_type, episodes=eps, url=href,
         ))

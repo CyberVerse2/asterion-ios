@@ -15,6 +15,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 import flask
 import nineanime
 import animixplay
+from werkzeug.exceptions import HTTPException
 
 app = flask.Flask(__name__)
 
@@ -59,6 +60,8 @@ def _json_or_error(fn):
     def wrapper(*args, **kwargs):
         try:
             return flask.jsonify(fn(*args, **kwargs))
+        except HTTPException:
+            raise
         except Exception:
             app.logger.exception("Anime scraper request failed")
             return flask.jsonify({"error": "The anime source request failed."}), 502
@@ -176,25 +179,47 @@ def api_stream(episode_id):
 # Animixplay API
 # ---------------------------------------------------------------------------
 
+def _positive_page_arg():
+    return max(1, int(flask.request.args.get("page", "1")))
+
 @app.route("/api/amp/search")
 @_json_or_error
 def api_amp_search():
     q = flask.request.args.get("q", "").strip()
     if not q:
         return []
-    return [r.__dict__ for r in animixplay.search(q)]
+    return [r.__dict__ for r in animixplay.search(q, page=_positive_page_arg())]
 
 
 @app.route("/api/amp/popular")
 @_json_or_error
 def api_amp_popular():
-    return [r.__dict__ for r in animixplay.popular()]
+    return [r.__dict__ for r in animixplay.popular(page=_positive_page_arg())]
 
 
 @app.route("/api/amp/latest")
 @_json_or_error
 def api_amp_latest():
-    return [r.__dict__ for r in animixplay.latest_updated()]
+    return [r.__dict__ for r in animixplay.latest_updated(page=_positive_page_arg())]
+
+
+@app.route("/api/amp/releases")
+@_json_or_error
+def api_amp_releases():
+    return [r.__dict__ for r in animixplay.new_releases(page=_positive_page_arg())]
+
+
+@app.route("/api/amp/genre/<genre>")
+@_json_or_error
+def api_amp_genre(genre):
+    if genre not in animixplay.ALL_GENRES:
+        return flask.abort(404)
+    return [r.__dict__ for r in animixplay.by_genre(genre, page=_positive_page_arg())]
+
+
+@app.route("/api/amp/genres")
+def api_amp_genres():
+    return flask.jsonify(animixplay.ALL_GENRES)
 
 
 @app.route("/api/amp/show/<slug>")
@@ -207,7 +232,10 @@ def api_amp_show(slug):
 @_json_or_error
 def api_amp_episodes(anime_id):
     eps = animixplay.get_episodes(anime_id)
-    return [{"number": e.number} for e in eps]
+    return [
+        {"id": f"{anime_id}:{e.number}", "anime_id": anime_id, "number": e.number}
+        for e in eps
+    ]
 
 
 @app.route("/api/amp/stream/<anime_id>/<int:episode>")
@@ -221,7 +249,7 @@ def api_amp_stream(anime_id, episode):
             "server": s.server,
             "url": s.url,
             "quality": s.quality,
-            "source": m3u8,  # actual M3U8 URL for direct playback
+            "source": f"/proxy/m3u8?url={quote(m3u8, safe='')}" if m3u8 else None,
         })
     return result
 
