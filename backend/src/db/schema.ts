@@ -96,6 +96,8 @@ export const mediaBookmarks = pgTable("media_bookmarks", {
   title: text("title").notNull(),
   subtitle: text("subtitle"),
   imageUrl: text("image_url"),
+  isSaved: boolean("is_saved").notNull().default(true),
+  clientUpdatedAt: timestamp("client_updated_at", { withTimezone: true, mode: "date" }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: false, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: false, mode: "date" }).notNull().defaultNow(),
 }, (table) => [
@@ -110,7 +112,7 @@ export const mediaPlaybackProgress = pgTable("media_playback_progress", {
   contentId: text("content_id").notNull(),
   title: text("title").notNull(),
   imageUrl: text("image_url"),
-  unitId: text("unit_id"),
+  unitId: text("unit_id").notNull(),
   unitTitle: text("unit_title"),
   seasonNumber: integer("season_number"),
   episodeNumber: integer("episode_number"),
@@ -118,11 +120,26 @@ export const mediaPlaybackProgress = pgTable("media_playback_progress", {
   durationSeconds: doublePrecision("duration_seconds").notNull().default(0),
   percentage: doublePrecision("percentage").notNull().default(0),
   completed: boolean("completed").notNull().default(false),
+  clientUpdatedAt: timestamp("client_updated_at", { withTimezone: true, mode: "date" }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: false, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: false, mode: "date" }).notNull().defaultNow(),
 }, (table) => [
   uniqueIndex("media_progress_user_content_unique").on(table.userId, table.mediaType, table.contentId),
   index("media_progress_user_updated_idx").on(table.userId, table.updatedAt),
+]);
+
+export const mediaPlaybackSessions = pgTable("media_playback_sessions", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  sessionId: text("session_id").notNull(),
+  mediaType: text("media_type").notNull(),
+  contentId: text("content_id").notNull(),
+  unitId: text("unit_id").notNull(),
+  clientStartedAt: timestamp("client_started_at", { withTimezone: true, mode: "date" }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: false, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("media_session_user_id_unique").on(table.userId, table.sessionId),
+  index("media_session_user_started_idx").on(table.userId, table.clientStartedAt),
 ]);
 
 export const mediaViewingHistory = pgTable("media_viewing_history", {
@@ -140,9 +157,10 @@ export const mediaViewingHistory = pgTable("media_viewing_history", {
   durationSeconds: doublePrecision("duration_seconds").notNull().default(0),
   percentage: doublePrecision("percentage").notNull().default(0),
   completed: boolean("completed").notNull().default(false),
-  visitCount: integer("visit_count").notNull().default(1),
-  firstViewedAt: timestamp("first_viewed_at", { withTimezone: false, mode: "date" }).notNull().defaultNow(),
-  lastViewedAt: timestamp("last_viewed_at", { withTimezone: false, mode: "date" }).notNull().defaultNow(),
+  visitCount: integer("visit_count").notNull().default(0),
+  clientUpdatedAt: timestamp("client_updated_at", { withTimezone: true, mode: "date" }).notNull(),
+  firstViewedAt: timestamp("first_viewed_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  lastViewedAt: timestamp("last_viewed_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   createdAt: timestamp("created_at", { withTimezone: false, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: false, mode: "date" }).notNull().defaultNow(),
 }, (table) => [
@@ -152,5 +170,5 @@ export const mediaViewingHistory = pgTable("media_viewing_history", {
     table.contentId,
     table.unitId
   ),
-  index("media_history_user_viewed_idx").on(table.userId, table.lastViewedAt),
+  index("media_history_user_viewed_idx").on(table.userId, table.lastViewedAt, table.id),
 ]);
