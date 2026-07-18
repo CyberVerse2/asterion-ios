@@ -2,11 +2,27 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject private var model: AppModel
+    @SceneStorage("selectedMode") private var selectedModeRaw = AppMode.novels.rawValue
     @SceneStorage("selectedSection") private var selectedSectionRaw = AppSection.discover.rawValue
+    @SceneStorage("selectedAnimeSection") private var selectedAnimeSectionRaw = AnimeSection.discover.rawValue
     @SceneStorage("selectedNovelID") private var selectedNovelID = ""
+    @StateObject private var animeStore = AnimeStore()
     @State private var columnVisibility = NavigationSplitViewVisibility.all
     @State private var searchText = ""
     @State private var showsDownloads = false
+
+    private var mode: Binding<AppMode> {
+        Binding(
+            get: { AppMode(rawValue: selectedModeRaw) ?? .novels },
+            set: { newValue in
+                selectedModeRaw = newValue.rawValue
+                searchText = ""
+                if newValue == .novels {
+                    ensureSelection()
+                }
+            }
+        )
+    }
 
     private var section: Binding<AppSection> {
         Binding(
@@ -14,7 +30,19 @@ struct ContentView: View {
             set: { newValue in
                 selectedSectionRaw = newValue.rawValue
                 searchText = ""
-                selectFirstNovel(in: newValue)
+                if newValue.showsNovelCatalog {
+                    selectFirstNovel(in: newValue)
+                }
+            }
+        )
+    }
+
+    private var animeSection: Binding<AnimeSection> {
+        Binding(
+            get: { AnimeSection(rawValue: selectedAnimeSectionRaw) ?? .discover },
+            set: { newValue in
+                selectedAnimeSectionRaw = newValue.rawValue
+                searchText = ""
             }
         )
     }
@@ -29,7 +57,11 @@ struct ContentView: View {
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
-            SidebarView(selection: section)
+            SidebarView(
+                mode: mode.wrappedValue,
+                novelSelection: section,
+                animeSelection: animeSection
+            )
                 .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 260)
         } content: {
             catalogColumn
@@ -41,64 +73,114 @@ struct ContentView: View {
         .navigationSplitViewStyle(.balanced)
         .catalogSearch(
             text: $searchText,
-            isEnabled: section.wrappedValue != .account
+            prompt: mode.wrappedValue == .anime
+                ? "Search anime"
+                : "Search titles, authors, or genres",
+            isEnabled: mode.wrappedValue == .anime || section.wrappedValue != .account
         )
         .toolbar {
-            if section.wrappedValue != .account {
+            ToolbarItem(placement: .principal) {
+                Picker("Content", selection: mode) {
+                    ForEach(AppMode.allCases, id: \.self) { item in
+                        Text(item.title).tag(item)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 220)
+                .help("Switch between novels and anime")
+            }
+
+            if mode.wrappedValue == .anime || section.wrappedValue != .account {
                 ToolbarItem(placement: .primaryAction) {
                     Button {
-                        Task { await model.loadCatalog() }
+                        Task {
+                            if mode.wrappedValue == .anime {
+                                await animeStore.refresh(
+                                    section: animeSection.wrappedValue,
+                                    query: searchText
+                                )
+                            } else {
+                                await model.loadCatalog()
+                            }
+                        }
                     } label: {
-                        Label("Refresh Catalog", systemImage: "arrow.clockwise")
+                        Label(
+                            mode.wrappedValue == .anime ? "Refresh Anime" : "Refresh Catalog",
+                            systemImage: "arrow.clockwise"
+                        )
                     }
-                    .help("Refresh Catalog")
+                    .help(mode.wrappedValue == .anime ? "Refresh Anime" : "Refresh Catalog")
                 }
             }
 
-            ToolbarSpacer(.fixed)
+            if mode.wrappedValue == .novels, section.wrappedValue.showsNovelCatalog {
+                ToolbarSpacer(.fixed)
 
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    showsDownloads.toggle()
-                } label: {
-                    Label("Downloads", systemImage: activeDownloadCount > 0 ? "arrow.down.circle.fill" : "arrow.down.circle")
-                }
-                .badge(activeDownloadCount)
-                .help("Downloads")
-                .popover(isPresented: $showsDownloads, arrowEdge: .top) {
-                    DownloadCenterView()
-                        .environmentObject(model)
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showsDownloads.toggle()
+                    } label: {
+                        Label("Downloads", systemImage: activeDownloadCount > 0 ? "arrow.down.circle.fill" : "arrow.down.circle")
+                    }
+                    .badge(activeDownloadCount)
+                    .help("Downloads")
+                    .popover(isPresented: $showsDownloads, arrowEdge: .top) {
+                        DownloadCenterView()
+                            .environmentObject(model)
+                    }
                 }
             }
         }
         .focusedSceneValue(\.asterionSection, section)
+        .focusedSceneValue(\.asterionMode, mode)
+        .focusedSceneValue(\.asterionAnimeSection, animeSection)
         .tint(.asterionAccent)
         .frame(minWidth: 1_040, minHeight: 640)
         .onAppear {
-            if selectedNovelID.isEmpty {
+            if mode.wrappedValue == .novels,
+               section.wrappedValue.showsNovelCatalog,
+               selectedNovelID.isEmpty {
                 selectFirstNovel(in: section.wrappedValue)
-            } else {
+            } else if mode.wrappedValue == .novels, section.wrappedValue.showsNovelCatalog {
                 ensureSelection()
             }
         }
         .onChange(of: model.novels) {
-            ensureSelection()
+            if mode.wrappedValue == .novels, section.wrappedValue.showsNovelCatalog {
+                ensureSelection()
+            }
         }
         .onChange(of: model.libraryNovelIDs) {
             guard section.wrappedValue == .library else { return }
             ensureSelection()
         }
         .onChange(of: selectedSectionRaw) {
-            selectFirstNovel(in: section.wrappedValue)
+            if mode.wrappedValue == .novels, section.wrappedValue.showsNovelCatalog {
+                selectFirstNovel(in: section.wrappedValue)
+            }
+        }
+        .onChange(of: selectedModeRaw) {
+            if mode.wrappedValue == .novels, section.wrappedValue.showsNovelCatalog {
+                ensureSelection()
+            }
         }
         .onChange(of: searchText) {
-            ensureSelection()
+            if mode.wrappedValue == .novels, section.wrappedValue.showsNovelCatalog {
+                ensureSelection()
+            }
         }
     }
 
     @ViewBuilder
     private var catalogColumn: some View {
-        if section.wrappedValue == .account {
+        if mode.wrappedValue == .anime {
+            AnimeCatalogView(
+                store: animeStore,
+                section: animeSection.wrappedValue,
+                query: searchText
+            )
+        } else if section.wrappedValue == .account {
             AccountSummaryView()
         } else {
             EditorialCatalogView(
@@ -113,7 +195,9 @@ struct ContentView: View {
 
     @ViewBuilder
     private var detailColumn: some View {
-        if section.wrappedValue == .account {
+        if mode.wrappedValue == .anime {
+            AnimeDetailView(store: animeStore)
+        } else if section.wrappedValue == .account {
             AccountView()
         } else if let selectedNovel {
             NovelDetailView(novel: selectedNovel)
@@ -154,6 +238,7 @@ struct ContentView: View {
     }
 
     private func selectFirstNovel(in section: AppSection) {
+        guard section.showsNovelCatalog else { return }
         if section == .discover, searchText.isEmpty {
             selectedNovelID = model.featuredNovels.first?.id ?? ""
         } else {
@@ -162,6 +247,7 @@ struct ContentView: View {
     }
 
     private func ensureSelection() {
+        guard section.wrappedValue.showsNovelCatalog else { return }
         let visible = model.novels(for: section.wrappedValue, search: searchText)
         let visibleIDs: Set<String>
         if section.wrappedValue == .discover, searchText.isEmpty {
@@ -182,9 +268,9 @@ struct ContentView: View {
 
 private extension View {
     @ViewBuilder
-    func catalogSearch(text: Binding<String>, isEnabled: Bool) -> some View {
+    func catalogSearch(text: Binding<String>, prompt: String, isEnabled: Bool) -> some View {
         if isEnabled {
-            searchable(text: text, prompt: "Search titles, authors, or genres")
+            searchable(text: text, prompt: prompt)
         } else {
             self
         }

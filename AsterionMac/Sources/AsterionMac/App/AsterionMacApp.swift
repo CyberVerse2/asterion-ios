@@ -53,6 +53,14 @@ struct AsterionApp: App {
         }
         .defaultSize(width: 840, height: 900)
 
+        WindowGroup("Anime Player", for: AnimePlayerRoute.self) { $route in
+            if let route {
+                AnimePlayerView(route: route)
+            }
+        }
+        .defaultSize(width: 1_080, height: 700)
+        .windowResizability(.contentMinSize)
+
         WindowGroup("Sign In to Asterion", id: "authentication") {
             AsterionAuthenticationView()
                 .environment(Clerk.shared)
@@ -67,19 +75,40 @@ struct AsterionApp: App {
 }
 
 struct AsterionNavigationCommands: Commands {
+    @FocusedBinding(\.asterionMode) private var mode
     @FocusedBinding(\.asterionSection) private var section
+    @FocusedBinding(\.asterionAnimeSection) private var animeSection
 
     var body: some Commands {
         CommandMenu("Navigate") {
-            ForEach(Array(AppSection.allCases.enumerated()), id: \.element) { index, item in
-                Button(item.title) { section = item }
-                    .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: .command)
-                    .disabled(section == nil)
+            Button("Novels") { mode = .novels }
+                .keyboardShortcut("1", modifiers: [.command, .shift])
+                .disabled(mode == nil)
+            Button("Anime") { mode = .anime }
+                .keyboardShortcut("2", modifiers: [.command, .shift])
+                .disabled(mode == nil)
+
+            Divider()
+
+            if mode == .anime {
+                ForEach(Array(AnimeSection.allCases.enumerated()), id: \.element) { index, item in
+                    Button(item.title) { animeSection = item }
+                        .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: .command)
+                        .disabled(animeSection == nil)
+                }
+            } else {
+                ForEach(Array(AppSection.allCases.enumerated()), id: \.element) { index, item in
+                    Button(item.title) { section = item }
+                        .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: .command)
+                        .disabled(section == nil)
+                }
             }
         }
     }
 }
 
 extension FocusedValues {
+    @Entry var asterionMode: Binding<AppMode>?
     @Entry var asterionSection: Binding<AppSection>?
+    @Entry var asterionAnimeSection: Binding<AnimeSection>?
 }

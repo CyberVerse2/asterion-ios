@@ -1,16 +1,19 @@
 # Asterion for macOS
 
-A native macOS 26+ port of the Asterion reader. It is a standalone SwiftPM app and does not compile the iOS target, widgets, Live Activities, or UIKit code.
+A native macOS 26+ port of Asterion for reading novels and watching anime. It is a standalone SwiftPM app and does not compile the iOS target, widgets, Live Activities, or UIKit code.
 
 ## Desktop experience
 
-- Native three-column navigation for Discover, Rankings, Library, and Account
+- A top-level Novels/Anime switch with independent navigation for each catalog
+- Native three-column navigation for novel discovery, rankings, library, and account
 - Adaptive macOS appearance with native Liquid Glass navigation, toolbars, and controls
-- Searchable catalog backed by the production Asterion API
+- Searchable novel and anime catalogs backed by their production Asterion services
 - Selection-driven novel details with chapters and synced library state
+- Anime Discover with a playable feature carousel, paged shelves, genres, seasons, and episodes
+- Separate, focus-first Anime Player windows with a closed-by-default episode list, previous/next navigation, and direct or embedded playback
 - Separate reader windows powered by SwiftUI `WebView`/`WebPage`, with facing pages, chapter navigation, selectable text, themes, text sizing, and plain-text export
 - Clerk authentication and cross-device library/progress sync
-- macOS Settings and keyboard navigation (`⌘1` through `⌘4`)
+- macOS Settings and keyboard navigation (`⌘⇧1`/`⌘⇧2` for content modes and `⌘1` onward for the active sidebar)
 
 ## Build and run
 

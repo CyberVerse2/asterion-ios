@@ -2,14 +2,27 @@ import AppKit
 import SwiftUI
 
 struct SidebarView: View {
-    @Binding var selection: AppSection
+    let mode: AppMode
+    @Binding var novelSelection: AppSection
+    @Binding var animeSelection: AnimeSection
 
-    private var listSelection: Binding<AppSection?> {
+    private var novelListSelection: Binding<AppSection?> {
         Binding(
-            get: { selection },
+            get: { novelSelection },
             set: { newValue in
                 if let newValue {
-                    selection = newValue
+                    novelSelection = newValue
+                }
+            }
+        )
+    }
+
+    private var animeListSelection: Binding<AnimeSection?> {
+        Binding(
+            get: { animeSelection },
+            set: { newValue in
+                if let newValue {
+                    animeSelection = newValue
                 }
             }
         )
@@ -22,17 +35,31 @@ struct SidebarView: View {
                 .padding(.top, 16)
                 .padding(.bottom, 12)
 
-            List(selection: listSelection) {
-                Section("Browse") {
-                    ForEach(AppSection.allCases, id: \.self) { section in
-                        Label(section.title, systemImage: section.systemImage)
-                            .tag(section)
-                            .help(section.title)
+            if mode == .novels {
+                List(selection: novelListSelection) {
+                    Section("Novels") {
+                        ForEach(AppSection.allCases, id: \.self) { section in
+                            Label(section.title, systemImage: section.systemImage)
+                                .tag(section)
+                                .help(section.title)
+                        }
                     }
                 }
+                .listStyle(.sidebar)
+                .scrollContentBackground(.hidden)
+            } else {
+                List(selection: animeListSelection) {
+                    Section("Anime") {
+                        ForEach(AnimeSection.allCases, id: \.self) { section in
+                            Label(section.title, systemImage: section.systemImage)
+                                .tag(section)
+                                .help(section.title)
+                        }
+                    }
+                }
+                .listStyle(.sidebar)
+                .scrollContentBackground(.hidden)
             }
-            .listStyle(.sidebar)
-            .scrollContentBackground(.hidden)
         }
         .navigationTitle("Asterion")
     }

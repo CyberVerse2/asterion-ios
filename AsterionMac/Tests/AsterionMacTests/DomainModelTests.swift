@@ -3,6 +3,77 @@ import Testing
 @testable import AsterionMac
 
 struct DomainModelTests {
+    @Test func animeTitleDecodesTheLiveServiceShapeAndFindsItsShowSlug() throws {
+        let data = Data(
+            ##"{"episode_label":"Ep 3/12","id":"1294","image_url":"https://example.com/poster.jpg","japanese_title":"Hero&#039;s Journey","title":"Hero&#8217;s Journey","type":"SUB","url":"https://9anime.or.at/hell-mode-season-2-episode-3-english-subed/"}"##.utf8
+        )
+
+        let title = try animeDecoder.decode(AnimeTitle.self, from: data)
+
+        #expect(title.id == "1294")
+        #expect(title.imageURL == URL(string: "https://example.com/poster.jpg"))
+        #expect(title.episodeLabel == "Ep 3/12")
+        #expect(title.slug == "hell-mode-season-2")
+        #expect(title.displayTitle == "Hero’s Journey")
+        #expect(title.displayJapaneseTitle == "Hero's Journey")
+    }
+
+    @Test func animeShowAndEpisodesDecodeTheLiveServiceContract() throws {
+        let showData = Data(
+            ##"{"date_aired":"Jul 4, 2026 to ?","description":"What&#039;s next for our heroes?","episodes":13,"genres":["action","fantasy"],"id":"1294","image_url":"https://example.com/poster.jpg","japanese_title":null,"season":"Summer 2026","slug":"hell-mode-season-2","status":"Currently Airing","studio":"Hero&#039;s Studio","title":"Hell Mode","type":"TV"}"##.utf8
+        )
+        let episodeData = Data(
+            ##"[{"id":"1716","number":3,"url":"https://9anime.or.at/hell-mode-season-2-episode-3-english-subed/"}]"##.utf8
+        )
+
+        let show = try animeDecoder.decode(AnimeShow.self, from: showData)
+        let episodes = try animeDecoder.decode([AnimeEpisode].self, from: episodeData)
+
+        #expect(show.title == "Hell Mode")
+        #expect(show.genres == ["action", "fantasy"])
+        #expect(show.season == "Summer 2026")
+        #expect(show.displayDescription == "What's next for our heroes?")
+        #expect(show.displayStudio == "Hero's Studio")
+        #expect(episodes.first?.number == 3)
+    }
+
+    @Test func animePlaybackResolvesServiceRelativeVideoURLs() throws {
+        let data = Data(
+            ##"[{"direct_url":"/proxy/video?url=https%3A%2F%2Fexample.com%2Fvideo.mp4","embed_url":"https://player.example.com/embed/1716","quality":"HD","server_id":"9","type":"sub"}]"##.utf8
+        )
+        let source = try #require(animeDecoder.decode([AnimeStreamSource].self, from: data).first)
+        let serviceURL = try #require(URL(string: "https://asterion-scraper.cyberverse.cloud"))
+        let directURL = AnimeAPI.serviceURL(source.directURL, relativeTo: serviceURL)
+        let normalized = AnimeStreamSource(
+            serverID: source.serverID,
+            type: source.type,
+            quality: source.quality,
+            directURL: directURL,
+            embedURL: AnimeAPI.serviceURL(source.embedURL, relativeTo: serviceURL)
+        )
+        let options = AnimePlaybackOption.options(from: [normalized])
+
+        #expect(directURL?.host == "asterion-scraper.cyberverse.cloud")
+        #expect(directURL?.path == "/proxy/video")
+        #expect(options.map(\.kind) == [.direct, .embed])
+        #expect(options.first?.title == "Direct stream · HD")
+    }
+
+    @Test func animePlayerRouteRoundTripsThroughWindowState() throws {
+        let route = AnimePlayerRoute(
+            showID: "1294",
+            slug: "hell-mode-season-2",
+            title: "Hell Mode",
+            initialEpisodeID: "1716"
+        )
+
+        let data = try JSONEncoder().encode(route)
+        let decoded = try animeDecoder.decode(AnimePlayerRoute.self, from: data)
+
+        #expect(decoded == route)
+        #expect(decoded.initialEpisodeID == "1716")
+    }
+
     @Test func novelDecodesBackendFieldsAndNormalizesRank() throws {
         let data = Data(
             ##"{"_id":"42","title":"The Maze","author":"Ada","rank":"#17","imageUrl":"https://example.com/cover.jpg"}"##.utf8
@@ -213,5 +284,9 @@ struct DomainModelTests {
         #expect(pending.shouldUpload(over: nil))
         #expect(pending.shouldUpload(over: olderServer))
         #expect(!pending.shouldUpload(over: newerServer))
+    }
+
+    private var animeDecoder: JSONDecoder {
+        JSONDecoder()
     }
 }
