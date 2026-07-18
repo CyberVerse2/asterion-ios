@@ -44,6 +44,11 @@ final class AppModel: ObservableObject {
         let imageURL: URL?
     }
 
+    private struct ChapterListCacheEntry {
+        let chapters: [Chapter]
+        let expiresAt: Date
+    }
+
     @Published private(set) var novels: [Novel] = []
     @Published private(set) var libraryNovelIDs: Set<String> = []
     @Published private(set) var progressByNovelID: [String: ReadingProgress] = [:]
@@ -72,12 +77,16 @@ final class AppModel: ObservableObject {
     private lazy var mediaProgressUploadQueue = MediaProgressUploadQueue(api: api)
 
     private var chapterByID: [String: Chapter] = [:]
+    private var chaptersByNovelID: [String: ChapterListCacheEntry] = [:]
+    private var chapterListTaskByNovelID: [String: Task<[Chapter], Error>] = [:]
+    private var chapterTaskByID: [String: Task<Chapter, Error>] = [:]
     private var remoteNovelIDs: Set<String> = []
     private var progressSaveGenerationByKey: [String: UInt] = [:]
     private var accountErrors: [AccountErrorSource: String] = [:]
     private var hasStarted = false
     private var isSynchronizingSession = false
     private var shouldResynchronizeSession = false
+    private var shouldForceSessionResync = false
     private var authEventsTask: Task<Void, Never>?
     private var networkEventsTask: Task<Void, Never>?
     private var mediaOutboxTask: Task<Void, Never>?
@@ -174,12 +183,13 @@ final class AppModel: ObservableObject {
                     continue
                 }
                 guard isOnline, let self else { continue }
-                await self.synchronizeSession()
+                await self.synchronizeSession(forceRemote: true)
             }
         }
     }
 
     func loadCatalog() async {
+        guard !isLoadingCatalog else { return }
         isLoadingCatalog = true
         defer { isLoadingCatalog = false }
         do {
@@ -247,15 +257,40 @@ final class AppModel: ObservableObject {
     }
 
     func chapters(for novelID: String) async throws -> [Chapter] {
+        if let cached = chaptersByNovelID[novelID], cached.expiresAt > Date() {
+            return cached.chapters
+        }
+        chaptersByNovelID.removeValue(forKey: novelID)
+
+        let remoteTask: Task<[Chapter], Error>
+        if let existing = chapterListTaskByNovelID[novelID] {
+            remoteTask = existing
+        } else {
+            let api = api
+            let created = Task { try await api.fetchAllChapters(novelID: novelID) }
+            chapterListTaskByNovelID[novelID] = created
+            remoteTask = created
+        }
+
         do {
-            let chapters = try await api.fetchAllChapters(novelID: novelID)
+            let chapters = try await remoteTask.value
+            chapterListTaskByNovelID.removeValue(forKey: novelID)
             cacheChapterContent(chapters)
+            chaptersByNovelID[novelID] = ChapterListCacheEntry(
+                chapters: chapters,
+                expiresAt: Date().addingTimeInterval(300)
+            )
             chapterListStateByNovelID[novelID] = .remote
             return chapters
         } catch let remoteError {
+            chapterListTaskByNovelID.removeValue(forKey: novelID)
             do {
                 if let offlineChapters = try await offlineLibrary.chapters(for: novelID) {
                     cacheChapterContent(offlineChapters)
+                    chaptersByNovelID[novelID] = ChapterListCacheEntry(
+                        chapters: offlineChapters,
+                        expiresAt: Date().addingTimeInterval(300)
+                    )
                     chapterListStateByNovelID[novelID] = .offline(
                         remoteError: remoteError.localizedDescription
                     )
@@ -285,7 +320,24 @@ final class AppModel: ObservableObject {
             return offlineChapter
         }
 
-        let chapter = try await api.fetchChapter(id: id)
+        let task: Task<Chapter, Error>
+        if let existing = chapterTaskByID[id] {
+            task = existing
+        } else {
+            let api = api
+            let created = Task { try await api.fetchChapter(id: id) }
+            chapterTaskByID[id] = created
+            task = created
+        }
+
+        let chapter: Chapter
+        do {
+            chapter = try await task.value
+        } catch {
+            chapterTaskByID.removeValue(forKey: id)
+            throw error
+        }
+        chapterTaskByID.removeValue(forKey: id)
         chapterByID[id] = chapter
         return chapter
     }
@@ -319,6 +371,10 @@ final class AppModel: ObservableObject {
             let sortedChapters = fullChapters.sorted { $0.chapterNumber < $1.chapterNumber }
             try await offlineLibrary.save(novel: novel, chapters: sortedChapters)
             downloadedNovelIDs.insert(novel.id)
+            chaptersByNovelID[novel.id] = ChapterListCacheEntry(
+                chapters: sortedChapters,
+                expiresAt: Date().addingTimeInterval(300)
+            )
             for chapter in sortedChapters {
                 chapterByID[chapter.id] = chapter
             }
@@ -360,6 +416,9 @@ final class AppModel: ObservableObject {
             novels.removeAll { $0.id == novelID }
         }
         chapterListStateByNovelID[novelID] = .idle
+        chaptersByNovelID.removeValue(forKey: novelID)
+        chapterListTaskByNovelID[novelID]?.cancel()
+        chapterListTaskByNovelID.removeValue(forKey: novelID)
     }
 
     private func fetchChaptersForOfflineDownload(
@@ -696,7 +755,7 @@ final class AppModel: ObservableObject {
     func signOut() async {
         do {
             try await Clerk.shared.auth.signOut()
-            await synchronizeSession()
+            await synchronizeSession(forceRemote: true)
             setAccountError(.signOut, nil)
         } catch {
             setAccountError(.signOut, error.localizedDescription)
@@ -712,7 +771,7 @@ final class AppModel: ObservableObject {
                 refreshError = error
             }
         }
-        await synchronizeSession()
+        await synchronizeSession(forceRemote: true)
         if let refreshError {
             setAccountError(
                 .authentication,
@@ -721,18 +780,21 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func synchronizeSession() async {
+    private func synchronizeSession(forceRemote: Bool = false) async {
         guard !isSynchronizingSession else {
             shouldResynchronizeSession = true
+            shouldForceSessionResync = shouldForceSessionResync || forceRemote
             return
         }
         isSynchronizingSession = true
         defer {
             isSynchronizingSession = false
             if shouldResynchronizeSession {
+                let forceQueuedSync = shouldForceSessionResync
                 shouldResynchronizeSession = false
+                shouldForceSessionResync = false
                 Task { @MainActor [weak self] in
-                    await self?.synchronizeSession()
+                    await self?.synchronizeSession(forceRemote: forceQueuedSync)
                 }
             }
         }
@@ -788,12 +850,14 @@ final class AppModel: ObservableObject {
             updatingMediaBookmarkKeys = []
             mediaBookmarkError = nil
         }
-        signedInUser = SignedInUser(
+        let synchronizedUser = SignedInUser(
             id: clerkUser.id,
             name: name,
             email: email,
             imageURL: URL(string: clerkUser.imageUrl)
         )
+        let accountIsUnchanged = signedInUser == synchronizedUser
+        signedInUser = synchronizedUser
 
         do {
             try await loadLocalProgress(ownerID: clerkUser.id)
@@ -825,6 +889,12 @@ final class AppModel: ObservableObject {
                 "The account session could not be authenticated: \(error.localizedDescription)"
             )
             finishMediaHydration(ownerID: clerkUser.id)
+            return
+        }
+
+        if !forceRemote,
+           accountIsUnchanged,
+           mediaHydratedOwnerID == clerkUser.id {
             return
         }
 
