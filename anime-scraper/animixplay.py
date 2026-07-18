@@ -503,29 +503,15 @@ def get_all_streams(anime_id: str, episode: int) -> list[StreamSource]:
 
 
 def resolve_source(stream_url: str) -> Optional[str]:
-    """Resolve a stream URL to its actual M3U8 source + subtitle tracks."""
-    try:
-        from urllib.request import Request, urlopen
-        import re, json
-
-        html = _get(stream_url)
-        player_id = _re_first(r'data-id="(\d+)"', html)
-        ep_type = stream_url.rstrip("/").rsplit("/", 1)[-1] or "sub"
-
-        if not player_id:
-            return None
-
-        api_url = f"{stream_url.split('/stream/')[0]}/stream/getSourcesNew?id={player_id}&type={ep_type}"
-        data = _get_json(api_url, {"Referer": stream_url})
-        return data.get("sources", {}).get("file")
-    except Exception:
-        return None
+    """Resolve a stream URL to its actual M3U8 source."""
+    resolved = resolve_source_full(stream_url)
+    return resolved.get("source") if resolved else None
 
 
 def resolve_source_full(stream_url: str) -> Optional[dict]:
     """Resolve full source info: M3U8 + subtitle tracks."""
     try:
-        html = _get(stream_url)
+        html = _get(stream_url, {"Referer": BASE + "/"})
         player_id = _re_first(r'data-id="(\d+)"', html)
         ep_type = stream_url.rstrip("/").rsplit("/", 1)[-1] or "sub"
 

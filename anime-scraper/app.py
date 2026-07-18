@@ -7,10 +7,11 @@ Open:    http://localhost:8080
 
 import logging
 import os
+import re
 from functools import wraps
 from urllib.error import HTTPError
-from urllib.parse import urlparse, quote
-from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
+from urllib.parse import quote, urljoin, urlparse
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 import flask
 import nineanime
@@ -24,10 +25,12 @@ ALLOWED_VIDEO_HOSTS = frozenset({
     "vidtube.site",
     "megaplay.buzz",
     "vidwish.live",
-    "mt.nekostream.site",
     "p1.ipstatp.com",
+    "p16-ad-sg.ibyteimg.com",
 })
 ALLOWED_VIDEO_HOST_SUFFIXES = (
+    ".anivideo.sbs",
+    ".nekostream.site",
     ".watching.onl",
     ".cloudbuzz.lol",
 )
@@ -59,6 +62,43 @@ class _RestrictedRedirectHandler(HTTPRedirectHandler):
 
 
 video_opener = build_opener(_RestrictedRedirectHandler())
+
+
+def _hls_request_headers(target):
+    hostname = (urlparse(target).hostname or "").lower()
+    if hostname == "vidwish.live" or hostname.endswith(
+        (".anivideo.sbs", ".watching.onl", ".cloudbuzz.lol")
+    ):
+        provider_origin = "https://vidwish.live"
+    elif hostname == "mt.nekostream.site":
+        provider_origin = "https://vidtube.site"
+    elif (
+        hostname == "megaplay.buzz"
+        or hostname == "p16-ad-sg.ibyteimg.com"
+        or hostname.endswith(".nekostream.site")
+    ):
+        provider_origin = "https://megaplay.buzz"
+    else:
+        provider_origin = "https://vidtube.site"
+
+    return {
+        "User-Agent": "Mozilla/5.0",
+        "Origin": provider_origin,
+        "Referer": provider_origin + "/",
+    }
+
+
+def _proxied_hls_path(resource_url):
+    endpoint = "/proxy/m3u8" if ".m3u8" in resource_url.lower() else "/proxy/ts"
+    return f"{endpoint}?url={quote(resource_url, safe='')}"
+
+
+def _rewrite_hls_attribute_urls(line, playlist_url):
+    def replace_uri(match):
+        resource_url = urljoin(playlist_url, match.group(1))
+        return f'URI="{_proxied_hls_path(resource_url)}"'
+
+    return re.sub(r'URI="([^"]+)"', replace_uri, line)
 
 # ---------------------------------------------------------------------------
 # API endpoints
@@ -386,15 +426,9 @@ def proxy_m3u8():
     if not target or not _is_allowed_video_url(target):
         return "invalid url", 400
 
-    base = target.rsplit("/", 1)[0]
-    headers = {
-        "User-Agent": "Mozilla/5.0",
-        "Origin": "https://vidtube.site",
-        "Referer": "https://vidtube.site/",
-    }
-    req = Request(target, headers=headers)
+    req = Request(target, headers=_hls_request_headers(target))
     try:
-        resp = urlopen(req, timeout=15)
+        resp = video_opener.open(req, timeout=15)
         content = resp.read().decode("utf-8", errors="replace")
     except Exception:
         return "m3u8 unavailable", 502
@@ -402,18 +436,10 @@ def proxy_m3u8():
     lines = []
     for line in content.splitlines():
         s = line.strip()
-        if s and not s.startswith("#"):
-            if s.startswith("http"):
-                seg = s
-            elif s.startswith("/"):
-                seg = f"https://{urlparse(target).hostname}{s}"
-            else:
-                seg = f"{base}/{s}"
-            proxy_path = "/proxy/m3u8" if ".m3u8" in seg else "/proxy/ts"
-            line = f"{proxy_path}?url={quote(seg, safe='')}"
-            # Prepend host for tools like ffmpeg that need absolute URLs
-            if flask.request.host:
-                line = f"http://{flask.request.host}{line}"
+        if s.startswith("#"):
+            line = _rewrite_hls_attribute_urls(line, target)
+        elif s:
+            line = _proxied_hls_path(urljoin(target, s))
         lines.append(line)
 
     rv = flask.Response("\n".join(lines))
@@ -430,10 +456,9 @@ def proxy_ts():
     if not target or not _is_allowed_video_url(target):
         return "invalid url", 400
 
-    headers = {"User-Agent": "Mozilla/5.0", "Origin": "https://vidtube.site", "Referer": "https://vidtube.site/"}
-    req = Request(target, headers=headers)
+    req = Request(target, headers=_hls_request_headers(target))
     try:
-        resp = urlopen(req, timeout=15)
+        resp = video_opener.open(req, timeout=15)
         rv = flask.Response(flask.stream_with_context(iter(lambda: resp.read(65536), b"")))
         rv.headers["Content-Type"] = resp.headers.get("Content-Type", "video/mp2t")
         rv.headers["Access-Control-Allow-Origin"] = "*"
