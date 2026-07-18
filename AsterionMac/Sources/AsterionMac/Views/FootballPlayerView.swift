@@ -170,7 +170,8 @@ struct FootballPlayerView: View {
     }
 
     private func sourceMetadata(_ stream: FootballStream) -> String {
-        var parts = [stream.language.uppercased()]
+        var parts: [String] = []
+        if !stream.language.isEmpty { parts.append(stream.language.uppercased()) }
         if stream.hd { parts.append("HD") }
         if let viewers = stream.viewers { parts.append("\(viewers.formatted()) watching") }
         return parts.joined(separator: " · ")

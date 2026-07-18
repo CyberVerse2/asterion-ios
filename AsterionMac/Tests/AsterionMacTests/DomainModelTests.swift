@@ -23,7 +23,7 @@ struct DomainModelTests {
             ##"{"id":"international-match","title":"International Match","category":"football","date":1784350800000,"poster":null,"posterURL":null,"popular":false,"isLive":false,"teams":null,"sources":[{"source":"new-provider","id":"source-42"}]}"##.utf8
         )
         let streamData = Data(
-            ##"{"streams":[{"id":"source-42","streamNo":3,"language":"English","hd":true,"embedUrl":"https://player.example/embed/source-42","source":"new-provider","viewers":1250}],"matchId":"international-match","homeTeam":null,"awayTeam":null}"##.utf8
+            ##"{"streams":[{"id":"source-42","streamNo":3,"language":"","hd":true,"embedUrl":"https://player.example/embed/source-42","source":"new-provider","viewers":1250}],"matchId":"international-match","homeTeam":null,"awayTeam":null}"##.utf8
         )
 
         let match = try animeDecoder.decode(FootballMatch.self, from: matchData)
@@ -38,7 +38,7 @@ struct DomainModelTests {
         #expect(match.teams == nil)
         #expect(match.sources.first?.source == "new-provider")
         #expect(stream.optionID == "new-provider-source-42-3")
-        #expect(stream.displayName == "New-Provider · ENGLISH · HD")
+        #expect(stream.displayName == "New-Provider · HD")
         #expect(roundTrippedRoute == route)
     }
 

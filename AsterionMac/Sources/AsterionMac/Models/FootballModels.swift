@@ -147,7 +147,8 @@ struct FootballStream: Identifiable, Codable, Hashable, Sendable {
 
     var optionID: String { "\(source)-\(id)-\(streamNumber)" }
     var displayName: String {
-        var parts = [source.capitalized, language.uppercased()]
+        var parts = [source.capitalized]
+        if !language.isEmpty { parts.append(language.uppercased()) }
         if hd { parts.append("HD") }
         return parts.joined(separator: " · ")
     }
