@@ -299,6 +299,27 @@ struct DomainModelTests {
         } catch let error as AnimeSubtitleLoadError {
             #expect(error == .invalidSource(label: "English"))
         }
+
+        let redirectDelegate = AnimeSubtitleRedirectDelegate()
+        let redirectResponse = try #require(
+            HTTPURLResponse(
+                url: trackURL,
+                statusCode: 302,
+                httpVersion: "HTTP/1.1",
+                headerFields: ["Location": "http://media.example/English.vtt"]
+            )
+        )
+        let insecureRedirect = URLRequest(
+            url: try #require(URL(string: "http://media.example/English.vtt"))
+        )
+        let redirectResult = await redirectDelegate.urlSession(
+            session,
+            task: session.dataTask(with: trackURL),
+            willPerformHTTPRedirection: redirectResponse,
+            newRequest: insecureRedirect
+        )
+        #expect(redirectResult == nil)
+        #expect(redirectDelegate.blockedRedirect)
     }
 
     @Test func embeddedMediaNavigationAllowsOnlySecureRemotePages() throws {

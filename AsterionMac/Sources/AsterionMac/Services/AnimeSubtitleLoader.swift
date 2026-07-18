@@ -73,9 +73,16 @@ enum AnimeSubtitleLoader {
         request.setValue("https://vidtube.site/", forHTTPHeaderField: "Referer")
         request.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
 
-        let (bytes, response) = try await session.bytes(for: request)
+        let redirectDelegate = AnimeSubtitleRedirectDelegate()
+        let (bytes, response) = try await session.bytes(
+            for: request,
+            delegate: redirectDelegate
+        )
         guard let response = response as? HTTPURLResponse else {
             throw AnimeSubtitleLoadError.invalidPayload(label: track.label)
+        }
+        guard !redirectDelegate.blockedRedirect else {
+            throw AnimeSubtitleLoadError.invalidSource(label: track.label)
         }
         guard let responseURL = response.url, isSecureTrackURL(responseURL) else {
             throw AnimeSubtitleLoadError.invalidSource(label: track.label)
@@ -110,10 +117,32 @@ enum AnimeSubtitleLoader {
         )
     }
 
-    private static func isSecureTrackURL(_ url: URL) -> Bool {
+    static func isSecureTrackURL(_ url: URL) -> Bool {
         url.scheme?.lowercased() == "https"
             && url.host != nil
             && url.user == nil
             && url.password == nil
+    }
+}
+
+final class AnimeSubtitleRedirectDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    private let lock = NSLock()
+    private var didBlockRedirect = false
+
+    var blockedRedirect: Bool {
+        lock.withLock { didBlockRedirect }
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest
+    ) async -> URLRequest? {
+        guard let url = request.url, AnimeSubtitleLoader.isSecureTrackURL(url) else {
+            lock.withLock { didBlockRedirect = true }
+            return nil
+        }
+        return request
     }
 }
