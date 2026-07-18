@@ -180,21 +180,25 @@ actor MovieAPI {
         var request = URLRequest(url: url)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
-        let response: CachedHTTPResponse
-        if cacheLifetime > 0 {
-            response = try await responseCache.response(
-                for: request,
-                session: session,
-                namespace: namespace,
-                lifetime: cacheLifetime
-            )
-        } else {
-            let (data, urlResponse) = try await session.data(for: request)
-            guard let httpResponse = urlResponse as? HTTPURLResponse else {
-                throw MovieAPIError.invalidResponse
+        var response: CachedHTTPResponse?
+        for attempt in 0..<3 {
+            do {
+                let candidate = try await loadResponse(
+                    for: request,
+                    namespace: namespace,
+                    cacheLifetime: cacheLifetime
+                )
+                if Self.retryableStatusCodes.contains(candidate.statusCode), attempt < 2 {
+                    try await Task.sleep(for: .milliseconds(500 * (attempt + 1)))
+                    continue
+                }
+                response = candidate
+                break
+            } catch let error as URLError where attempt < 2 && Self.isRetryable(error) {
+                try await Task.sleep(for: .milliseconds(500 * (attempt + 1)))
             }
-            response = CachedHTTPResponse(data: data, statusCode: httpResponse.statusCode)
         }
+        guard let response else { throw MovieAPIError.invalidResponse }
         guard 200..<300 ~= response.statusCode else {
             let envelope = try? Self.decoder.decode(ErrorEnvelope.self, from: response.data)
             throw MovieAPIError.http(
@@ -208,6 +212,33 @@ actor MovieAPI {
         } catch {
             throw MovieAPIError.invalidPayload
         }
+    }
+
+    private func loadResponse(
+        for request: URLRequest,
+        namespace: String,
+        cacheLifetime: TimeInterval
+    ) async throws -> CachedHTTPResponse {
+        if cacheLifetime > 0 {
+            return try await responseCache.response(
+                for: request,
+                session: session,
+                namespace: namespace,
+                lifetime: cacheLifetime
+            )
+        }
+
+        let (data, urlResponse) = try await session.data(for: request)
+        guard let httpResponse = urlResponse as? HTTPURLResponse else {
+            throw MovieAPIError.invalidResponse
+        }
+        return CachedHTTPResponse(data: data, statusCode: httpResponse.statusCode)
+    }
+
+    private static let retryableStatusCodes: Set<Int> = [429, 500, 502, 503, 504]
+
+    private static func isRetryable(_ error: URLError) -> Bool {
+        ![.badURL, .unsupportedURL, .cancelled].contains(error.code)
     }
 
     private static let decoder = JSONDecoder()

@@ -83,12 +83,15 @@ final class AppModel: ObservableObject {
     private var remoteNovelIDs: Set<String> = []
     private var progressSaveGenerationByKey: [String: UInt] = [:]
     private var accountErrors: [AccountErrorSource: String] = [:]
+    private var retryableAccountErrorReasons: [AccountErrorSource: String] = [:]
     private var hasStarted = false
     private var isSynchronizingSession = false
     private var shouldResynchronizeSession = false
     private var shouldForceSessionResync = false
+    private var accountBootstrappedOwnerID: String?
     private var authEventsTask: Task<Void, Never>?
     private var networkEventsTask: Task<Void, Never>?
+    private var accountSyncRetryTask: Task<Void, Never>?
     private var mediaOutboxTask: Task<Void, Never>?
     private var startedMediaSessionIDs: Set<String> = []
     private var mediaHydratedOwnerID: String?
@@ -97,6 +100,7 @@ final class AppModel: ObservableObject {
     deinit {
         authEventsTask?.cancel()
         networkEventsTask?.cancel()
+        accountSyncRetryTask?.cancel()
         mediaOutboxTask?.cancel()
         networkStatus.cancel()
     }
@@ -543,9 +547,13 @@ final class AppModel: ObservableObject {
                 }
                 return
             }
-            let message = "The bookmark is saved on this Mac and will sync automatically: \(error.localizedDescription)"
+            let message = "The bookmark is saved on this Mac. Account sync will retry automatically: \(error.localizedDescription)"
             mediaBookmarkError = message
-            setAccountError(.mediaBookmarkMutation, message)
+            setAccountError(
+                .mediaBookmarkMutation,
+                message,
+                retryableReason: error.localizedDescription
+            )
             scheduleMediaOutboxFlush(ownerID: ownerID)
         }
     }
@@ -668,7 +676,8 @@ final class AppModel: ObservableObject {
             }
             setAccountError(
                 .mediaProgressSave,
-                "Watch progress is saved on this Mac and will sync automatically: \(error.localizedDescription)"
+                "Watch progress is saved on this Mac. Account sync will retry automatically: \(error.localizedDescription)",
+                retryableReason: error.localizedDescription
             )
             scheduleMediaOutboxFlush(ownerID: ownerID)
         }
@@ -688,9 +697,11 @@ final class AppModel: ObservableObject {
             setAccountError(.progressSave, nil)
             return server
         } catch {
-            setAccountError(
-                .progressSave,
-                "Progress is unavailable until the connection returns: \(error.localizedDescription)"
+            recordSyncFailure(
+                source: .progressSync,
+                message: "Reading progress could not be refreshed: \(error.localizedDescription)",
+                error: error,
+                ownerID: ownerID
             )
             return nil
         }
@@ -745,9 +756,11 @@ final class AppModel: ObservableObject {
         } catch is CancellationError {
             return
         } catch {
-            setAccountError(
-                .progressSave,
-                "Progress is saved offline and will sync automatically: \(error.localizedDescription)"
+            recordSyncFailure(
+                source: .progressSave,
+                message: "Reading progress is saved on this Mac. Account sync will retry automatically: \(error.localizedDescription)",
+                error: error,
+                ownerID: ownerID
             )
         }
     }
@@ -802,6 +815,9 @@ final class AppModel: ObservableObject {
         guard let clerkUser = Clerk.shared.user else {
             await progressUploadQueue.cancelAll()
             await mediaProgressUploadQueue.cancelAll()
+            accountSyncRetryTask?.cancel()
+            accountSyncRetryTask = nil
+            accountBootstrappedOwnerID = nil
             mediaOutboxTask?.cancel()
             mediaOutboxTask = nil
             startedMediaSessionIDs = []
@@ -839,6 +855,9 @@ final class AppModel: ObservableObject {
         await progressUploadQueue.cancelAll(exceptOwnerID: clerkUser.id)
         await mediaProgressUploadQueue.cancelAll(exceptOwnerID: clerkUser.id)
         if changesOwner {
+            accountSyncRetryTask?.cancel()
+            accountSyncRetryTask = nil
+            accountBootstrappedOwnerID = nil
             mediaOutboxTask?.cancel()
             mediaOutboxTask = nil
             startedMediaSessionIDs = []
@@ -898,15 +917,34 @@ final class AppModel: ObservableObject {
             return
         }
 
+        var didBootstrapAccount = false
+        if accountBootstrappedOwnerID != clerkUser.id {
+            let profileReady = await synchronizeProfileForSession(
+                ownerID: clerkUser.id,
+                email: email,
+                name: name,
+                avatarURL: clerkUser.imageUrl
+            )
+            guard profileReady else {
+                finishMediaHydration(ownerID: clerkUser.id)
+                return
+            }
+            accountBootstrappedOwnerID = clerkUser.id
+            didBootstrapAccount = true
+        }
+
         async let progressSync: Void = synchronizeProgressForSession(ownerID: clerkUser.id)
-        async let profileSync: Void = synchronizeProfileForSession(
-            email: email,
-            name: name,
-            avatarURL: clerkUser.imageUrl
-        )
         async let librarySync: Void = synchronizeLibraryForSession()
         async let mediaSync: Void = synchronizeMediaAccountForSession(ownerID: clerkUser.id)
-        _ = await (progressSync, profileSync, librarySync, mediaSync)
+        if (!accountIsUnchanged || accountErrors[.profileSync] != nil), !didBootstrapAccount {
+            _ = await synchronizeProfileForSession(
+                ownerID: clerkUser.id,
+                email: email,
+                name: name,
+                avatarURL: clerkUser.imageUrl
+            )
+        }
+        _ = await (progressSync, librarySync, mediaSync)
     }
 
     private var progressOwnerID: String {
@@ -924,19 +962,24 @@ final class AppModel: ObservableObject {
         do {
             try await synchronizeReadingProgress(ownerID: ownerID)
             setAccountError(.progressSync, nil)
+            setAccountError(.progressSave, nil)
         } catch {
-            setAccountError(
-                .progressSync,
-                "Reading progress is using the local copy until sync succeeds: \(error.localizedDescription)"
+            recordSyncFailure(
+                source: .progressSync,
+                message: "Reading progress could not sync yet: \(error.localizedDescription)",
+                error: error,
+                ownerID: ownerID
             )
         }
     }
 
+    @discardableResult
     private func synchronizeProfileForSession(
+        ownerID: String,
         email: String?,
         name: String,
         avatarURL: String?
-    ) async {
+    ) async -> Bool {
         do {
             _ = try await api.updateProfile(
                 email: email,
@@ -944,11 +987,15 @@ final class AppModel: ObservableObject {
                 avatarURL: avatarURL
             )
             setAccountError(.profileSync, nil)
+            return true
         } catch {
-            setAccountError(
-                .profileSync,
-                "The profile could not be updated: \(error.localizedDescription)"
+            recordSyncFailure(
+                source: .profileSync,
+                message: "Your profile could not sync yet: \(error.localizedDescription)",
+                error: error,
+                ownerID: ownerID
             )
+            return false
         }
     }
 
@@ -958,9 +1005,12 @@ final class AppModel: ObservableObject {
             libraryNovelIDs = Set(records.map(\.novelId))
             setAccountError(.librarySync, nil)
         } catch {
-            setAccountError(
-                .librarySync,
-                "The saved library could not be loaded: \(error.localizedDescription)"
+            guard let ownerID = signedInUser?.id else { return }
+            recordSyncFailure(
+                source: .librarySync,
+                message: "The saved library could not sync yet: \(error.localizedDescription)",
+                error: error,
+                ownerID: ownerID
             )
         }
     }
@@ -968,6 +1018,7 @@ final class AppModel: ObservableObject {
     private func synchronizeMediaAccountForSession(ownerID: String) async {
         defer { finishMediaHydration(ownerID: ownerID) }
         var failures: [String] = []
+        var retryableReasons: [String] = []
 
         do {
             try await flushMediaOutbox(ownerID: ownerID)
@@ -975,6 +1026,9 @@ final class AppModel: ObservableObject {
             failures.append(error.localizedDescription)
         } catch {
             failures.append("Pending watch activity could not be uploaded: \(error.localizedDescription)")
+            if isRetryableAccountSyncError(error) {
+                retryableReasons.append(error.localizedDescription)
+            }
             scheduleMediaOutboxFlush(ownerID: ownerID)
         }
 
@@ -989,6 +1043,9 @@ final class AppModel: ObservableObject {
             )
         } catch {
             failures.append("Account media could not be downloaded: \(error.localizedDescription)")
+            if isRetryableAccountSyncError(error) {
+                retryableReasons.append(error.localizedDescription)
+            }
         }
 
         do {
@@ -999,12 +1056,18 @@ final class AppModel: ObservableObject {
 
         if failures.isEmpty {
             setAccountError(.mediaSync, nil)
+            setAccountError(.mediaBookmarkMutation, nil)
+            setAccountError(.mediaProgressSave, nil)
+            mediaBookmarkError = nil
         } else {
             setAccountError(
                 .mediaSync,
-                "Watch activity is using the copy on this Mac until sync succeeds. "
-                    + failures.joined(separator: " ")
+                "Watch activity could not sync yet. " + failures.joined(separator: " "),
+                retryableReason: retryableReasons.first
             )
+            if !retryableReasons.isEmpty {
+                scheduleAccountSyncRetry(ownerID: ownerID)
+            }
         }
     }
 
@@ -1141,7 +1204,8 @@ final class AppModel: ObservableObject {
                 } catch {
                     self.setAccountError(
                         .mediaSync,
-                        "Saved media activity will retry automatically: \(error.localizedDescription)"
+                        "Saved media activity will retry automatically: \(error.localizedDescription)",
+                        retryableReason: error.localizedDescription
                     )
                 }
 
@@ -1179,6 +1243,64 @@ final class AppModel: ObservableObject {
         guard case APIError.http(let statusCode, _) = error else { return false }
         return (400..<500).contains(statusCode)
             && ![401, 408, 425, 429].contains(statusCode)
+    }
+
+    private func isRetryableAccountSyncError(_ error: Error) -> Bool {
+        if error is CancellationError { return false }
+        if let urlError = error as? URLError {
+            return ![.badURL, .unsupportedURL, .cancelled].contains(urlError.code)
+        }
+        guard let apiError = error as? APIError else { return false }
+        switch apiError {
+        case .invalidResponse:
+            return true
+        case .unauthorized:
+            return false
+        case .http(let statusCode, _):
+            return statusCode == 408
+                || statusCode == 425
+                || statusCode == 429
+                || statusCode >= 500
+        }
+    }
+
+    private func recordSyncFailure(
+        source: AccountErrorSource,
+        message: String,
+        error: Error,
+        ownerID: String
+    ) {
+        let retryable = isRetryableAccountSyncError(error)
+        setAccountError(
+            source,
+            message,
+            retryableReason: retryable ? error.localizedDescription : nil
+        )
+        if retryable {
+            scheduleAccountSyncRetry(ownerID: ownerID)
+        }
+    }
+
+    private func scheduleAccountSyncRetry(ownerID: String) {
+        guard signedInUser?.id == ownerID, accountSyncRetryTask == nil else { return }
+        accountSyncRetryTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.accountSyncRetryTask = nil }
+            var retryDelay = Duration.seconds(2)
+
+            while !Task.isCancelled, self.signedInUser?.id == ownerID {
+                guard !self.retryableAccountErrorReasons.isEmpty else { return }
+                do {
+                    try await Task.sleep(for: retryDelay)
+                } catch {
+                    return
+                }
+                guard !self.retryableAccountErrorReasons.isEmpty else { return }
+                await self.synchronizeSession(forceRemote: true)
+                guard !self.retryableAccountErrorReasons.isEmpty else { return }
+                retryDelay = min(retryDelay * 2, .seconds(300))
+            }
+        }
     }
 
     private func synchronizeReadingProgress(ownerID: String) async throws {
@@ -1279,18 +1401,23 @@ final class AppModel: ObservableObject {
         ownerID + "\u{0}" + novelID
     }
 
-    private func setAccountError(_ source: AccountErrorSource, _ message: String?) {
+    private func setAccountError(
+        _ source: AccountErrorSource,
+        _ message: String?,
+        retryableReason: String? = nil
+    ) {
         if let message, !message.isEmpty {
             accountErrors[source] = message
+            if let retryableReason, !retryableReason.isEmpty {
+                retryableAccountErrorReasons[source] = retryableReason
+            } else {
+                retryableAccountErrorReasons.removeValue(forKey: source)
+            }
         } else {
             accountErrors.removeValue(forKey: source)
+            retryableAccountErrorReasons.removeValue(forKey: source)
         }
-        accountError = AccountErrorSource.allCases
-            .compactMap { accountErrors[$0] }
-            .joined(separator: "\n")
-        if accountError?.isEmpty == true {
-            accountError = nil
-        }
+        rebuildAccountError()
     }
 
     private func clearRemoteAccountErrors() {
@@ -1308,13 +1435,30 @@ final class AppModel: ObservableObject {
             .mediaProgressSave,
         ] {
             accountErrors.removeValue(forKey: source)
+            retryableAccountErrorReasons.removeValue(forKey: source)
         }
-        accountError = AccountErrorSource.allCases
-            .compactMap { accountErrors[$0] }
-            .joined(separator: "\n")
-        if accountError?.isEmpty == true {
-            accountError = nil
+        rebuildAccountError()
+    }
+
+    private func rebuildAccountError() {
+        var messages: [String] = AccountErrorSource.allCases.compactMap { source -> String? in
+            guard retryableAccountErrorReasons[source] == nil else { return nil }
+            return accountErrors[source]
         }
+
+        var seenReasons = Set<String>()
+        let retryableReasons = AccountErrorSource.allCases.compactMap {
+            retryableAccountErrorReasons[$0]
+        }.filter { seenReasons.insert($0).inserted }
+        if !retryableReasons.isEmpty {
+            messages.append(
+                "Account sync is temporarily unavailable. Changes remain saved on this Mac, "
+                    + "and Asterion will retry automatically. "
+                    + retryableReasons.joined(separator: " ")
+            )
+        }
+
+        accountError = messages.isEmpty ? nil : messages.joined(separator: "\n")
     }
 
     private func updateOfflineDownload(

@@ -66,6 +66,11 @@ struct ReadingProgress: Identifiable, Codable, Hashable, Sendable {
 }
 
 actor APIClient {
+    private struct ErrorEnvelope: Decodable {
+        let error: String?
+        let message: String?
+    }
+
     private struct DataEnvelope<Value: Decodable & Sendable>: Decodable, Sendable {
         let data: Value
     }
@@ -400,7 +405,11 @@ actor APIClient {
         }
         guard 200..<300 ~= response.statusCode else {
             if response.statusCode == 401 { throw APIError.unauthorized }
-            let message = String(data: data, encoding: .utf8) ?? ""
+            let envelope = try? JSONDecoder().decode(ErrorEnvelope.self, from: data)
+            let message = envelope?.message
+                ?? envelope?.error
+                ?? String(data: data, encoding: .utf8)
+                ?? ""
             throw APIError.http(statusCode: response.statusCode, message: message)
         }
         return try Self.decoder.decode(Response.self, from: data)

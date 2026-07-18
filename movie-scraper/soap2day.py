@@ -10,6 +10,8 @@ from urllib.parse import quote_plus, urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 BASE = "https://ww25.soap2day.day"
 HEADERS = {
@@ -95,6 +97,17 @@ class ShowDetail:
 
 _session = requests.Session()
 _session.headers.update(HEADERS)
+_retry_policy = Retry(
+    total=2,
+    connect=2,
+    read=2,
+    status=2,
+    backoff_factor=0.5,
+    status_forcelist=(429, 500, 502, 503, 504),
+    allowed_methods=frozenset({"GET"}),
+    raise_on_status=True,
+)
+_session.mount("https://", HTTPAdapter(max_retries=_retry_policy))
 
 
 def _get(url: str) -> str:
