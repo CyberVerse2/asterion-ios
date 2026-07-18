@@ -23,12 +23,6 @@ struct SavedMediaCatalogView: View {
         }
     }
 
-    private var automaticSelectionID: String {
-        visibleBookmarks.map(\.contentId).joined(separator: "\u{1F}")
-            + "\u{0}"
-            + (selectedContentID ?? "")
-    }
-
     var body: some View {
         Group {
             if !isSignedIn {
@@ -41,13 +35,6 @@ struct SavedMediaCatalogView: View {
         }
         .background(.background)
         .navigationTitle("Bookmarks")
-        .task(id: automaticSelectionID) {
-            guard let first = visibleBookmarks.first,
-                  !visibleBookmarks.contains(where: { $0.contentId == selectedContentID }) else {
-                return
-            }
-            await select(first)
-        }
     }
 
     private var bookmarkGrid: some View {

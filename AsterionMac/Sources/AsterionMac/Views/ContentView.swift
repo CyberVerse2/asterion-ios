@@ -14,6 +14,8 @@ struct ContentView: View {
     @State private var columnVisibility = NavigationSplitViewVisibility.all
     @State private var searchText = ""
     @State private var showsDownloads = false
+    @State private var selectedAnimeBookmarkID: String?
+    @State private var selectedMovieBookmarkID: String?
 
     private var mode: Binding<AppMode> {
         Binding(
@@ -21,6 +23,11 @@ struct ContentView: View {
             set: { newValue in
                 selectedModeRaw = newValue.rawValue
                 searchText = ""
+                if newValue == .anime, animeSection.wrappedValue == .bookmarks {
+                    selectedAnimeBookmarkID = nil
+                } else if newValue == .movies, movieSection.wrappedValue == .bookmarks {
+                    selectedMovieBookmarkID = nil
+                }
                 if newValue == .novels {
                     ensureSelection()
                 }
@@ -47,6 +54,9 @@ struct ContentView: View {
             set: { newValue in
                 selectedAnimeSectionRaw = newValue.rawValue
                 searchText = ""
+                if newValue == .bookmarks {
+                    selectedAnimeBookmarkID = nil
+                }
             }
         )
     }
@@ -57,6 +67,9 @@ struct ContentView: View {
             set: { newValue in
                 selectedMovieSectionRaw = newValue.rawValue
                 searchText = ""
+                if newValue == .bookmarks {
+                    selectedMovieBookmarkID = nil
+                }
             }
         )
     }
@@ -198,7 +211,7 @@ struct ContentView: View {
                 bookmarks: bookmarks(for: .anime),
                 query: searchText,
                 isSignedIn: model.isSignedIn,
-                selectedContentID: animeStore.selectedTitleID,
+                selectedContentID: selectedAnimeBookmarkID,
                 select: selectAnimeBookmark
             )
         } else if mode.wrappedValue == .anime {
@@ -213,7 +226,7 @@ struct ContentView: View {
                 bookmarks: bookmarks(for: .movie),
                 query: searchText,
                 isSignedIn: model.isSignedIn,
-                selectedContentID: movieStore.selectedTitleID,
+                selectedContentID: selectedMovieBookmarkID,
                 select: selectMovieBookmark
             )
         } else if mode.wrappedValue == .movies {
@@ -245,13 +258,13 @@ struct ContentView: View {
     private var detailColumn: some View {
         if mode.wrappedValue == .anime,
            animeSection.wrappedValue == .bookmarks,
-           !hasSelectedBookmark(for: .anime, contentID: animeStore.selectedTitleID) {
+           !hasSelectedBookmark(for: .anime, contentID: selectedAnimeBookmarkID) {
             savedMediaDetailPlaceholder(for: .anime)
         } else if mode.wrappedValue == .anime {
             AnimeDetailView(store: animeStore)
         } else if mode.wrappedValue == .movies,
                   movieSection.wrappedValue == .bookmarks,
-                  !hasSelectedBookmark(for: .movie, contentID: movieStore.selectedTitleID) {
+                  !hasSelectedBookmark(for: .movie, contentID: selectedMovieBookmarkID) {
             savedMediaDetailPlaceholder(for: .movie)
         } else if mode.wrappedValue == .movies {
             MovieDetailView(store: movieStore)
@@ -399,6 +412,7 @@ struct ContentView: View {
 
     @MainActor
     private func selectAnimeBookmark(_ bookmark: MediaBookmark) async {
+        selectedAnimeBookmarkID = bookmark.contentId
         await animeStore.select(
             AnimeTitle(
                 slug: bookmark.contentId,
@@ -413,6 +427,7 @@ struct ContentView: View {
 
     @MainActor
     private func selectMovieBookmark(_ bookmark: MediaBookmark) async {
+        selectedMovieBookmarkID = bookmark.contentId
         await movieStore.select(
             MovieTitle(
                 id: bookmark.contentId,
