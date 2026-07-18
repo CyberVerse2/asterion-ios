@@ -285,7 +285,7 @@ def show_detail(slug: str) -> Optional[ShowDetail]:
     title_el = soup.select_one("h1[itemprop=name]") or soup.select_one(".mvic-desc h3") or soup.select_one("h1")
     title = _text(title_el) if title_el else slug.replace("-", " ").title()
 
-    is_tv = soup.select_one(".mvici-left p:has(strong:contains('TV'))") is not None
+    is_tv = soup.select_one(".mvici-left p:has(strong:-soup-contains('TV'))") is not None
     is_tv = is_tv or soup.select_one(".seasons") is not None
     is_tv = is_tv or soup.select_one(".episodes-list") is not None
     is_tv = is_tv or soup.select_one(".tvseason") is not None
