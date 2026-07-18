@@ -1,6 +1,4 @@
-import AVKit
 import SwiftUI
-import WebKit
 
 struct MoviePlayerView: View {
     let route: MoviePlayerRoute
@@ -215,9 +213,9 @@ struct MoviePlayerView: View {
             } else if let option = store.selectedPlaybackOption {
                 switch option.kind {
                 case .direct:
-                    MovieDirectPlayer(url: option.url).id(option.id)
+                    MediaDirectPlayer(url: option.url).id(option.id)
                 case .web:
-                    MovieWebPlayer(url: option.url).id(option.id)
+                    MediaWebPlayer(url: option.url).id(option.id)
                 }
             } else {
                 ContentUnavailableView(
@@ -247,44 +245,5 @@ struct MoviePlayerView: View {
         let season = selectedSeason ?? store.selectedEpisode?.season ?? availableSeasons.first
         guard let season else { return [] }
         return store.episodes.filter { $0.season == season }
-    }
-}
-
-private struct MovieDirectPlayer: View {
-    @State private var player: AVPlayer
-
-    init(url: URL) {
-        _player = State(initialValue: AVPlayer(url: url))
-    }
-
-    var body: some View {
-        VideoPlayer(player: player)
-            .onAppear { player.play() }
-            .onDisappear { player.pause() }
-    }
-}
-
-private struct MovieWebPlayer: NSViewRepresentable {
-    let url: URL
-
-    func makeNSView(context: Context) -> WKWebView {
-        let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .nonPersistent()
-        configuration.allowsAirPlayForMediaPlayback = true
-        configuration.preferences.isElementFullscreenEnabled = true
-
-        let webView = WKWebView(frame: .zero, configuration: configuration)
-        webView.load(URLRequest(url: url))
-        return webView
-    }
-
-    func updateNSView(_ webView: WKWebView, context: Context) {
-        guard webView.url != url else { return }
-        webView.load(URLRequest(url: url))
-    }
-
-    static func dismantleNSView(_ webView: WKWebView, coordinator: ()) {
-        webView.stopLoading()
-        webView.loadHTMLString("", baseURL: nil)
     }
 }
