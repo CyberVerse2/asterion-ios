@@ -22,6 +22,7 @@ enum MovieSection: String, CaseIterable, Codable, Hashable, Sendable {
     case tvShows
     case popular
     case genres
+    case bookmarks
 
     var title: String {
         switch self {
@@ -30,6 +31,7 @@ enum MovieSection: String, CaseIterable, Codable, Hashable, Sendable {
         case .tvShows: "TV Shows"
         case .popular: "Popular"
         case .genres: "Genres"
+        case .bookmarks: "Bookmarks"
         }
     }
 
@@ -40,6 +42,7 @@ enum MovieSection: String, CaseIterable, Codable, Hashable, Sendable {
         case .tvShows: "tv"
         case .popular: "flame"
         case .genres: "square.grid.2x2"
+        case .bookmarks: "bookmark.fill"
         }
     }
 
@@ -50,6 +53,7 @@ enum MovieSection: String, CaseIterable, Codable, Hashable, Sendable {
         case .tvShows: "TV shows"
         case .popular: "Most popular"
         case .genres: "Browse by genre"
+        case .bookmarks: "Your bookmarks"
         }
     }
 
@@ -60,6 +64,7 @@ enum MovieSection: String, CaseIterable, Codable, Hashable, Sendable {
         case .tvShows: "Series organized by season and episode."
         case .popular: "The movies audiences return to most."
         case .genres: "Choose a shelf for your next watch."
+        case .bookmarks: "Movies and TV shows saved to your account."
         }
     }
 }
@@ -103,6 +108,7 @@ enum AnimeSection: String, CaseIterable, Codable, Hashable, Sendable {
     case popular
     case newReleases
     case genres
+    case bookmarks
 
     var title: String {
         switch self {
@@ -110,6 +116,7 @@ enum AnimeSection: String, CaseIterable, Codable, Hashable, Sendable {
         case .popular: "Popular"
         case .newReleases: "New Releases"
         case .genres: "Genres"
+        case .bookmarks: "Bookmarks"
         }
     }
 
@@ -119,6 +126,7 @@ enum AnimeSection: String, CaseIterable, Codable, Hashable, Sendable {
         case .popular: "flame"
         case .newReleases: "clock.badge.plus"
         case .genres: "square.grid.2x2"
+        case .bookmarks: "bookmark.fill"
         }
     }
 
@@ -128,6 +136,7 @@ enum AnimeSection: String, CaseIterable, Codable, Hashable, Sendable {
         case .popular: "Most popular"
         case .newReleases: "New releases"
         case .genres: "Browse by genre"
+        case .bookmarks: "Your bookmarks"
         }
     }
 
@@ -137,6 +146,7 @@ enum AnimeSection: String, CaseIterable, Codable, Hashable, Sendable {
         case .popular: "The shows drawing the biggest audience."
         case .newReleases: "New arrivals across series, films, and specials."
         case .genres: "Choose a genre to shape your next watch."
+        case .bookmarks: "Anime saved to your account."
         }
     }
 }

@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 
 struct SidebarView: View {
+    @EnvironmentObject private var model: AppModel
     let mode: AppMode
     @Binding var novelSelection: AppSection
     @Binding var animeSelection: AnimeSection
@@ -71,7 +72,11 @@ struct SidebarView: View {
                 List(selection: animeListSelection) {
                     Section("Anime") {
                         ForEach(AnimeSection.allCases, id: \.self) { section in
-                            Label(section.title, systemImage: section.systemImage)
+                            sidebarRow(
+                                title: section.title,
+                                systemImage: section.systemImage,
+                                count: section == .bookmarks ? animeBookmarkCount : nil
+                            )
                                 .tag(section)
                                 .help(section.title)
                         }
@@ -83,7 +88,11 @@ struct SidebarView: View {
                 List(selection: movieListSelection) {
                     Section("Movies") {
                         ForEach(MovieSection.allCases, id: \.self) { section in
-                            Label(section.title, systemImage: section.systemImage)
+                            sidebarRow(
+                                title: section.title,
+                                systemImage: section.systemImage,
+                                count: section == .bookmarks ? movieBookmarkCount : nil
+                            )
                                 .tag(section)
                                 .help(section.title)
                         }
@@ -106,6 +115,30 @@ struct SidebarView: View {
             }
         }
         .navigationTitle("Asterion")
+    }
+
+    private var animeBookmarkCount: Int {
+        model.mediaBookmarks.count { $0.mediaType == .anime }
+    }
+
+    private var movieBookmarkCount: Int {
+        model.mediaBookmarks.count { $0.mediaType == .movie }
+    }
+
+    private func sidebarRow(
+        title: String,
+        systemImage: String,
+        count: Int?
+    ) -> some View {
+        HStack(spacing: 8) {
+            Label(title, systemImage: systemImage)
+            Spacer(minLength: 8)
+            if let count, count > 0 {
+                Text(count, format: .number)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 
     private var brand: some View {

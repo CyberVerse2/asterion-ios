@@ -188,6 +188,8 @@ final class AnimeStore: ObservableObject {
             guard let selectedGenre else { return [] }
             loadedRequestKey = "\(section.rawValue):\(selectedGenre)"
             return try await api.fetchGenre(selectedGenre, page: page)
+        case .bookmarks:
+            return []
         }
     }
 

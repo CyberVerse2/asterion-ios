@@ -160,7 +160,7 @@ struct ContentView: View {
         }
         .sharedBackgroundVisibility(.hidden)
 
-        if mode.wrappedValue != .novels || section.wrappedValue != .account {
+        if showsRefreshAction {
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     Task { await refreshActiveCatalog() }
@@ -192,11 +192,29 @@ struct ContentView: View {
 
     @ViewBuilder
     private var catalogColumn: some View {
-        if mode.wrappedValue == .anime {
+        if mode.wrappedValue == .anime, animeSection.wrappedValue == .bookmarks {
+            SavedMediaCatalogView(
+                mediaType: .anime,
+                bookmarks: bookmarks(for: .anime),
+                query: searchText,
+                isSignedIn: model.isSignedIn,
+                selectedContentID: animeStore.selectedTitleID,
+                select: selectAnimeBookmark
+            )
+        } else if mode.wrappedValue == .anime {
             AnimeCatalogView(
                 store: animeStore,
                 section: animeSection.wrappedValue,
                 query: searchText
+            )
+        } else if mode.wrappedValue == .movies, movieSection.wrappedValue == .bookmarks {
+            SavedMediaCatalogView(
+                mediaType: .movie,
+                bookmarks: bookmarks(for: .movie),
+                query: searchText,
+                isSignedIn: model.isSignedIn,
+                selectedContentID: movieStore.selectedTitleID,
+                select: selectMovieBookmark
             )
         } else if mode.wrappedValue == .movies {
             MovieCatalogView(
@@ -225,8 +243,16 @@ struct ContentView: View {
 
     @ViewBuilder
     private var detailColumn: some View {
-        if mode.wrappedValue == .anime {
+        if mode.wrappedValue == .anime,
+           animeSection.wrappedValue == .bookmarks,
+           !hasSelectedBookmark(for: .anime, contentID: animeStore.selectedTitleID) {
+            savedMediaDetailPlaceholder(for: .anime)
+        } else if mode.wrappedValue == .anime {
             AnimeDetailView(store: animeStore)
+        } else if mode.wrappedValue == .movies,
+                  movieSection.wrappedValue == .bookmarks,
+                  !hasSelectedBookmark(for: .movie, contentID: movieStore.selectedTitleID) {
+            savedMediaDetailPlaceholder(for: .movie)
         } else if mode.wrappedValue == .movies {
             MovieDetailView(store: movieStore)
         } else if mode.wrappedValue == .football {
@@ -244,8 +270,12 @@ struct ContentView: View {
     private var searchPrompt: String {
         switch mode.wrappedValue {
         case .novels: "Search titles, authors, or genres"
-        case .anime: "Search anime"
-        case .movies: "Search movies and TV shows"
+        case .anime:
+            animeSection.wrappedValue == .bookmarks ? "Search saved anime" : "Search anime"
+        case .movies:
+            movieSection.wrappedValue == .bookmarks
+                ? "Search saved movies and TV shows"
+                : "Search movies and TV shows"
         case .football: "Search teams or competitions"
         }
     }
@@ -256,6 +286,19 @@ struct ContentView: View {
         case .anime: "Refresh Anime"
         case .movies: "Refresh Movies"
         case .football: "Refresh Football"
+        }
+    }
+
+    private var showsRefreshAction: Bool {
+        switch mode.wrappedValue {
+        case .novels:
+            section.wrappedValue != .account
+        case .anime:
+            animeSection.wrappedValue != .bookmarks
+        case .movies:
+            movieSection.wrappedValue != .bookmarks
+        case .football:
+            true
         }
     }
 
@@ -322,11 +365,13 @@ struct ContentView: View {
         case .novels:
             await model.loadCatalog()
         case .anime:
+            guard animeSection.wrappedValue != .bookmarks else { return }
             await animeStore.refresh(
                 section: animeSection.wrappedValue,
                 query: searchText
             )
         case .movies:
+            guard movieSection.wrappedValue != .bookmarks else { return }
             await movieStore.refresh(
                 section: movieSection.wrappedValue,
                 query: searchText
@@ -334,6 +379,67 @@ struct ContentView: View {
         case .football:
             await footballStore.refresh(section: footballSection.wrappedValue)
         }
+    }
+
+    private func bookmarks(for mediaType: MediaAccountType) -> [MediaBookmark] {
+        model.mediaBookmarks
+            .filter { $0.mediaType == mediaType }
+            .sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    private func hasSelectedBookmark(
+        for mediaType: MediaAccountType,
+        contentID: String?
+    ) -> Bool {
+        guard let contentID else { return false }
+        return model.mediaBookmarks.contains {
+            $0.mediaType == mediaType && $0.contentId == contentID
+        }
+    }
+
+    @MainActor
+    private func selectAnimeBookmark(_ bookmark: MediaBookmark) async {
+        await animeStore.select(
+            AnimeTitle(
+                slug: bookmark.contentId,
+                title: bookmark.title,
+                japaneseTitle: nil,
+                imageURL: bookmark.imageURL,
+                type: bookmark.subtitle,
+                episodeLabel: nil
+            )
+        )
+    }
+
+    @MainActor
+    private func selectMovieBookmark(_ bookmark: MediaBookmark) async {
+        await movieStore.select(
+            MovieTitle(
+                id: bookmark.contentId,
+                slug: bookmark.contentId,
+                title: bookmark.title,
+                imageURL: bookmark.imageURL,
+                imdbRating: nil,
+                runtime: nil,
+                year: nil,
+                type: bookmark.subtitle == "TV Series" ? "tv" : "movie",
+                quality: nil
+            )
+        )
+    }
+
+    private func savedMediaDetailPlaceholder(for mediaType: MediaAccountType) -> some View {
+        ContentUnavailableView(
+            model.isSignedIn ? "Select a bookmark" : "Sign in to view bookmarks",
+            systemImage: model.isSignedIn ? "bookmark" : "person.crop.circle.badge.questionmark",
+            description: Text(
+                model.isSignedIn
+                    ? "Choose a saved \(mediaType == .anime ? "anime" : "movie or TV show") from the middle column."
+                    : "Your bookmarks follow your Asterion account."
+            )
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(.background)
     }
 }
 
