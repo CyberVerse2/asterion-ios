@@ -6,6 +6,7 @@ RC4 crypto for AJAX endpoints.
 import re
 import json
 import base64
+from html.parser import HTMLParser
 from urllib.request import Request, urlopen
 from urllib.parse import quote_plus, quote, urlencode
 from dataclasses import dataclass, field
@@ -34,6 +35,14 @@ ALL_GENRES = [
     "shoujo-ai", "shounen", "shounen-ai", "slice-of-life", "space",
     "sports", "super-power", "supernatural", "suspense", "thriller",
     "vampire",
+]
+
+ALL_TYPES = [
+    "movie", "music", "ona", "ova", "special", "tv", "tv-short", "tv-special",
+]
+
+ALL_STATUSES = [
+    "not-yet-aired", "currently-airing", "finished-airing",
 ]
 
 
@@ -136,6 +145,101 @@ class SearchResult:
     url: Optional[str] = None
 
 
+@dataclass
+class ScheduleEntry:
+    slug: str
+    title: str
+    japanese_title: Optional[str]
+    time: str
+    episode_number: Optional[int]
+    passed: bool
+
+
+@dataclass
+class ScheduleDay:
+    label: str
+    entries: list[ScheduleEntry] = field(default_factory=list)
+
+
+class _ScheduleParser(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.days: list[ScheduleDay] = []
+        self._heading_parts: list[str] | None = None
+        self._current_day: ScheduleDay | None = None
+        self._entry: dict | None = None
+        self._span_parts: list[str] | None = None
+        self._span_index = 0
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, Optional[str]]]):
+        attributes = dict(attrs)
+        if tag == "h5":
+            self._heading_parts = []
+            return
+
+        if tag == "a" and self._current_day is not None:
+            href = attributes.get("href") or ""
+            match = re.search(r"/watch/([^/?]+)", href)
+            if match:
+                classes = (attributes.get("class") or "").split()
+                self._entry = {
+                    "slug": match.group(1),
+                    "passed": "passed" in classes,
+                    "time": "",
+                    "title": "",
+                    "japanese_title": None,
+                }
+                self._span_index = 0
+            return
+
+        if tag == "span" and self._entry is not None:
+            self._span_parts = []
+            if self._span_index == 1:
+                self._entry["japanese_title"] = attributes.get("data-jp") or None
+
+    def handle_data(self, data: str):
+        if self._heading_parts is not None:
+            self._heading_parts.append(data)
+        if self._span_parts is not None:
+            self._span_parts.append(data)
+
+    def handle_endtag(self, tag: str):
+        if tag == "h5" and self._heading_parts is not None:
+            label = " ".join("".join(self._heading_parts).split())
+            self._current_day = ScheduleDay(label=label)
+            self.days.append(self._current_day)
+            self._heading_parts = None
+            return
+
+        if tag == "span" and self._entry is not None and self._span_parts is not None:
+            value = " ".join("".join(self._span_parts).split())
+            if self._span_index == 0:
+                self._entry["time"] = value
+            else:
+                self._entry["title"] = value
+            self._span_index += 1
+            self._span_parts = None
+            return
+
+        if tag == "a" and self._entry is not None and self._current_day is not None:
+            title = self._entry["title"]
+            episode_match = re.search(r"\s+Ep\s*-\s*(\d+)\s*$", title, re.IGNORECASE)
+            episode_number = int(episode_match.group(1)) if episode_match else None
+            if episode_match:
+                title = title[:episode_match.start()].strip()
+            if title:
+                self._current_day.entries.append(ScheduleEntry(
+                    slug=self._entry["slug"],
+                    title=title,
+                    japanese_title=self._entry["japanese_title"],
+                    time=self._entry["time"],
+                    episode_number=episode_number,
+                    passed=self._entry["passed"],
+                ))
+            self._entry = None
+            self._span_parts = None
+
+
 # ---------------------------------------------------------------------------
 # HTTP helpers
 # ---------------------------------------------------------------------------
@@ -208,6 +312,30 @@ def by_season(season: str, year: int, page: int = 1) -> list[SearchResult]:
             "sort": "most-viewed",
         },
     )
+
+
+def by_type(anime_type: str, page: int = 1) -> list[SearchResult]:
+    if anime_type not in ALL_TYPES:
+        raise ValueError(f"Unsupported anime type: {anime_type}")
+    return _listing(f"/type/{anime_type}", page=page)
+
+
+def by_status(status: str, page: int = 1) -> list[SearchResult]:
+    if status not in ALL_STATUSES:
+        raise ValueError(f"Unsupported anime status: {status}")
+    return _listing(f"/status/{status}", page=page)
+
+
+def weekly_schedule(timezone_hours: float) -> list[ScheduleDay]:
+    payload = _get_json(
+        f"{BASE}/ajax/schedule?{urlencode({'tz': timezone_hours})}"
+    )
+    if payload.get("status") != 200 or not isinstance(payload.get("result"), str):
+        raise ValueError(payload.get("result") or "Animixplay schedule was unavailable")
+
+    parser = _ScheduleParser()
+    parser.feed(payload["result"])
+    return [day for day in parser.days if day.entries]
 
 
 def _listing_content(html: str) -> str:

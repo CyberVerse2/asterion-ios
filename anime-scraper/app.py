@@ -242,6 +242,49 @@ def api_amp_season():
     ]
 
 
+@app.route("/api/amp/type/<anime_type>")
+@_json_or_error
+def api_amp_type(anime_type):
+    anime_type = anime_type.strip().lower()
+    if anime_type not in animixplay.ALL_TYPES:
+        return flask.abort(404)
+    return [
+        result.__dict__
+        for result in animixplay.by_type(anime_type, page=_positive_page_arg())
+    ]
+
+
+@app.route("/api/amp/status/<status>")
+@_json_or_error
+def api_amp_status(status):
+    status = status.strip().lower()
+    if status not in animixplay.ALL_STATUSES:
+        return flask.abort(404)
+    return [
+        result.__dict__
+        for result in animixplay.by_status(status, page=_positive_page_arg())
+    ]
+
+
+@app.route("/api/amp/schedule")
+@_json_or_error
+def api_amp_schedule():
+    try:
+        timezone_hours = float(flask.request.args.get("tz", "0"))
+    except ValueError:
+        return flask.abort(400, description="tz must be a number of hours from GMT")
+    if not -12 <= timezone_hours <= 14:
+        return flask.abort(400, description="tz must be between -12 and 14")
+
+    return [
+        {
+            "label": day.label,
+            "entries": [entry.__dict__ for entry in day.entries],
+        }
+        for day in animixplay.weekly_schedule(timezone_hours)
+    ]
+
+
 @app.route("/api/amp/genres")
 def api_amp_genres():
     return flask.jsonify(animixplay.ALL_GENRES)
