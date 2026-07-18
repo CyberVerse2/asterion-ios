@@ -3,11 +3,61 @@ import Foundation
 enum AppMode: String, CaseIterable, Codable, Hashable, Sendable {
     case novels
     case anime
+    case movies
 
     var title: String {
         switch self {
         case .novels: "Novels"
         case .anime: "Anime"
+        case .movies: "Movies"
+        }
+    }
+}
+
+enum MovieSection: String, CaseIterable, Codable, Hashable, Sendable {
+    case discover
+    case movies
+    case tvShows
+    case popular
+    case genres
+
+    var title: String {
+        switch self {
+        case .discover: "Discover"
+        case .movies: "Movies"
+        case .tvShows: "TV Shows"
+        case .popular: "Popular"
+        case .genres: "Genres"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .discover: "sparkles.tv"
+        case .movies: "film"
+        case .tvShows: "tv"
+        case .popular: "flame"
+        case .genres: "square.grid.2x2"
+        }
+    }
+
+    var catalogTitle: String {
+        switch self {
+        case .discover: "Trending now"
+        case .movies: "All movies"
+        case .tvShows: "TV shows"
+        case .popular: "Most popular"
+        case .genres: "Browse by genre"
+        }
+    }
+
+    var catalogDescription: String {
+        switch self {
+        case .discover: "Films drawing attention right now."
+        case .movies: "Explore the full movie catalog."
+        case .tvShows: "Series organized by season and episode."
+        case .popular: "The movies audiences return to most."
+        case .genres: "Choose a shelf for your next watch."
         }
     }
 }
