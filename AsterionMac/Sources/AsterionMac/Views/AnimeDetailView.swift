@@ -147,10 +147,10 @@ struct AnimeDetailView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
                 Button {
-                    guard let episode = preferredEpisode else { return }
+                    guard let episode = preferredEpisode(for: show) else { return }
                     openPlayer(show: show, episode: episode)
                 } label: {
-                    Label(watchButtonTitle, systemImage: "play.fill")
+                    Label(watchButtonTitle(for: show), systemImage: "play.fill")
                         .lineLimit(1)
                         .frame(maxWidth: .infinity)
                 }
@@ -246,13 +246,29 @@ struct AnimeDetailView: View {
         }
     }
 
-    private var preferredEpisode: AnimeEpisode? {
-        store.episodes.max { $0.number < $1.number }
+    private func preferredEpisode(for show: AnimeShow) -> AnimeEpisode? {
+        if let progress = activeProgress(for: show),
+           let episode = store.episodes.first(where: { $0.id == progress.unitId }) {
+            return episode
+        }
+        return store.episodes.min { $0.number < $1.number }
     }
 
-    private var watchButtonTitle: String {
-        guard let episode = preferredEpisode else { return "No episodes available" }
+    private func watchButtonTitle(for show: AnimeShow) -> String {
+        guard let episode = preferredEpisode(for: show) else { return "No episodes available" }
+        if let progress = activeProgress(for: show), progress.unitId == episode.id {
+            let percentage = Int(progress.percentage.rounded())
+            return percentage > 0
+                ? "Continue episode \(episode.number) · \(percentage)%"
+                : "Continue episode \(episode.number)"
+        }
         return "Watch episode \(episode.number)"
+    }
+
+    private func activeProgress(for show: AnimeShow) -> MediaPlaybackProgress? {
+        model.continueWatching.first {
+            $0.mediaType == .anime && $0.contentId == show.slug
+        }
     }
 
     private var episodeCountLabel: String? {

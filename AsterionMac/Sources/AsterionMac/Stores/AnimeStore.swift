@@ -6,6 +6,7 @@ protocol AnimeCatalogServing: Sendable {
     func fetchPopular(page: Int) async throws -> [AnimeTitle]
     func fetchNewReleases(page: Int) async throws -> [AnimeTitle]
     func fetchGenre(_ genre: String, page: Int) async throws -> [AnimeTitle]
+    func fetchSeason(season: String, year: Int, page: Int) async throws -> [AnimeTitle]
     func fetchGenres() async throws -> [String]
     func search(query: String, page: Int) async throws -> [AnimeTitle]
     func fetchShow(slug: String) async throws -> AnimeShow
@@ -14,23 +15,59 @@ protocol AnimeCatalogServing: Sendable {
 
 extension AnimeAPI: AnimeCatalogServing {}
 
+struct AnimeSeason: Equatable, Sendable {
+    enum Name: String, Sendable {
+        case winter
+        case spring
+        case summer
+        case fall
+
+        var title: String { rawValue.capitalized }
+    }
+
+    let name: Name
+    let year: Int
+
+    var title: String { "\(name.title) \(year)" }
+
+    static func current(date: Date = .now, calendar: Calendar = .current) -> AnimeSeason {
+        let month = calendar.component(.month, from: date)
+        let name: Name = switch month {
+        case 1...3: .winter
+        case 4...6: .spring
+        case 7...9: .summer
+        default: .fall
+        }
+        return AnimeSeason(name: name, year: calendar.component(.year, from: date))
+    }
+}
+
 @MainActor
 final class AnimeStore: ObservableObject {
     @Published private(set) var titles: [AnimeTitle] = []
+    @Published private(set) var seasonalTitles: [AnimeTitle] = []
+    @Published private(set) var newReleaseTitles: [AnimeTitle] = []
+    @Published private(set) var season = AnimeSeason.current()
     @Published private(set) var genres: [String] = []
     @Published private(set) var selectedGenre: String?
     @Published private(set) var selectedTitleID: AnimeTitle.ID?
     @Published private(set) var show: AnimeShow?
     @Published private(set) var episodes: [AnimeEpisode] = []
     @Published private(set) var isLoadingCatalog = false
+    @Published private(set) var isLoadingSeason = false
+    @Published private(set) var isLoadingNewReleases = false
     @Published private(set) var isLoadingNextPage = false
     @Published private(set) var isLoadingDetail = false
     @Published private(set) var catalogError: String?
+    @Published private(set) var seasonError: String?
+    @Published private(set) var newReleasesError: String?
     @Published private(set) var paginationError: String?
     @Published private(set) var detailError: String?
 
     private let api: any AnimeCatalogServing
     private var loadedRequestKey: String?
+    private var loadedSeasonKey: String?
+    private var hasLoadedNewReleases = false
     private var catalogRequestID = UUID()
     private var catalogPage = 0
     private var canLoadNextPage = false
@@ -107,7 +144,64 @@ final class AnimeStore: ObservableObject {
     }
 
     func refresh(section: AnimeSection, query: String) async {
-        await loadCatalog(section: section, query: query, force: true)
+        if section == .discover,
+           query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            async let catalog: Void = loadCatalog(section: section, query: query, force: true)
+            async let currentSeason: Void = loadCurrentSeason(force: true)
+            async let newReleases: Void = loadDiscoverNewReleases(force: true)
+            _ = await (catalog, currentSeason, newReleases)
+        } else {
+            await loadCatalog(section: section, query: query, force: true)
+        }
+    }
+
+    func loadCurrentSeason(force: Bool = false) async {
+        let requestedSeason = AnimeSeason.current()
+        let requestKey = "\(requestedSeason.name.rawValue):\(requestedSeason.year)"
+        guard force || loadedSeasonKey != requestKey else { return }
+
+        season = requestedSeason
+        loadedSeasonKey = requestKey
+        isLoadingSeason = true
+        seasonError = nil
+        defer { isLoadingSeason = false }
+
+        do {
+            seasonalTitles = try await api.fetchSeason(
+                season: requestedSeason.name.rawValue,
+                year: requestedSeason.year,
+                page: 1
+            ).deduplicatedByID()
+        } catch {
+            seasonalTitles = []
+            seasonError = error.localizedDescription
+            loadedSeasonKey = nil
+        }
+    }
+
+    func retryCurrentSeason() async {
+        await loadCurrentSeason(force: true)
+    }
+
+    func loadDiscoverNewReleases(force: Bool = false) async {
+        guard force || !hasLoadedNewReleases else { return }
+
+        hasLoadedNewReleases = true
+        isLoadingNewReleases = true
+        newReleasesError = nil
+        defer { isLoadingNewReleases = false }
+
+        do {
+            newReleaseTitles = try await api.fetchNewReleases(page: 1).deduplicatedByID()
+        } catch {
+            newReleaseTitles = []
+            newReleasesError = error.localizedDescription
+            hasLoadedNewReleases = false
+        }
+    }
+
+    func retryDiscoverNewReleases() async {
+        await loadDiscoverNewReleases(force: true)
     }
 
     func loadNextPageIfNeeded(
@@ -157,7 +251,10 @@ final class AnimeStore: ObservableObject {
 
     func retryDetail() async {
         guard let selectedTitleID,
-              let title = titles.first(where: { $0.id == selectedTitleID }) else { return }
+              let title = (titles + seasonalTitles + newReleaseTitles)
+                .first(where: { $0.id == selectedTitleID }) else {
+            return
+        }
         await select(title, force: true)
     }
 

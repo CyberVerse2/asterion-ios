@@ -276,7 +276,7 @@ struct MovieDetailView: View {
            let episode = store.episodes.first(where: { $0.id == progress.unitId }) {
             return episode
         }
-        return store.episodes.last
+        return store.episodes.first
     }
 
     private func watchButtonTitle(_ show: MovieShow) -> String {

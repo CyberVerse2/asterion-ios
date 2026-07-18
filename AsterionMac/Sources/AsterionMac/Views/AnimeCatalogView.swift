@@ -57,13 +57,17 @@ struct AnimeCatalogView: View {
                                     )
                                 }
                             }
-                        }
 
-                        if section == .genres, normalizedQuery.isEmpty, !store.genres.isEmpty {
-                            genreSelection
-                        }
+                            seasonalShelf
+                            recentlyUpdatedShelf
+                            newReleasesShelf
+                        } else {
+                            if section == .genres, normalizedQuery.isEmpty, !store.genres.isEmpty {
+                                genreSelection
+                            }
 
-                        shelf
+                            shelf
+                        }
                     }
                     .frame(maxWidth: 920, alignment: .leading)
                     .padding(.horizontal, 28)
@@ -82,7 +86,14 @@ struct AnimeCatalogView: View {
                 try? await Task.sleep(for: .milliseconds(350))
             }
             guard !Task.isCancelled else { return }
-            await store.loadCatalog(section: section, query: normalizedQuery)
+            if section == .discover, normalizedQuery.isEmpty {
+                async let catalog: Void = store.loadCatalog(section: section, query: normalizedQuery)
+                async let currentSeason: Void = store.loadCurrentSeason()
+                async let newReleases: Void = store.loadDiscoverNewReleases()
+                _ = await (catalog, currentSeason, newReleases)
+            } else {
+                await store.loadCatalog(section: section, query: normalizedQuery)
+            }
         }
         .onChange(of: store.titles) {
             let lastFeaturedIndex = max(0, min(8, store.titles.count) - 1)
@@ -92,6 +103,114 @@ struct AnimeCatalogView: View {
 
     private var animeContinueWatching: [MediaPlaybackProgress] {
         model.continueWatching.filter { $0.mediaType == .anime }
+    }
+
+    private var seasonalShelf: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            AnimeShelfHeader(
+                title: store.season.title,
+                subtitle: "Anime airing in the current season."
+            )
+
+            if store.isLoadingSeason, store.seasonalTitles.isEmpty {
+                ProgressView("Loading \(store.season.title)…")
+                    .controlSize(.small)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 24)
+            } else if let error = store.seasonError {
+                HStack(spacing: 12) {
+                    Label(error, systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundStyle(Color.asterionMuted)
+                    Spacer()
+                    Button("Try Again") {
+                        Task { await store.retryCurrentSeason() }
+                    }
+                }
+                .padding(.vertical, 12)
+            } else if store.seasonalTitles.isEmpty {
+                Text("The anime service returned no titles for \(store.season.title).")
+                    .font(.callout)
+                    .foregroundStyle(Color.asterionMuted)
+                    .padding(.vertical, 12)
+            } else {
+                horizontalTitleRow(store.seasonalTitles, loadsNextPage: false)
+            }
+        }
+    }
+
+    private var recentlyUpdatedShelf: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            AnimeShelfHeader(
+                title: "Recently Updated",
+                subtitle: "Fresh episodes, ready when you are."
+            )
+            horizontalTitleRow(store.titles, loadsNextPage: true)
+            paginationStatus
+        }
+    }
+
+    private var newReleasesShelf: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            AnimeShelfHeader(
+                title: "New Releases",
+                subtitle: "New arrivals across series, films, and specials."
+            )
+
+            if store.isLoadingNewReleases, store.newReleaseTitles.isEmpty {
+                ProgressView("Loading new releases…")
+                    .controlSize(.small)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 24)
+            } else if let error = store.newReleasesError {
+                HStack(spacing: 12) {
+                    Label(error, systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundStyle(Color.asterionMuted)
+                    Spacer()
+                    Button("Try Again") {
+                        Task { await store.retryDiscoverNewReleases() }
+                    }
+                }
+                .padding(.vertical, 12)
+            } else if store.newReleaseTitles.isEmpty {
+                Text("The anime service returned no new releases.")
+                    .font(.callout)
+                    .foregroundStyle(Color.asterionMuted)
+                    .padding(.vertical, 12)
+            } else {
+                horizontalTitleRow(store.newReleaseTitles, loadsNextPage: false)
+            }
+        }
+    }
+
+    private func horizontalTitleRow(
+        _ titles: [AnimeTitle],
+        loadsNextPage: Bool
+    ) -> some View {
+        ScrollView(.horizontal) {
+            LazyHStack(alignment: .top, spacing: 22) {
+                ForEach(titles) { title in
+                    AnimeTitleTile(
+                        title: title,
+                        isSelected: store.selectedTitleID == title.id,
+                        usesDiscoverBadges: true
+                    ) {
+                        Task { await store.select(title) }
+                    }
+                    .task {
+                        guard loadsNextPage else { return }
+                        await store.loadNextPageIfNeeded(
+                            section: section,
+                            query: normalizedQuery,
+                            currentTitle: title
+                        )
+                    }
+                }
+            }
+            .padding(.vertical, 2)
+        }
+        .hidingScrollIndicators()
     }
 
     @ViewBuilder
@@ -104,9 +223,13 @@ struct AnimeCatalogView: View {
 
             AnimeFeaturedBanner(
                 title: featuredTitle,
+                synopsis: featuredSynopsis(for: featuredTitle),
                 titles: featuredTitles,
                 selectedIndex: safeIndex,
-                selectIndex: { featuredIndex = $0 },
+                selectIndex: { index in
+                    featuredIndex = index
+                    Task { await store.select(featuredTitles[index]) }
+                },
                 watch: {
                     openWindow(
                         value: AnimePlayerRoute(
@@ -118,6 +241,16 @@ struct AnimeCatalogView: View {
                 }
             )
         }
+    }
+
+    private func featuredSynopsis(for title: AnimeTitle) -> String {
+        guard store.selectedTitleID == title.id else { return "Loading synopsis…" }
+        if let synopsis = store.show?.displayDescription,
+           !synopsis.isEmpty {
+            return synopsis
+        }
+        if store.isLoadingDetail { return "Loading synopsis…" }
+        return "Synopsis unavailable for this title."
     }
 
     private var shelf: some View {
@@ -245,6 +378,7 @@ private struct AnimeShelfHeader: View {
 
 private struct AnimeFeaturedBanner: View {
     let title: AnimeTitle
+    let synopsis: String
     let titles: [AnimeTitle]
     let selectedIndex: Int
     let selectIndex: (Int) -> Void
@@ -266,7 +400,7 @@ private struct AnimeFeaturedBanner: View {
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
         }
-        .frame(height: 250)
+        .frame(height: 300)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -310,6 +444,15 @@ private struct AnimeFeaturedBanner: View {
                         featureBadge(type, color: .white.opacity(0.16))
                     }
                 }
+
+                Text(synopsis)
+                    .font(.callout)
+                    .foregroundStyle(.white.opacity(0.76))
+                    .lineLimit(3)
+                    .lineSpacing(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityLabel("Synopsis")
+                    .accessibilityValue(synopsis)
 
                 Spacer(minLength: 0)
 

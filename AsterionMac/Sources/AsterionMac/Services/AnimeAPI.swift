@@ -67,6 +67,17 @@ actor AnimeAPI {
         )
     }
 
+    func fetchSeason(season: String, year: Int, page: Int) async throws -> [AnimeTitle] {
+        try await request(
+            path: "/api/amp/season",
+            query: [
+                URLQueryItem(name: "season", value: season),
+                URLQueryItem(name: "year", value: String(year)),
+                URLQueryItem(name: "page", value: String(page)),
+            ]
+        )
+    }
+
     func fetchGenres() async throws -> [String] {
         try await request(path: "/api/amp/genres")
     }
