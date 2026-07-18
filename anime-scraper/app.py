@@ -9,15 +9,22 @@ import logging
 import os
 from functools import wraps
 from urllib.error import HTTPError
-from urllib.parse import urlparse
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.parse import urlparse, quote
+from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 
 import flask
 import nineanime
+import animixplay
 
 app = flask.Flask(__name__)
 
-ALLOWED_VIDEO_HOSTS = frozenset({"my.1anime.site"})
+ALLOWED_VIDEO_HOSTS = frozenset({
+    "my.1anime.site",
+    "vidtube.site",
+    "megaplay.buzz",
+    "vidwish.live",
+    "mt.nekostream.site",
+})
 
 
 def _is_allowed_video_url(value):
@@ -165,6 +172,60 @@ def api_stream(episode_id):
     return result
 
 
+# ---------------------------------------------------------------------------
+# Animixplay API
+# ---------------------------------------------------------------------------
+
+@app.route("/api/amp/search")
+@_json_or_error
+def api_amp_search():
+    q = flask.request.args.get("q", "").strip()
+    if not q:
+        return []
+    return [r.__dict__ for r in animixplay.search(q)]
+
+
+@app.route("/api/amp/popular")
+@_json_or_error
+def api_amp_popular():
+    return [r.__dict__ for r in animixplay.popular()]
+
+
+@app.route("/api/amp/latest")
+@_json_or_error
+def api_amp_latest():
+    return [r.__dict__ for r in animixplay.latest_updated()]
+
+
+@app.route("/api/amp/show/<slug>")
+@_json_or_error
+def api_amp_show(slug):
+    return animixplay.show_detail(slug).__dict__
+
+
+@app.route("/api/amp/episodes/<anime_id>")
+@_json_or_error
+def api_amp_episodes(anime_id):
+    eps = animixplay.get_episodes(anime_id)
+    return [{"number": e.number} for e in eps]
+
+
+@app.route("/api/amp/stream/<anime_id>/<int:episode>")
+@_json_or_error
+def api_amp_stream(anime_id, episode):
+    sources = animixplay.get_all_streams(anime_id, episode)
+    result = []
+    for s in sources:
+        m3u8 = animixplay.resolve_source(s.url)
+        result.append({
+            "server": s.server,
+            "url": s.url,
+            "quality": s.quality,
+            "source": m3u8,  # actual M3U8 URL for direct playback
+        })
+    return result
+
+
 @app.route("/proxy/video")
 def proxy_video():
     """Proxy remote video to avoid CORS issues. Streams the MP4 through us."""
@@ -212,6 +273,72 @@ def proxy_video():
     return rv
 
 
+@app.route("/proxy/m3u8")
+def proxy_m3u8():
+    """Proxy HLS M3U8 playlists — rewrites segment URLs."""
+    target = flask.request.args.get("url", "")
+    if not target or not _is_allowed_video_url(target):
+        return "invalid url", 400
+
+    base = target.rsplit("/", 1)[0]
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Origin": "https://vidtube.site",
+        "Referer": "https://vidtube.site/",
+    }
+    req = Request(target, headers=headers)
+    try:
+        resp = urlopen(req, timeout=15)
+        content = resp.read().decode("utf-8", errors="replace")
+    except Exception:
+        return "m3u8 unavailable", 502
+
+    lines = []
+    for line in content.splitlines():
+        s = line.strip()
+        if s and not s.startswith("#"):
+            if s.startswith("http"):
+                seg = s
+            elif s.startswith("/"):
+                seg = f"https://{urlparse(target).hostname}{s}"
+            else:
+                seg = f"{base}/{s}"
+            proxy_path = "/proxy/m3u8" if ".m3u8" in seg else "/proxy/ts"
+            line = f"{proxy_path}?url={quote(seg, safe='')}"
+        lines.append(line)
+
+    rv = flask.Response("\n".join(lines))
+    rv.headers["Content-Type"] = "application/vnd.apple.mpegurl"
+    rv.headers["Access-Control-Allow-Origin"] = "*"
+    rv.headers["Cache-Control"] = "no-cache"
+    return rv
+
+
+@app.route("/proxy/ts")
+def proxy_ts():
+    """Proxy HLS .ts segments."""
+    target = flask.request.args.get("url", "")
+    if not target or not _is_allowed_video_url(target):
+        return "invalid url", 400
+
+    headers = {"User-Agent": "Mozilla/5.0", "Origin": "https://vidtube.site", "Referer": "https://vidtube.site/"}
+    req = Request(target, headers=headers)
+    try:
+        resp = urlopen(req, timeout=15)
+        data = bytearray()
+        while True:
+            chunk = resp.read(65536)
+            if not chunk: break
+            data.extend(chunk)
+        rv = flask.Response(bytes(data))
+        rv.headers["Content-Type"] = resp.headers.get("Content-Type", "video/mp2t")
+        rv.headers["Access-Control-Allow-Origin"] = "*"
+        rv.headers["Cache-Control"] = "no-cache"
+        return rv
+    except Exception:
+        return "segment unavailable", 502
+
+
 # ---------------------------------------------------------------------------
 # Frontend
 # ---------------------------------------------------------------------------
@@ -249,15 +376,27 @@ a { color: var(--accent); text-decoration: none; }
   background: var(--surface);
 }
 #search-bar {
-  display: flex; align-items: center; gap: 8px;
+  display: flex; align-items: center; gap: 6px;
   padding: 14px; border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
 }
 #search-bar input {
-  flex: 1; background: var(--bg); border: 1px solid var(--border);
+  flex: 1; min-width: 140px; background: var(--bg); border: 1px solid var(--border);
   color: var(--text); padding: 8px 12px; border-radius: 8px;
   font-size: 14px; outline: none;
 }
 #search-bar input:focus { border-color: var(--accent); }
+#source-toggle {
+  display: flex; border-radius: 6px; overflow: hidden; border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+#source-toggle button {
+  background: transparent; border: none; color: var(--muted);
+  padding: 6px 10px; font-size: 11px; font-weight: 600; cursor: pointer; transition: .15s;
+}
+#source-toggle button.active {
+  background: var(--accent); color: #fff;
+}
 #results {
   flex: 1; overflow-y: auto; padding: 8px;
 }
@@ -327,9 +466,13 @@ a { color: var(--accent); text-decoration: none; }
 
 <div id="sidebar">
   <div id="search-bar">
+    <div id="source-toggle">
+      <button data-src="amp" class="active">Animixplay</button>
+      <button data-src="9a">9anime</button>
+    </div>
     <input id="search-input" type="text" placeholder="Search anime..." autocomplete="off">
   </div>
-  <div id="results"><div class="loading">Loading recently updated...</div></div>
+  <div id="results"><div class="loading">Loading...</div></div>
 </div>
 
 <div id="main">
@@ -344,19 +487,36 @@ a { color: var(--accent); text-decoration: none; }
 </div>
 
 <script>
-// ── State ──
-let currentShow = null;
-let currentEpisodes = [];
-let activeEpisodeId = null;
-
+// ── Helpers ──
 const $ = s => document.querySelector(s);
 const $$ = s => document.querySelectorAll(s);
 
-// ── API helpers ──
 async function api(path) {
   const r = await fetch(path);
   return r.json();
 }
+
+// ── Source ──
+let source = 'amp';
+
+$$('#source-toggle button').forEach(b => {
+  b.addEventListener('click', () => {
+    $$('#source-toggle button').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    source = b.dataset.src;
+    currentShow = null; currentEpisodes = [];
+    $('#detail').innerHTML = '<div class="placeholder">Select an anime from the left</div>';
+    $('#player-wrap').classList.remove('visible');
+    $('#player-frame').src = '';
+    $('#player-video').src = '';
+    loadBrowse();
+  });
+});
+
+// ── State ──
+let currentShow = null;
+let currentEpisodes = [];
+let activeEpisodeId = null;
 
 // ── Render cards ──
 function renderCards(items, container) {
@@ -390,23 +550,151 @@ async function loadShow(id, url, title) {
   const detail = $('#detail');
   detail.innerHTML = '<div class="loading">Loading...</div>';
 
-  let slug = '';
-  if (url) {
-    const m = url.match(/\/anime\/([^/]+)/);
-    if (m) slug = m[1];
-  }
-  if (!slug) slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
-
-  try {
-    const show = await api('/api/show/' + slug);
-    currentShow = show;
-    const eps = await api('/api/episodes/' + show.id);
-    currentEpisodes = eps;
-    renderDetail(show, eps);
-  } catch (e) {
-    detail.innerHTML = '<div class="placeholder">Failed to load anime details</div>';
+  if (source === 'amp') {
+    // Animixplay: extract slug from URL
+    let slug = '';
+    if (url) { const m = url.match(/\/watch\/([^/]+)/); if (m) slug = m[1]; }
+    try {
+      const show = await api('/api/amp/show/' + slug);
+      const eps = await api('/api/amp/episodes/' + show.id);
+      currentShow = show;
+      currentEpisodes = eps;
+      renderDetailAmp(show, eps);
+    } catch(e) { detail.innerHTML = '<div class="placeholder">Failed to load</div>'; }
+  } else {
+    // 9anime
+    let slug = '';
+    if (url) { const m = url.match(/\/anime\/([^/]+)/); if (m) slug = m[1]; }
+    if (!slug) slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+    try {
+      const show = await api('/api/show/' + slug);
+      const eps = await api('/api/episodes/' + show.id);
+      currentShow = show;
+      currentEpisodes = eps;
+      renderDetail(show, eps);
+    } catch(e) { detail.innerHTML = '<div class="placeholder">Failed to load</div>'; }
   }
 }
+
+// ── Render animixplay detail ──
+function renderDetailAmp(show, eps) {
+  $('#detail').innerHTML = `
+    <div class="hero">
+      <img src="${show.image_url || ''}" onerror="this.style.display='none'">
+      <div>
+        <h2>${esc(show.title)}</h2>
+        ${show.japanese_title ? `<div class="meta">${esc(show.japanese_title)}</div>` : ''}
+        <div class="meta">
+          ${show.type||'?'} &middot; ${show.status||'?'} &middot; ${show.episodes_count||eps.length} eps
+          ${show.sub_episodes ? ' &middot; Sub:'+show.sub_episodes : ''}
+          ${show.dub_episodes ? ' &middot; Dub:'+show.dub_episodes : ''}
+          ${show.mal_score ? ' &middot; MAL:'+show.mal_score : ''}
+        </div>
+        <div class="meta">${(show.genres||[]).join(', ')}</div>
+        ${show.description ? `<div class="desc">${esc(show.description)}</div>` : ''}
+      </div>
+    </div>
+    <div class="episodes">
+      ${eps.slice(0, 50).map(ep => `
+        <button class="ep-btn" data-ep-id="${show.id}" data-ep-num="${ep.number}">Ep ${ep.number}</button>
+      `).join('')}
+    </div>
+  `;
+  $$('.ep-btn').forEach(btn => {
+    btn.addEventListener('click', () => playEpisodeAmp(btn.dataset.epId, btn.dataset.epNum));
+  });
+}
+
+// ── Play animixplay ──
+async function playEpisodeAmp(animeId, epNum) {
+  $$('.ep-btn').forEach(b => b.classList.remove('active'));
+  const btn = document.querySelector(`.ep-btn[data-ep-num="${epNum}"]`);
+  if (btn) btn.classList.add('active');
+
+  try {
+    const sources = await api('/api/amp/stream/' + animeId + '/' + epNum);
+    if (!sources.length) { alert('No stream available'); return; }
+
+    ampServerSources = sources;
+    ampServerIndex = 0;
+
+    // Show player with first server in iframe
+    showAmpPlayer(0);
+
+    // Server list below
+    let html = `<strong>Ep ${epNum}</strong> &middot; ${sources.length} servers: `;
+    sources.forEach((s, i) => {
+      html += `<span class="server-link" onclick="showAmpPlayer(${i})" style="${i===0?'color:#fff;':''}">${esc(s.server)}</span> `;
+    });
+    $('#source-label').innerHTML = html;
+  } catch(e) { alert('Failed to load stream'); }
+}
+
+let ampServerSources = [];
+let ampServerIndex = 0;
+let hls = null;
+
+function showAmpPlayer(idx) {
+  ampServerIndex = idx;
+  const src = ampServerSources[idx];
+  if (!src) return;
+
+  $('#player-wrap').classList.add('visible');
+  $('#source-label').classList.add('visible');
+
+  // Try direct M3U8 playback first
+  if (src.source && typeof Hls !== 'undefined' && Hls.isSupported()) {
+    $('#player-frame').style.display = 'none';
+    $('#player-frame').src = '';
+    $('#player-video').style.display = 'block';
+
+    if (hls) { hls.destroy(); hls = null; }
+    const m3u8Url = '/proxy/m3u8?url=' + encodeURIComponent(src.source);
+    hls = new Hls({ enableWorker: false });
+    hls.loadSource(m3u8Url);
+    hls.attachMedia($('#player-video'));
+    hls.on(Hls.Events.MANIFEST_PARSED, () => {
+      $('#player-video').play().catch(() => {});
+    });
+    hls.on(Hls.Events.ERROR, (ev, data) => {
+      console.error('HLS error:', data);
+      if (data.fatal) {
+        hls.destroy(); hls = null;
+        $('#player-video').style.display = 'none';
+        $('#source-label').innerHTML += ' <span class="server-link" onclick="showAmpPlayer(' + ((ampServerIndex + 1) % ampServerSources.length) + ')">try next server</span>';
+      }
+    });
+  } else {
+    // Fallback: iframe embed
+    $('#player-video').style.display = 'none';
+    $('#player-video').src = '';
+    $('#player-frame').style.display = 'block';
+    $('#player-frame').setAttribute('allow', 'autoplay; encrypted-media; fullscreen');
+    $('#player-frame').src = src.url;
+  }
+
+  // Update server list highlight
+  $$('#source-label .server-link').forEach((el, i) => {
+    el.style.color = i === idx ? '#fff' : '';
+  });
+}
+
+// ── Browse (based on source) ──
+async function loadBrowse() {
+  try {
+    let items;
+    if (source === 'amp') {
+      items = await api('/api/amp/popular');
+    } else {
+      items = await api('/api/recent');
+    }
+    renderCards(items, $('#results'));
+  } catch(e) {
+    $('#results').innerHTML = '<div class="loading">Failed to load</div>';
+  }
+}
+
+// ── Old 9anime functions (kept for source=9a) ──
 
 // ── Render detail ──
 function renderDetail(show, eps) {
@@ -493,27 +781,19 @@ $('#search-input').addEventListener('input', () => {
   clearTimeout(searchTimer);
   searchTimer = setTimeout(async () => {
     const q = $('#search-input').value.trim();
-    if (q.length < 2) {
-      loadRecent(); return;
-    }
+    if (q.length < 2) { loadBrowse(); return; }
     try {
-      const items = await api('/api/search?q=' + encodeURIComponent(q));
+      const endpoint = source === 'amp' ? '/api/amp/search?q=' : '/api/search?q=';
+      const items = await api(endpoint + encodeURIComponent(q));
       renderCards(items, $('#results'));
     } catch(e) {}
   }, 400);
 });
 
 // ── Initial load ──
-async function loadRecent() {
-  try {
-    const items = await api('/api/recent');
-    renderCards(items, $('#results'));
-  } catch(e) {
-    $('#results').innerHTML = '<div class="loading">Failed to load. Check your connection.</div>';
-  }
-}
-loadRecent();
+loadBrowse();
 </script>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 </body>
 </html>"""
 
