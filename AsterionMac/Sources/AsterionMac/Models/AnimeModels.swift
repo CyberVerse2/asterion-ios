@@ -21,6 +21,33 @@ struct AnimeTitle: Identifiable, Codable, Hashable, Sendable {
     }
 }
 
+struct AnimeScheduleDay: Identifiable, Codable, Hashable, Sendable {
+    let label: String
+    let entries: [AnimeScheduleEntry]
+
+    var id: String { label }
+}
+
+struct AnimeScheduleEntry: Identifiable, Codable, Hashable, Sendable {
+    let slug: String
+    let title: String
+    let japaneseTitle: String?
+    let time: String
+    let episodeNumber: Int?
+    let passed: Bool
+
+    var id: String { "\(slug):\(episodeNumber ?? 0):\(time)" }
+    var displayTitle: String {
+        title.decodedHTMLEntities.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case slug, title, time, passed
+        case japaneseTitle = "japanese_title"
+        case episodeNumber = "episode_number"
+    }
+}
+
 struct AnimeShow: Identifiable, Codable, Hashable, Sendable {
     let id: String
     let title: String

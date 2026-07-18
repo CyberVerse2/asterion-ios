@@ -7,6 +7,9 @@ protocol AnimeCatalogServing: Sendable {
     func fetchNewReleases(page: Int) async throws -> [AnimeTitle]
     func fetchGenre(_ genre: String, page: Int) async throws -> [AnimeTitle]
     func fetchSeason(season: String, year: Int, page: Int) async throws -> [AnimeTitle]
+    func fetchType(_ type: String, page: Int) async throws -> [AnimeTitle]
+    func fetchStatus(_ status: String, page: Int) async throws -> [AnimeTitle]
+    func fetchSchedule(timeZoneHours: Double) async throws -> [AnimeScheduleDay]
     func fetchGenres() async throws -> [String]
     func search(query: String, page: Int) async throws -> [AnimeTitle]
     func fetchShow(slug: String) async throws -> AnimeShow
@@ -44,12 +47,16 @@ struct AnimeSeason: Equatable, Sendable {
 
 @MainActor
 final class AnimeStore: ObservableObject {
+    static let types = ["tv", "movie", "ova", "ona", "special", "music", "tv-short", "tv-special"]
+
     @Published private(set) var titles: [AnimeTitle] = []
     @Published private(set) var seasonalTitles: [AnimeTitle] = []
     @Published private(set) var newReleaseTitles: [AnimeTitle] = []
     @Published private(set) var season = AnimeSeason.current()
     @Published private(set) var genres: [String] = []
+    @Published private(set) var scheduleDays: [AnimeScheduleDay] = []
     @Published private(set) var selectedGenre: String?
+    @Published private(set) var selectedType = AnimeStore.types[0]
     @Published private(set) var selectedTitleID: AnimeTitle.ID?
     @Published private(set) var show: AnimeShow?
     @Published private(set) var episodes: [AnimeEpisode] = []
@@ -58,11 +65,13 @@ final class AnimeStore: ObservableObject {
     @Published private(set) var isLoadingNewReleases = false
     @Published private(set) var isLoadingNextPage = false
     @Published private(set) var isLoadingDetail = false
+    @Published private(set) var isLoadingSchedule = false
     @Published private(set) var catalogError: String?
     @Published private(set) var seasonError: String?
     @Published private(set) var newReleasesError: String?
     @Published private(set) var paginationError: String?
     @Published private(set) var detailError: String?
+    @Published private(set) var scheduleError: String?
 
     private let api: any AnimeCatalogServing
     private var loadedRequestKey: String?
@@ -71,6 +80,7 @@ final class AnimeStore: ObservableObject {
     private var catalogRequestID = UUID()
     private var catalogPage = 0
     private var canLoadNextPage = false
+    private var selectedScheduleTitle: AnimeTitle?
 
     init(api: any AnimeCatalogServing = AnimeAPI()) {
         self.api = api
@@ -78,6 +88,10 @@ final class AnimeStore: ObservableObject {
 
     func loadCatalog(section: AnimeSection, query: String, force: Bool = false) async {
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if section == .schedule, query.isEmpty {
+            await loadSchedule(force: force)
+            return
+        }
         guard query.isEmpty || query.count >= 2 else {
             catalogRequestID = UUID()
             titles = []
@@ -90,7 +104,7 @@ final class AnimeStore: ObservableObject {
         }
 
         let requestKey = query.isEmpty
-            ? "\(section.rawValue):\(section == .genres ? selectedGenre ?? "" : "")"
+            ? catalogRequestKey(section)
             : "search:\(query)"
         guard force || loadedRequestKey != requestKey else { return }
 
@@ -144,6 +158,11 @@ final class AnimeStore: ObservableObject {
     }
 
     func refresh(section: AnimeSection, query: String) async {
+        if section == .schedule,
+           query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            await loadSchedule(force: true)
+            return
+        }
         if section == .discover,
            query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             async let catalog: Void = loadCatalog(section: section, query: query, force: true)
@@ -204,6 +223,31 @@ final class AnimeStore: ObservableObject {
         await loadDiscoverNewReleases(force: true)
     }
 
+    func loadSchedule(force: Bool = false) async {
+        guard force || scheduleDays.isEmpty else { return }
+
+        catalogRequestID = UUID()
+        resetPagination()
+        clearSelection()
+        isLoadingSchedule = true
+        scheduleError = nil
+        defer { isLoadingSchedule = false }
+
+        do {
+            let seconds = TimeZone.current.secondsFromGMT()
+            scheduleDays = try await api.fetchSchedule(
+                timeZoneHours: Double(seconds) / 3_600
+            )
+        } catch {
+            scheduleDays = []
+            scheduleError = error.localizedDescription
+        }
+    }
+
+    func retrySchedule() async {
+        await loadSchedule(force: true)
+    }
+
     func loadNextPageIfNeeded(
         section: AnimeSection,
         query: String,
@@ -223,8 +267,31 @@ final class AnimeStore: ObservableObject {
         await loadCatalog(section: .genres, query: query, force: true)
     }
 
+    func selectType(_ type: String, query: String) async {
+        guard AnimeStore.types.contains(type), selectedType != type else { return }
+        selectedType = type
+        await loadCatalog(section: .types, query: query, force: true)
+    }
+
+    func select(_ entry: AnimeScheduleEntry) async {
+        let title = AnimeTitle(
+            slug: entry.slug,
+            title: entry.title,
+            japaneseTitle: entry.japaneseTitle,
+            imageURL: nil,
+            type: nil,
+            episodeLabel: entry.episodeNumber.map { "Ep \($0)" }
+        )
+        selectedScheduleTitle = title
+        await select(title)
+    }
+
     func select(_ title: AnimeTitle, force: Bool = false) async {
         guard force || selectedTitleID != title.id || show == nil else { return }
+
+        if selectedScheduleTitle?.id != title.id {
+            selectedScheduleTitle = nil
+        }
 
         selectedTitleID = title.id
         show = nil
@@ -251,7 +318,7 @@ final class AnimeStore: ObservableObject {
 
     func retryDetail() async {
         guard let selectedTitleID,
-              let title = (titles + seasonalTitles + newReleaseTitles)
+              let title = (titles + seasonalTitles + newReleaseTitles + [selectedScheduleTitle].compactMap { $0 })
                 .first(where: { $0.id == selectedTitleID }) else {
             return
         }
@@ -269,10 +336,12 @@ final class AnimeStore: ObservableObject {
         switch section {
         case .discover:
             return try await api.fetchLatest(page: page)
+        case .updated:
+            return try await api.fetchLatest(page: page)
+        case .added:
+            return try await api.fetchNewReleases(page: page)
         case .popular:
             return try await api.fetchPopular(page: page)
-        case .newReleases:
-            return try await api.fetchNewReleases(page: page)
         case .genres:
             if genres.isEmpty {
                 let loadedGenres = try await api.fetchGenres()
@@ -285,6 +354,17 @@ final class AnimeStore: ObservableObject {
             guard let selectedGenre else { return [] }
             loadedRequestKey = "\(section.rawValue):\(selectedGenre)"
             return try await api.fetchGenre(selectedGenre, page: page)
+        case .types:
+            loadedRequestKey = "\(section.rawValue):\(selectedType)"
+            return try await api.fetchType(selectedType, page: page)
+        case .upcoming:
+            return try await api.fetchStatus("not-yet-aired", page: page)
+        case .ongoing:
+            return try await api.fetchStatus("currently-airing", page: page)
+        case .completed:
+            return try await api.fetchStatus("finished-airing", page: page)
+        case .schedule:
+            return []
         case .bookmarks:
             return []
         }
@@ -297,7 +377,7 @@ final class AnimeStore: ObservableObject {
               !isLoadingNextPage else { return }
 
         let requestKey = query.isEmpty
-            ? "\(section.rawValue):\(section == .genres ? selectedGenre ?? "" : "")"
+            ? catalogRequestKey(section)
             : "search:\(query)"
         guard loadedRequestKey == requestKey else { return }
 
@@ -343,6 +423,7 @@ final class AnimeStore: ObservableObject {
 
     private func clearSelection() {
         selectedTitleID = nil
+        selectedScheduleTitle = nil
         show = nil
         episodes = []
         detailError = nil
@@ -354,6 +435,17 @@ final class AnimeStore: ObservableObject {
         canLoadNextPage = false
         isLoadingNextPage = false
         paginationError = nil
+    }
+
+    private func catalogRequestKey(_ section: AnimeSection) -> String {
+        switch section {
+        case .genres:
+            "\(section.rawValue):\(selectedGenre ?? "")"
+        case .types:
+            "\(section.rawValue):\(selectedType)"
+        default:
+            section.rawValue
+        }
     }
 
 }

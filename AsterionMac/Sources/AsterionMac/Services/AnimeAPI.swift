@@ -78,6 +78,27 @@ actor AnimeAPI {
         )
     }
 
+    func fetchType(_ type: String, page: Int) async throws -> [AnimeTitle] {
+        try await request(
+            path: "/api/amp/type/\(type)",
+            query: [URLQueryItem(name: "page", value: String(page))]
+        )
+    }
+
+    func fetchStatus(_ status: String, page: Int) async throws -> [AnimeTitle] {
+        try await request(
+            path: "/api/amp/status/\(status)",
+            query: [URLQueryItem(name: "page", value: String(page))]
+        )
+    }
+
+    func fetchSchedule(timeZoneHours: Double) async throws -> [AnimeScheduleDay] {
+        try await request(
+            path: "/api/amp/schedule",
+            query: [URLQueryItem(name: "tz", value: String(timeZoneHours))]
+        )
+    }
+
     func fetchGenres() async throws -> [String] {
         try await request(path: "/api/amp/genres")
     }
