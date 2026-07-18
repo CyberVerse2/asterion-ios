@@ -39,53 +39,76 @@ actor AnimeAPI {
         self.session = session
     }
 
-    func fetchCatalog(sort: String? = nil, genre: String? = nil, page: Int) async throws -> [AnimeTitle] {
-        var query = [URLQueryItem(name: "page", value: String(page))]
-        if let sort, !sort.isEmpty {
-            query.append(URLQueryItem(name: "sort", value: sort))
-        }
-        if let genre, !genre.isEmpty {
-            query.append(URLQueryItem(name: "genre", value: genre))
-        }
-        return try await request(path: "/api/filter", query: query)
+    func fetchLatest(page: Int) async throws -> [AnimeTitle] {
+        try await request(
+            path: "/api/amp/latest",
+            query: [URLQueryItem(name: "page", value: String(page))]
+        )
+    }
+
+    func fetchPopular(page: Int) async throws -> [AnimeTitle] {
+        try await request(
+            path: "/api/amp/popular",
+            query: [URLQueryItem(name: "page", value: String(page))]
+        )
+    }
+
+    func fetchNewReleases(page: Int) async throws -> [AnimeTitle] {
+        try await request(
+            path: "/api/amp/releases",
+            query: [URLQueryItem(name: "page", value: String(page))]
+        )
+    }
+
+    func fetchGenre(_ genre: String, page: Int) async throws -> [AnimeTitle] {
+        try await request(
+            path: "/api/amp/genre/\(genre)",
+            query: [URLQueryItem(name: "page", value: String(page))]
+        )
     }
 
     func fetchGenres() async throws -> [String] {
-        try await request(path: "/api/genres")
+        try await request(path: "/api/amp/genres")
     }
 
-    func search(query: String) async throws -> [AnimeTitle] {
+    func search(query: String, page: Int) async throws -> [AnimeTitle] {
         try await request(
-            path: "/api/search",
-            query: [URLQueryItem(name: "q", value: query)]
+            path: "/api/amp/search",
+            query: [
+                URLQueryItem(name: "q", value: query),
+                URLQueryItem(name: "page", value: String(page)),
+            ]
         )
     }
 
     func fetchShow(slug: String) async throws -> AnimeShow {
-        try await request(path: "/api/show/\(slug)")
+        try await request(path: "/api/amp/show/\(slug)")
     }
 
     func fetchEpisodes(showID: String) async throws -> [AnimeEpisode] {
-        try await request(path: "/api/episodes/\(showID)")
+        try await request(path: "/api/amp/episodes/\(showID)")
     }
 
-    func fetchStream(episodeID: String) async throws -> [AnimeStreamSource] {
-        let sources: [AnimeStreamSource] = try await request(path: "/api/stream/\(episodeID)")
+    func fetchStream(animeID: String, episodeNumber: Int) async throws -> [AnimeStreamSource] {
+        let sources: [AnimeStreamSource] = try await request(
+            path: "/api/amp/stream/\(animeID)/\(episodeNumber)"
+        )
         return sources.map { source in
             AnimeStreamSource(
-                serverID: source.serverID,
-                type: source.type,
+                server: source.server,
+                embedURL: Self.serviceURL(source.embedURL, relativeTo: baseURL),
                 quality: source.quality,
-                directURL: Self.serviceURL(source.directURL, relativeTo: baseURL),
-                embedURL: Self.serviceURL(source.embedURL, relativeTo: baseURL)
+                directURL: source.directURL.map {
+                    Self.serviceURL($0, relativeTo: baseURL)
+                }
             )
         }
     }
 
-    static func serviceURL(_ url: URL?, relativeTo baseURL: URL) -> URL? {
-        guard let url, !url.relativeString.isEmpty else { return nil }
+    static func serviceURL(_ url: URL, relativeTo baseURL: URL) -> URL {
+        guard !url.relativeString.isEmpty else { return url }
         guard url.scheme == nil else { return url }
-        return URL(string: url.relativeString, relativeTo: baseURL)?.absoluteURL
+        return URL(string: url.relativeString, relativeTo: baseURL)?.absoluteURL ?? url
     }
 
     private func request<Response: Decodable & Sendable>(

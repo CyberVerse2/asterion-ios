@@ -60,10 +60,8 @@ final class AnimeStore: ObservableObject {
 
             titles = loadedTitles
             isLoadingCatalog = false
-            if query.isEmpty {
-                catalogPage = 1
-                canLoadNextPage = !loadedTitles.isEmpty
-            }
+            catalogPage = 1
+            canLoadNextPage = !loadedTitles.isEmpty
 
             if let selectedTitleID,
                let selected = loadedTitles.first(where: { $0.id == selectedTitleID }) {
@@ -117,9 +115,10 @@ final class AnimeStore: ObservableObject {
         isLoadingDetail = true
 
         do {
-            async let showRequest = api.fetchShow(slug: title.slug)
-            async let episodesRequest = api.fetchEpisodes(showID: title.id)
-            let (loadedShow, loadedEpisodes) = try await (showRequest, episodesRequest)
+            let loadedShow = try await api.fetchShow(slug: title.slug)
+            guard selectedTitleID == title.id else { return }
+
+            let loadedEpisodes = try await api.fetchEpisodes(showID: loadedShow.id)
             guard selectedTitleID == title.id else { return }
 
             show = loadedShow
@@ -144,19 +143,15 @@ final class AnimeStore: ObservableObject {
         page: Int,
         requestID: UUID
     ) async throws -> [AnimeTitle] {
-        guard query.isEmpty else { return try await api.search(query: query) }
+        guard query.isEmpty else { return try await api.search(query: query, page: page) }
 
         switch section {
         case .discover:
-            return try await api.fetchCatalog(sort: "recentlyUpdated", page: page)
+            return try await api.fetchLatest(page: page)
         case .popular:
-            return try await api.fetchCatalog(sort: "popular", page: page)
-        case .trending:
-            return try await api.fetchCatalog(sort: "trending", page: page)
-        case .topRated:
-            return try await api.fetchCatalog(sort: "rating", page: page)
-        case .recentlyAdded:
-            return try await api.fetchCatalog(sort: "recentlyAdded", page: page)
+            return try await api.fetchPopular(page: page)
+        case .newReleases:
+            return try await api.fetchNewReleases(page: page)
         case .genres:
             if genres.isEmpty {
                 let loadedGenres = try await api.fetchGenres()
@@ -168,18 +163,19 @@ final class AnimeStore: ObservableObject {
             }
             guard let selectedGenre else { return [] }
             loadedRequestKey = "\(section.rawValue):\(selectedGenre)"
-            return try await api.fetchCatalog(genre: selectedGenre, page: page)
+            return try await api.fetchGenre(selectedGenre, page: page)
         }
     }
 
     private func loadNextPage(section: AnimeSection, query: String) async {
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard query.isEmpty,
-              canLoadNextPage,
+        guard canLoadNextPage,
               !isLoadingCatalog,
               !isLoadingNextPage else { return }
 
-        let requestKey = "\(section.rawValue):\(section == .genres ? selectedGenre ?? "" : "")"
+        let requestKey = query.isEmpty
+            ? "\(section.rawValue):\(section == .genres ? selectedGenre ?? "" : "")"
+            : "search:\(query)"
         guard loadedRequestKey == requestKey else { return }
 
         let requestID = catalogRequestID

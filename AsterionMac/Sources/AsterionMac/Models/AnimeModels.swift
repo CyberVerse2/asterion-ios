@@ -1,43 +1,23 @@
 import Foundation
 
 struct AnimeTitle: Identifiable, Codable, Hashable, Sendable {
-    let id: String
+    let slug: String
     let title: String
     let japaneseTitle: String?
     let imageURL: URL?
     let type: String?
     let episodeLabel: String?
-    let url: URL?
 
-    var displayTitle: String { title.decodedHTMLEntities }
-    var displayJapaneseTitle: String? { japaneseTitle?.decodedHTMLEntities }
-
+    var id: String { slug }
+    var displayTitle: String { title.decodedHTMLEntities.trimmingCharacters(in: .whitespacesAndNewlines) }
+    var displayJapaneseTitle: String? {
+        japaneseTitle?.decodedHTMLEntities.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
     private enum CodingKeys: String, CodingKey {
-        case id, title, type, url
+        case slug, title, type
         case japaneseTitle = "japanese_title"
         case imageURL = "image_url"
         case episodeLabel = "episode_label"
-    }
-
-    var slug: String {
-        if let url {
-            let components = url.pathComponents.filter { $0 != "/" }
-            if let animeIndex = components.firstIndex(of: "anime"),
-               components.indices.contains(animeIndex + 1) {
-                return components[animeIndex + 1]
-            }
-
-            if let path = components.last, let episodeRange = path.range(of: "-episode-") {
-                return String(path[..<episodeRange.lowerBound])
-            }
-        }
-
-        return displayTitle
-            .folding(options: [.diacriticInsensitive, .widthInsensitive], locale: .current)
-            .lowercased()
-            .components(separatedBy: CharacterSet.alphanumerics.inverted)
-            .filter { !$0.isEmpty }
-            .joined(separator: "-")
     }
 }
 
@@ -50,27 +30,50 @@ struct AnimeShow: Identifiable, Codable, Hashable, Sendable {
     let type: String?
     let status: String?
     let genres: [String]
-    let episodes: Int?
+    let episodesCount: Int
+    let subEpisodes: Int
+    let dubEpisodes: Int
     let season: String?
     let studio: String?
     let dateAired: String?
+    let malScore: String?
     let slug: String
 
-    var displayTitle: String { title.decodedHTMLEntities }
-    var displayJapaneseTitle: String? { japaneseTitle?.decodedHTMLEntities }
-    var displayDescription: String? { description?.decodedHTMLEntities }
-    var displayStudio: String? { studio?.decodedHTMLEntities }
+    var displayTitle: String { title.decodedHTMLEntities.trimmingCharacters(in: .whitespacesAndNewlines) }
+    var displayJapaneseTitle: String? {
+        japaneseTitle?.decodedHTMLEntities.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    var displayDescription: String? {
+        description?.decodedHTMLEntities.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    var displayStudio: String? {
+        studio?.decodedHTMLEntities.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     private enum CodingKeys: String, CodingKey {
-        case id, title, description, type, status, genres, episodes, season, studio, slug
+        case id, title, description, type, status, genres, season, studio, slug
         case japaneseTitle = "japanese_title"
         case imageURL = "image_url"
+        case episodesCount = "episodes_count"
+        case subEpisodes = "sub_episodes"
+        case dubEpisodes = "dub_episodes"
         case dateAired = "date_aired"
+        case malScore = "mal_score"
     }
 }
 
 private extension String {
     var decodedHTMLEntities: String {
+        var decoded = self
+        for _ in 0..<3 {
+            let next = decoded.decodingHTMLEntitiesOnce
+            guard next != decoded else { break }
+            decoded = next
+        }
+        return decoded
+    }
+
+    var decodingHTMLEntitiesOnce: String {
         let namedEntities: [Substring: Character] = [
             "amp": "&",
             "apos": "'",
@@ -131,22 +134,25 @@ private extension String {
 
 struct AnimeEpisode: Identifiable, Codable, Hashable, Sendable {
     let id: String
+    let animeID: String
     let number: Int
-    let url: URL?
+
+    private enum CodingKeys: String, CodingKey {
+        case id, number
+        case animeID = "anime_id"
+    }
 }
 
 struct AnimeStreamSource: Codable, Hashable, Sendable {
-    let serverID: String?
-    let type: String?
+    let server: String
+    let embedURL: URL
     let quality: String?
     let directURL: URL?
-    let embedURL: URL?
 
     private enum CodingKeys: String, CodingKey {
-        case type, quality
-        case serverID = "server_id"
-        case directURL = "direct_url"
-        case embedURL = "embed_url"
+        case server, quality
+        case embedURL = "url"
+        case directURL = "source"
     }
 }
 
@@ -160,18 +166,18 @@ struct AnimePlaybackOption: Identifiable, Hashable, Sendable {
     let kind: Kind
     let url: URL
     let quality: String?
-    let serverID: String?
+    let server: String
 
     var title: String {
-        let base = kind == .direct ? "Direct stream" : "Web player"
-        guard let quality, !quality.isEmpty else { return base }
-        return "\(base) · \(quality)"
+        let format = kind == .direct ? "Direct" : "Web"
+        let qualityLabel = quality.map { " · \($0)" } ?? ""
+        return "\(server) · \(format)\(qualityLabel)"
     }
 
     static func options(from sources: [AnimeStreamSource]) -> [AnimePlaybackOption] {
         sources.enumerated().flatMap { index, source in
             var options: [AnimePlaybackOption] = []
-            let sourceID = source.serverID ?? String(index)
+            let sourceID = source.server.isEmpty ? String(index) : source.server
 
             if let url = source.directURL {
                 options.append(
@@ -180,21 +186,19 @@ struct AnimePlaybackOption: Identifiable, Hashable, Sendable {
                         kind: .direct,
                         url: url,
                         quality: source.quality,
-                        serverID: source.serverID
+                        server: source.server
                     )
                 )
             }
-            if let url = source.embedURL {
-                options.append(
-                    AnimePlaybackOption(
-                        id: "embed-\(sourceID)-\(index)",
-                        kind: .embed,
-                        url: url,
-                        quality: source.quality,
-                        serverID: source.serverID
-                    )
+            options.append(
+                AnimePlaybackOption(
+                    id: "embed-\(sourceID)-\(index)",
+                    kind: .embed,
+                    url: source.embedURL,
+                    quality: source.quality,
+                    server: source.server
                 )
-            }
+            )
             return options
         }
     }

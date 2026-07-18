@@ -93,7 +93,6 @@ struct AnimeCatalogView: View {
                 watch: {
                     openWindow(
                         value: AnimePlayerRoute(
-                            showID: featuredTitle.id,
                             slug: featuredTitle.slug,
                             title: featuredTitle.displayTitle,
                             initialEpisodeID: nil

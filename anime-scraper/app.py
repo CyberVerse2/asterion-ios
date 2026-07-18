@@ -25,6 +25,7 @@ ALLOWED_VIDEO_HOSTS = frozenset({
     "megaplay.buzz",
     "vidwish.live",
     "mt.nekostream.site",
+    "p1.ipstatp.com",
 })
 
 
@@ -353,12 +354,7 @@ def proxy_ts():
     req = Request(target, headers=headers)
     try:
         resp = urlopen(req, timeout=15)
-        data = bytearray()
-        while True:
-            chunk = resp.read(65536)
-            if not chunk: break
-            data.extend(chunk)
-        rv = flask.Response(bytes(data))
+        rv = flask.Response(flask.stream_with_context(iter(lambda: resp.read(65536), b"")))
         rv.headers["Content-Type"] = resp.headers.get("Content-Type", "video/mp2t")
         rv.headers["Access-Control-Allow-Origin"] = "*"
         rv.headers["Cache-Control"] = "no-cache"
@@ -693,7 +689,7 @@ function showAmpPlayer(idx) {
       }
     });
   } else {
-    // Fallback: iframe embed
+    // Embed player
     $('#player-video').style.display = 'none';
     $('#player-video').src = '';
     $('#player-frame').style.display = 'block';

@@ -52,9 +52,10 @@ final class AnimePlayerStore: ObservableObject {
         resetPlayback()
 
         do {
-            async let showRequest = api.fetchShow(slug: route.slug)
-            async let episodeRequest = api.fetchEpisodes(showID: route.showID)
-            let (loadedShow, loadedEpisodes) = try await (showRequest, episodeRequest)
+            let loadedShow = try await api.fetchShow(slug: route.slug)
+            guard !Task.isCancelled, showRequestID == requestID else { return }
+
+            let loadedEpisodes = try await api.fetchEpisodes(showID: loadedShow.id)
             guard !Task.isCancelled, showRequestID == requestID else { return }
 
             show = loadedShow
@@ -88,7 +89,10 @@ final class AnimePlayerStore: ObservableObject {
         isLoadingStream = true
 
         do {
-            let sources = try await api.fetchStream(episodeID: episode.id)
+            let sources = try await api.fetchStream(
+                animeID: episode.animeID,
+                episodeNumber: episode.number
+            )
             guard selectedEpisodeID == episode.id else { return }
 
             let options = AnimePlaybackOption.options(from: sources)

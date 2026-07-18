@@ -49,18 +49,14 @@ enum AppSection: String, CaseIterable, Codable, Hashable, Sendable {
 enum AnimeSection: String, CaseIterable, Codable, Hashable, Sendable {
     case discover
     case popular
-    case trending
-    case topRated
-    case recentlyAdded
+    case newReleases
     case genres
 
     var title: String {
         switch self {
         case .discover: "Discover"
         case .popular: "Popular"
-        case .trending: "Trending"
-        case .topRated: "Top Rated"
-        case .recentlyAdded: "Recently Added"
+        case .newReleases: "New Releases"
         case .genres: "Genres"
         }
     }
@@ -69,9 +65,7 @@ enum AnimeSection: String, CaseIterable, Codable, Hashable, Sendable {
         switch self {
         case .discover: "sparkles.tv"
         case .popular: "flame"
-        case .trending: "chart.line.uptrend.xyaxis"
-        case .topRated: "star"
-        case .recentlyAdded: "clock.badge.plus"
+        case .newReleases: "clock.badge.plus"
         case .genres: "square.grid.2x2"
         }
     }
@@ -80,9 +74,7 @@ enum AnimeSection: String, CaseIterable, Codable, Hashable, Sendable {
         switch self {
         case .discover: "Recently updated"
         case .popular: "Most popular"
-        case .trending: "Trending now"
-        case .topRated: "Top rated"
-        case .recentlyAdded: "Recently added"
+        case .newReleases: "New releases"
         case .genres: "Browse by genre"
         }
     }
@@ -91,9 +83,7 @@ enum AnimeSection: String, CaseIterable, Codable, Hashable, Sendable {
         switch self {
         case .discover: "Fresh episodes, ready when you are."
         case .popular: "The shows drawing the biggest audience."
-        case .trending: "What anime fans are watching right now."
-        case .topRated: "The highest-rated stories in the catalog."
-        case .recentlyAdded: "New arrivals across series, films, and specials."
+        case .newReleases: "New arrivals across series, films, and specials."
         case .genres: "Choose a genre to shape your next watch."
         }
     }
@@ -105,7 +95,6 @@ struct ReaderRoute: Codable, Hashable, Sendable {
 }
 
 struct AnimePlayerRoute: Codable, Hashable, Sendable {
-    let showID: String
     let slug: String
     let title: String
     let initialEpisodeID: String?

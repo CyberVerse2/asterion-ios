@@ -81,10 +81,10 @@ The service supplies portrait posters rather than landscape backdrops. The featu
 
 ### Data and interaction checks
 
-- The live `/api/filter` endpoint returns 25 titles for page 1 and a different 25-title batch for page 2.
-- Discover, Popular, Trending, Top Rated, Recently Added, and Genres request additional pages when the final visible card appears.
+- The live `/api/amp/latest`, `/api/amp/popular`, `/api/amp/releases`, and `/api/amp/genre/<genre>` endpoints support paged shelves.
+- Discover, Popular, New Releases, Genres, and search request additional pages when the final visible card appears.
 - Page results remove duplicate IDs; a failed page shows an explicit retry action.
-- Search still uses `/api/search` because the service does not expose search pagination.
+- Search uses `/api/amp/search`; a live Naruto query returns the full franchise result set instead of only current-season titles.
 - Carousel dots change the featured title, Watch now opens the title and starts its latest episode, and detail episode rows start playback.
 - Release season is shown from the API’s `season` field. No unsupported franchise-season relationship is inferred.
 

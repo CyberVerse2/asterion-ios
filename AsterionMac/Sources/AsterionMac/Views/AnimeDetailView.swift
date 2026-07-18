@@ -133,7 +133,7 @@ struct AnimeDetailView: View {
 
                     AnimeMetadataLine(
                         icon: "film.stack",
-                        value: "\(max(show.episodes ?? 0, store.episodes.count)) episodes"
+                        value: "\(max(show.episodesCount, store.episodes.count)) episodes"
                     )
                 }
                 .padding(.top, 3)
@@ -215,7 +215,6 @@ struct AnimeDetailView: View {
     private func openPlayer(show: AnimeShow, episode: AnimeEpisode) {
         openWindow(
             value: AnimePlayerRoute(
-                showID: show.id,
                 slug: show.slug,
                 title: show.displayTitle,
                 initialEpisodeID: episode.id
