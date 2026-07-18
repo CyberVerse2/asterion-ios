@@ -88,7 +88,14 @@ struct MovieDetailView: View {
         .navigationTitle(show.displayTitle)
         .task(id: show.id) {
             showsFullSynopsis = false
-            selectedSeason = availableSeasons.first
+            selectedSeason = preferredEpisode(for: show)?.season ?? availableSeasons.first
+        }
+        .onChange(of: activeProgress(for: show)?.unitId) { _, unitID in
+            guard let unitID,
+                  let episode = store.episodes.first(where: { $0.id == unitID }) else {
+                return
+            }
+            selectedSeason = episode.season
         }
     }
 
@@ -137,7 +144,7 @@ struct MovieDetailView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
                 Button {
-                    openPlayer(show: show, episode: preferredEpisode)
+                    openPlayer(show: show, episode: preferredEpisode(for: show))
                 } label: {
                     Label(watchButtonTitle(show), systemImage: "play.fill")
                         .frame(maxWidth: .infinity)
@@ -212,6 +219,8 @@ struct MovieDetailView: View {
             } else {
                 LazyVStack(spacing: 0) {
                     ForEach(episodesForSelectedSeason) { episode in
+                        let progress = episodeProgress(for: episode, in: show)
+
                         Button {
                             openPlayer(show: show, episode: episode)
                         } label: {
@@ -223,15 +232,22 @@ struct MovieDetailView: View {
                                 Text(episode.title)
                                     .font(.asterionDisplay(14, weight: .medium))
                                     .foregroundStyle(Color.asterionText)
+                                    .lineLimit(1)
                                 Spacer()
-                                Image(systemName: "arrow.up.right.square")
-                                    .font(.caption)
-                                    .foregroundStyle(Color.asterionMuted)
+                                episodeProgressAccessory(progress)
                             }
                             .padding(.vertical, 11)
+                            .padding(.horizontal, 8)
+                            .background(
+                                progress?.isCurrent == true
+                                    ? Color.asterionAccent.opacity(0.08)
+                                    : .clear,
+                                in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            )
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .help(episodeProgressHelp(progress, episode: episode))
                         Divider()
                     }
                 }
@@ -255,14 +271,114 @@ struct MovieDetailView: View {
         return store.episodes.filter { $0.season == season }
     }
 
-    private var preferredEpisode: MovieEpisode? {
-        store.episodes.last
+    private func preferredEpisode(for show: MovieShow) -> MovieEpisode? {
+        if let progress = activeProgress(for: show),
+           let episode = store.episodes.first(where: { $0.id == progress.unitId }) {
+            return episode
+        }
+        return store.episodes.last
     }
 
     private func watchButtonTitle(_ show: MovieShow) -> String {
+        if let progress = activeProgress(for: show) {
+            let percentage = Int(progress.percentage.rounded())
+            if show.isSeries {
+                if let episode = store.episodes.first(where: { $0.id == progress.unitId }) {
+                    return percentage > 0
+                        ? "Continue S\(episode.season) E\(episode.number) · \(percentage)%"
+                        : "Continue S\(episode.season) E\(episode.number)"
+                }
+            } else {
+                return percentage > 0 ? "Continue movie · \(percentage)%" : "Continue movie"
+            }
+        }
+
         guard show.isSeries else { return "Watch movie" }
-        guard let episode = preferredEpisode else { return "No episodes available" }
+        guard let episode = preferredEpisode(for: show) else { return "No episodes available" }
         return "Watch S\(episode.season) E\(episode.number)"
+    }
+
+    private func activeProgress(for show: MovieShow) -> MediaPlaybackProgress? {
+        model.continueWatching.first {
+            $0.mediaType == .movie && $0.contentId == show.slug
+        }
+    }
+
+    private func episodeProgress(
+        for episode: MovieEpisode,
+        in show: MovieShow
+    ) -> MovieEpisodeProgress? {
+        let active = activeProgress(for: show).flatMap {
+            $0.unitId == episode.id ? $0 : nil
+        }
+        let history = model.mediaHistory.first {
+            $0.mediaType == .movie
+                && $0.contentId == show.slug
+                && $0.unitId == episode.id
+        }
+        if let active {
+            return MovieEpisodeProgress(
+                percentage: min(100, max(0, active.percentage)),
+                isCompleted: active.completed,
+                isCurrent: true
+            )
+        }
+        guard let history else { return nil }
+
+        return MovieEpisodeProgress(
+            percentage: history.completed ? 100 : min(100, max(0, history.percentage)),
+            isCompleted: history.completed,
+            isCurrent: false
+        )
+    }
+
+    @ViewBuilder
+    private func episodeProgressAccessory(_ progress: MovieEpisodeProgress?) -> some View {
+        if let progress {
+            if progress.isCompleted {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.callout)
+                    .foregroundStyle(Color.asterionAccent)
+                    .accessibilityLabel("Watched")
+            } else {
+                VStack(alignment: .trailing, spacing: 4) {
+                    HStack(spacing: 4) {
+                        if progress.isCurrent {
+                            Image(systemName: "play.fill")
+                                .font(.system(size: 8, weight: .bold))
+                        }
+                        Text("\(Int(progress.percentage.rounded()))%")
+                            .font(.caption2.monospacedDigit().weight(.semibold))
+                    }
+                    .foregroundStyle(
+                        progress.isCurrent ? Color.asterionAccent : Color.asterionMuted
+                    )
+
+                    ProgressView(value: progress.percentage, total: 100)
+                        .progressViewStyle(.linear)
+                        .tint(progress.isCurrent ? Color.asterionAccent : Color.asterionMuted)
+                        .frame(width: 72)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("\(Int(progress.percentage.rounded())) percent watched")
+            }
+        } else {
+            Image(systemName: "arrow.up.right.square")
+                .font(.caption)
+                .foregroundStyle(Color.asterionMuted)
+        }
+    }
+
+    private func episodeProgressHelp(
+        _ progress: MovieEpisodeProgress?,
+        episode: MovieEpisode
+    ) -> String {
+        guard let progress else { return "Watch \(episode.title)" }
+        if progress.isCompleted { return "Watch \(episode.title) again" }
+        if progress.isCurrent {
+            return "Continue \(episode.title) from \(Int(progress.percentage.rounded()))%"
+        }
+        return "Resume \(episode.title)"
     }
 
     private func openPlayer(show: MovieShow, episode: MovieEpisode?) {
@@ -313,4 +429,10 @@ struct MovieDetailView: View {
         }
         return prefix + "…"
     }
+}
+
+private struct MovieEpisodeProgress {
+    let percentage: Double
+    let isCompleted: Bool
+    let isCurrent: Bool
 }
