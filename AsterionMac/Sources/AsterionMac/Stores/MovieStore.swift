@@ -1,6 +1,20 @@
 import Combine
 import Foundation
 
+protocol MovieCatalogServing: Sendable {
+    func fetchMovies(page: Int) async throws -> MovieCatalogPage
+    func fetchTV(page: Int) async throws -> MovieCatalogPage
+    func fetchTrendingMovies() async throws -> [MovieTitle]
+    func fetchPopularMovies() async throws -> [MovieTitle]
+    func fetchGenre(_ slug: String, page: Int) async throws -> [MovieTitle]
+    func fetchGenres() async throws -> [MovieGenre]
+    func search(query: String) async throws -> [MovieTitle]
+    func fetchShow(slug: String) async throws -> MovieShow
+    func fetchEpisodes(slug: String) async throws -> [MovieEpisode]
+}
+
+extension MovieAPI: MovieCatalogServing {}
+
 @MainActor
 final class MovieStore: ObservableObject {
     @Published private(set) var titles: [MovieTitle] = []
@@ -16,23 +30,25 @@ final class MovieStore: ObservableObject {
     @Published private(set) var paginationError: String?
     @Published private(set) var detailError: String?
 
-    private let api: MovieAPI
+    private let api: any MovieCatalogServing
     private var loadedRequestKey: String?
     private var catalogRequestID = UUID()
     private var catalogPage = 0
     private var canLoadNextPage = false
 
-    init(api: MovieAPI = MovieAPI()) {
+    init(api: any MovieCatalogServing = MovieAPI()) {
         self.api = api
     }
 
     func loadCatalog(section: MovieSection, query: String, force: Bool = false) async {
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard query.isEmpty || query.count >= 2 else {
+            catalogRequestID = UUID()
             titles = []
             loadedRequestKey = "short-search:\(query)"
             catalogError = nil
             isLoadingCatalog = false
+            resetPagination()
             clearSelection()
             return
         }
@@ -48,6 +64,15 @@ final class MovieStore: ObservableObject {
         isLoadingCatalog = true
         catalogError = nil
         resetPagination()
+        var completedCatalogRequest = false
+        defer {
+            if catalogRequestID == requestID {
+                isLoadingCatalog = false
+                if !completedCatalogRequest {
+                    loadedRequestKey = nil
+                }
+            }
+        }
 
         do {
             let result = try await fetchTitles(
@@ -58,15 +83,17 @@ final class MovieStore: ObservableObject {
             )
             guard !Task.isCancelled, catalogRequestID == requestID else { return }
 
-            titles = result.titles
+            let uniqueTitles = result.titles.deduplicatedByID()
+            titles = uniqueTitles
             catalogPage = 1
             canLoadNextPage = result.hasNextPage
             isLoadingCatalog = false
+            completedCatalogRequest = true
 
             if let selectedTitleID,
-               let selected = result.titles.first(where: { $0.id == selectedTitleID }) {
+               let selected = uniqueTitles.first(where: { $0.id == selectedTitleID }) {
                 if show == nil { await select(selected) }
-            } else if let first = result.titles.first {
+            } else if let first = uniqueTitles.first {
                 await select(first)
             } else {
                 clearSelection()
@@ -75,7 +102,6 @@ final class MovieStore: ObservableObject {
             guard !Task.isCancelled, catalogRequestID == requestID else { return }
             titles = []
             catalogError = error.localizedDescription
-            isLoadingCatalog = false
             clearSelection()
         }
     }
@@ -198,10 +224,17 @@ final class MovieStore: ObservableObject {
             guard !Task.isCancelled, catalogRequestID == requestID else { return }
 
             let existingIDs = Set(titles.map(\.id))
-            let newTitles = result.titles.filter { !existingIDs.contains($0.id) }
+            let pageTitles = result.titles.deduplicatedByID()
+            let newTitles = pageTitles.filter { !existingIDs.contains($0.id) }
+            guard pageTitles.isEmpty || !newTitles.isEmpty else {
+                paginationError = CatalogPaginationError
+                    .repeatedPage(resource: "movie")
+                    .localizedDescription
+                return
+            }
             titles.append(contentsOf: newTitles)
             catalogPage += 1
-            canLoadNextPage = result.hasNextPage && !newTitles.isEmpty
+            canLoadNextPage = result.hasNextPage
         } catch {
             guard !Task.isCancelled, catalogRequestID == requestID else { return }
             paginationError = error.localizedDescription

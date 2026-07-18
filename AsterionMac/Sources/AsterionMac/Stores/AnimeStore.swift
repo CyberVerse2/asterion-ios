@@ -1,6 +1,19 @@
 import Combine
 import Foundation
 
+protocol AnimeCatalogServing: Sendable {
+    func fetchLatest(page: Int) async throws -> [AnimeTitle]
+    func fetchPopular(page: Int) async throws -> [AnimeTitle]
+    func fetchNewReleases(page: Int) async throws -> [AnimeTitle]
+    func fetchGenre(_ genre: String, page: Int) async throws -> [AnimeTitle]
+    func fetchGenres() async throws -> [String]
+    func search(query: String, page: Int) async throws -> [AnimeTitle]
+    func fetchShow(slug: String) async throws -> AnimeShow
+    func fetchEpisodes(showID: String) async throws -> [AnimeEpisode]
+}
+
+extension AnimeAPI: AnimeCatalogServing {}
+
 @MainActor
 final class AnimeStore: ObservableObject {
     @Published private(set) var titles: [AnimeTitle] = []
@@ -16,23 +29,25 @@ final class AnimeStore: ObservableObject {
     @Published private(set) var paginationError: String?
     @Published private(set) var detailError: String?
 
-    private let api: AnimeAPI
+    private let api: any AnimeCatalogServing
     private var loadedRequestKey: String?
     private var catalogRequestID = UUID()
     private var catalogPage = 0
     private var canLoadNextPage = false
 
-    init(api: AnimeAPI = AnimeAPI()) {
+    init(api: any AnimeCatalogServing = AnimeAPI()) {
         self.api = api
     }
 
     func loadCatalog(section: AnimeSection, query: String, force: Bool = false) async {
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard query.isEmpty || query.count >= 2 else {
+            catalogRequestID = UUID()
             titles = []
             loadedRequestKey = "short-search:\(query)"
             catalogError = nil
             isLoadingCatalog = false
+            resetPagination()
             clearSelection()
             return
         }
@@ -48,6 +63,15 @@ final class AnimeStore: ObservableObject {
         isLoadingCatalog = true
         catalogError = nil
         resetPagination()
+        var completedCatalogRequest = false
+        defer {
+            if catalogRequestID == requestID {
+                isLoadingCatalog = false
+                if !completedCatalogRequest {
+                    loadedRequestKey = nil
+                }
+            }
+        }
 
         do {
             let loadedTitles = try await fetchTitles(
@@ -55,13 +79,14 @@ final class AnimeStore: ObservableObject {
                 query: query,
                 page: 1,
                 requestID: requestID
-            )
+            ).deduplicatedByID()
             guard !Task.isCancelled, catalogRequestID == requestID else { return }
 
             titles = loadedTitles
             isLoadingCatalog = false
             catalogPage = 1
             canLoadNextPage = !loadedTitles.isEmpty
+            completedCatalogRequest = true
 
             if let selectedTitleID,
                let selected = loadedTitles.first(where: { $0.id == selectedTitleID }) {
@@ -76,7 +101,6 @@ final class AnimeStore: ObservableObject {
         } catch {
             guard !Task.isCancelled, catalogRequestID == requestID else { return }
             titles = []
-            isLoadingCatalog = false
             catalogError = error.localizedDescription
             clearSelection()
         }
@@ -194,16 +218,22 @@ final class AnimeStore: ObservableObject {
                 query: query,
                 page: nextPage,
                 requestID: requestID
-            )
+            ).deduplicatedByID()
             guard !Task.isCancelled,
                   catalogRequestID == requestID,
                   loadedRequestKey == requestKey else { return }
 
             let existingIDs = Set(titles.map(\.id))
             let newTitles = pageTitles.filter { !existingIDs.contains($0.id) }
+            guard pageTitles.isEmpty || !newTitles.isEmpty else {
+                paginationError = CatalogPaginationError
+                    .repeatedPage(resource: "anime")
+                    .localizedDescription
+                return
+            }
             titles.append(contentsOf: newTitles)
             catalogPage = nextPage
-            canLoadNextPage = !pageTitles.isEmpty && !newTitles.isEmpty
+            canLoadNextPage = !pageTitles.isEmpty
         } catch {
             guard !Task.isCancelled,
                   catalogRequestID == requestID,

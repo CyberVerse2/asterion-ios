@@ -17,6 +17,24 @@ enum APIError: LocalizedError {
     }
 }
 
+enum CatalogPaginationError: LocalizedError {
+    case repeatedPage(resource: String)
+
+    var errorDescription: String? {
+        switch self {
+        case .repeatedPage(let resource):
+            "The \(resource) service repeated the previous page, so Asterion stopped loading duplicate results. Try again."
+        }
+    }
+}
+
+extension Sequence where Element: Identifiable, Element.ID: Hashable {
+    func deduplicatedByID() -> [Element] {
+        var seen = Set<Element.ID>()
+        return filter { seen.insert($0.id).inserted }
+    }
+}
+
 struct UserProfile: Identifiable, Codable, Hashable, Sendable {
     let id: String
     let clerkUserId: String
@@ -78,6 +96,7 @@ actor APIClient {
         var offset = 0
         let pageSize = 100
         var result: [Novel] = []
+        var seenIDs = Set<Novel.ID>()
 
         while true {
             var query = [
@@ -89,10 +108,16 @@ actor APIClient {
             }
 
             let page: Page<Novel> = try await request(path: "/novels", query: query)
-            result.append(contentsOf: page.data)
+            let newNovels = page.data
+                .deduplicatedByID()
+                .filter { seenIDs.insert($0.id).inserted }
+            result.append(contentsOf: newNovels)
             let total = page.meta?.total ?? page.meta?.count
             if page.data.count < pageSize || total.map({ result.count >= $0 }) == true {
                 return result
+            }
+            guard !newNovels.isEmpty else {
+                throw CatalogPaginationError.repeatedPage(resource: "novel")
             }
             offset += pageSize
         }
@@ -107,6 +132,7 @@ actor APIClient {
         var offset = 0
         let pageSize = 100
         var result: [Chapter] = []
+        var seenIDs = Set<Chapter.ID>()
 
         while true {
             let page: Page<Chapter> = try await request(
@@ -116,10 +142,16 @@ actor APIClient {
                     URLQueryItem(name: "offset", value: String(offset)),
                 ]
             )
-            result.append(contentsOf: page.data)
+            let newChapters = page.data
+                .deduplicatedByID()
+                .filter { seenIDs.insert($0.id).inserted }
+            result.append(contentsOf: newChapters)
             let total = page.meta?.total ?? page.meta?.count
             if page.data.count < pageSize || total.map({ result.count >= $0 }) == true {
                 return result.sorted { $0.chapterNumber < $1.chapterNumber }
+            }
+            guard !newChapters.isEmpty else {
+                throw CatalogPaginationError.repeatedPage(resource: "chapter")
             }
             offset += pageSize
         }

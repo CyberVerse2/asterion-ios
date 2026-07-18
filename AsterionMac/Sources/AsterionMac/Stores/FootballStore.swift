@@ -1,6 +1,12 @@
 import Combine
 import Foundation
 
+protocol FootballCatalogServing: Sendable {
+    func fetchMatches(section: FootballSection) async throws -> [FootballMatch]
+}
+
+extension FootballAPI: FootballCatalogServing {}
+
 @MainActor
 final class FootballStore: ObservableObject {
     @Published private(set) var matches: [FootballMatch] = []
@@ -8,13 +14,13 @@ final class FootballStore: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var error: String?
 
-    private let api: FootballAPI
+    private let api: any FootballCatalogServing
     private var loadedSection: FootballSection?
     private var allMatches: [FootballMatch] = []
     private var query = ""
     private var requestID = UUID()
 
-    init(api: FootballAPI = FootballAPI()) {
+    init(api: any FootballCatalogServing = FootballAPI()) {
         self.api = api
     }
 
@@ -40,17 +46,25 @@ final class FootballStore: ObservableObject {
         requestID = currentRequestID
         isLoading = true
         error = nil
+        var completedRequest = false
+        defer {
+            if requestID == currentRequestID {
+                isLoading = false
+                if !completedRequest {
+                    loadedSection = nil
+                }
+            }
+        }
 
         do {
             let fetched = try await api.fetchMatches(section: section)
             guard !Task.isCancelled, requestID == currentRequestID else { return }
             allMatches = fetched.sorted { $0.kickoff < $1.kickoff }
             applySearch()
-            isLoading = false
+            completedRequest = true
         } catch {
             guard !Task.isCancelled, requestID == currentRequestID else { return }
             self.error = error.localizedDescription
-            isLoading = false
         }
     }
 
