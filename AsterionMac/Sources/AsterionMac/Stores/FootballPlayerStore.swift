@@ -56,9 +56,9 @@ final class FootballPlayerStore: ObservableObject {
 
     private static func preferredOrder(_ left: FootballStream, _ right: FootballStream) -> Bool {
         if left.hd != right.hd { return left.hd }
-        if left.language.localizedCaseInsensitiveCompare("English") != right.language.localizedCaseInsensitiveCompare("English") {
-            return left.language.localizedCaseInsensitiveCompare("English") == .orderedSame
-        }
+        let leftIsEnglish = left.language.localizedCaseInsensitiveCompare("English") == .orderedSame
+        let rightIsEnglish = right.language.localizedCaseInsensitiveCompare("English") == .orderedSame
+        if leftIsEnglish != rightIsEnglish { return leftIsEnglish }
         return (left.viewers ?? 0) > (right.viewers ?? 0)
     }
 }

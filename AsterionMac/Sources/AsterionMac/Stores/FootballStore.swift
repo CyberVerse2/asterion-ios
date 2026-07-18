@@ -24,9 +24,16 @@ final class FootballStore: ObservableObject {
     }
 
     func load(section: FootballSection, force: Bool = false) async {
-        if !force, loadedSection == section, !allMatches.isEmpty {
+        if !force, loadedSection == section {
             applySearch()
             return
+        }
+
+        if loadedSection != section {
+            loadedSection = section
+            allMatches = []
+            matches = []
+            selectedMatchID = nil
         }
 
         let currentRequestID = UUID()
@@ -37,7 +44,6 @@ final class FootballStore: ObservableObject {
         do {
             let fetched = try await api.fetchMatches(section: section)
             guard !Task.isCancelled, requestID == currentRequestID else { return }
-            loadedSection = section
             allMatches = fetched.sorted { $0.kickoff < $1.kickoff }
             applySearch()
             isLoading = false

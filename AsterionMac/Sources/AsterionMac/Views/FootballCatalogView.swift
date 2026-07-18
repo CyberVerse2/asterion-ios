@@ -41,6 +41,9 @@ struct FootballCatalogView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 26, pinnedViews: [.sectionHeaders]) {
                         catalogHeader
+                        if let error = store.error {
+                            refreshError(error)
+                        }
                         ForEach(groupedMatches, id: \.date) { group in
                             Section {
                                 VStack(spacing: 10) {
@@ -93,6 +96,19 @@ struct FootballCatalogView: View {
                 .foregroundStyle(Color.asterionMuted)
         }
         .padding(.bottom, 2)
+    }
+
+    private func refreshError(_ error: String) -> some View {
+        HStack(spacing: 12) {
+            Label(error, systemImage: "wifi.exclamationmark")
+                .font(.caption)
+                .foregroundStyle(Color.asterionMuted)
+            Spacer()
+            Button("Try Again") { Task { await store.refresh(section: section) } }
+                .controlSize(.small)
+        }
+        .padding(12)
+        .background(Color.asterionCard, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
     private func dateHeader(_ date: Date) -> some View {
