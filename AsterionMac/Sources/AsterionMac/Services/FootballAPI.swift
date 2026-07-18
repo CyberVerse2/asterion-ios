@@ -21,6 +21,8 @@ enum FootballAPIError: LocalizedError {
 }
 
 actor FootballAPI {
+    static let shared = FootballAPI()
+
     private struct Envelope<Value: Decodable & Sendable>: Decodable, Sendable {
         let success: Bool
         let data: Value
@@ -39,13 +41,21 @@ actor FootballAPI {
 
     private let baseURL: URL
     private let session: URLSession
+    private let responseCache: HTTPResponseCache
+    private static let catalogCacheNamespace = "football.catalog"
 
     init(
         baseURL: URL = URL(string: "https://asterion-football.cyberverse.cloud")!,
-        session: URLSession = .shared
+        session: URLSession = .shared,
+        responseCache: HTTPResponseCache = HTTPResponseCache()
     ) {
         self.baseURL = baseURL
         self.session = session
+        self.responseCache = responseCache
+    }
+
+    func invalidateCatalogCache() async {
+        await responseCache.invalidate(namespace: Self.catalogCacheNamespace)
     }
 
     func fetchMatches(section: FootballSection) async throws -> [FootballMatch] {
@@ -54,7 +64,10 @@ actor FootballAPI {
         case .schedule: "/api/matches"
         case .popular: "/api/matches/popular"
         }
-        let envelope: Envelope<[FootballMatch]> = try await request(path: path)
+        let envelope: Envelope<[FootballMatch]> = try await request(
+            path: path,
+            cacheLifetime: 20
+        )
         return envelope.data
     }
 
@@ -79,7 +92,8 @@ actor FootballAPI {
     private func request<Response: Decodable & Sendable>(
         path: String,
         method: String = "GET",
-        body: Data? = nil
+        body: Data? = nil,
+        cacheLifetime: TimeInterval = 0
     ) async throws -> Response {
         let url = baseURL.appending(path: path)
         var request = URLRequest(url: url)
@@ -90,12 +104,23 @@ actor FootballAPI {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
 
-        let (data, response) = try await session.data(for: request)
-        guard let response = response as? HTTPURLResponse else {
-            throw FootballAPIError.invalidResponse
+        let response: CachedHTTPResponse
+        if cacheLifetime > 0 {
+            response = try await responseCache.response(
+                for: request,
+                session: session,
+                namespace: Self.catalogCacheNamespace,
+                lifetime: cacheLifetime
+            )
+        } else {
+            let (data, urlResponse) = try await session.data(for: request)
+            guard let httpResponse = urlResponse as? HTTPURLResponse else {
+                throw FootballAPIError.invalidResponse
+            }
+            response = CachedHTTPResponse(data: data, statusCode: httpResponse.statusCode)
         }
         guard 200..<300 ~= response.statusCode else {
-            let envelope = try? Self.decoder.decode(ErrorEnvelope.self, from: data)
+            let envelope = try? Self.decoder.decode(ErrorEnvelope.self, from: response.data)
             throw FootballAPIError.http(
                 statusCode: response.statusCode,
                 message: envelope?.error ?? ""
@@ -103,7 +128,7 @@ actor FootballAPI {
         }
 
         do {
-            return try Self.decoder.decode(Response.self, from: data)
+            return try Self.decoder.decode(Response.self, from: response.data)
         } catch {
             throw FootballAPIError.invalidPayload
         }

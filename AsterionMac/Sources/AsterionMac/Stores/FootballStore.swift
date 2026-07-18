@@ -2,7 +2,12 @@ import Combine
 import Foundation
 
 protocol FootballCatalogServing: Sendable {
+    func invalidateCatalogCache() async
     func fetchMatches(section: FootballSection) async throws -> [FootballMatch]
+}
+
+extension FootballCatalogServing {
+    func invalidateCatalogCache() async {}
 }
 
 extension FootballAPI: FootballCatalogServing {}
@@ -20,7 +25,7 @@ final class FootballStore: ObservableObject {
     private var query = ""
     private var requestID = UUID()
 
-    init(api: any FootballCatalogServing = FootballAPI()) {
+    init(api: any FootballCatalogServing = FootballAPI.shared) {
         self.api = api
     }
 
@@ -73,6 +78,7 @@ final class FootballStore: ObservableObject {
     }
 
     func refresh(section: FootballSection) async {
+        await api.invalidateCatalogCache()
         await load(section: section, force: true)
     }
 

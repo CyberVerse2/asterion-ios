@@ -2,6 +2,7 @@ import Combine
 import Foundation
 
 protocol MovieCatalogServing: Sendable {
+    func invalidateCatalogCache() async
     func fetchMovies(page: Int) async throws -> MovieCatalogPage
     func fetchTV(page: Int) async throws -> MovieCatalogPage
     func fetchTrendingMovies() async throws -> [MovieTitle]
@@ -13,10 +14,20 @@ protocol MovieCatalogServing: Sendable {
     func fetchEpisodes(slug: String) async throws -> [MovieEpisode]
 }
 
+extension MovieCatalogServing {
+    func invalidateCatalogCache() async {}
+}
+
 extension MovieAPI: MovieCatalogServing {}
 
 @MainActor
 final class MovieStore: ObservableObject {
+    private struct DetailSnapshot {
+        let show: MovieShow
+        let episodes: [MovieEpisode]
+        let expiresAt: Date
+    }
+
     @Published private(set) var titles: [MovieTitle] = []
     @Published private(set) var genres: [MovieGenre] = []
     @Published private(set) var selectedGenre: MovieGenre?
@@ -35,8 +46,9 @@ final class MovieStore: ObservableObject {
     private var catalogRequestID = UUID()
     private var catalogPage = 0
     private var canLoadNextPage = false
+    private var detailCache: [String: DetailSnapshot] = [:]
 
-    init(api: any MovieCatalogServing = MovieAPI()) {
+    init(api: any MovieCatalogServing = MovieAPI.shared) {
         self.api = api
     }
 
@@ -107,6 +119,7 @@ final class MovieStore: ObservableObject {
     }
 
     func refresh(section: MovieSection, query: String) async {
+        await api.invalidateCatalogCache()
         await loadCatalog(section: section, query: query, force: true)
     }
 
@@ -125,6 +138,16 @@ final class MovieStore: ObservableObject {
         detailError = nil
         isLoadingDetail = true
 
+        if !force,
+           let cached = detailCache[title.slug],
+           cached.expiresAt > Date() {
+            show = cached.show
+            episodes = cached.episodes
+            isLoadingDetail = false
+            return
+        }
+        detailCache.removeValue(forKey: title.slug)
+
         do {
             let loadedShow = try await api.fetchShow(slug: title.slug)
             guard selectedTitleID == title.id else { return }
@@ -134,10 +157,18 @@ final class MovieStore: ObservableObject {
                 : []
             guard selectedTitleID == title.id else { return }
 
-            show = loadedShow
-            episodes = loadedEpisodes.sorted {
+            let sortedEpisodes = loadedEpisodes.sorted {
                 ($0.season, $0.number) < ($1.season, $1.number)
             }
+            let metadata = catalogMetadata(from: loadedShow)
+            show = metadata
+            episodes = sortedEpisodes
+            detailCache[title.slug] = DetailSnapshot(
+                show: metadata,
+                episodes: sortedEpisodes,
+                expiresAt: Date().addingTimeInterval(900)
+            )
+            trimDetailCache()
             isLoadingDetail = false
         } catch {
             guard selectedTitleID == title.id else { return }
@@ -256,5 +287,39 @@ final class MovieStore: ObservableObject {
         canLoadNextPage = false
         isLoadingNextPage = false
         paginationError = nil
+    }
+
+    private func catalogMetadata(from show: MovieShow) -> MovieShow {
+        MovieShow(
+            slug: show.slug,
+            title: show.title,
+            type: show.type,
+            imageURL: show.imageURL,
+            description: show.description,
+            imdbRating: show.imdbRating,
+            tmdbRating: show.tmdbRating,
+            rottenTomatoes: show.rottenTomatoes,
+            metacritic: show.metacritic,
+            genres: show.genres,
+            director: show.director,
+            actors: show.actors,
+            duration: show.duration,
+            releaseYear: show.releaseYear,
+            releaseDate: show.releaseDate,
+            country: show.country,
+            seasons: show.seasons,
+            streams: []
+        )
+    }
+
+    private func trimDetailCache() {
+        let now = Date()
+        detailCache = detailCache.filter { $0.value.expiresAt > now }
+        guard detailCache.count > 32 else { return }
+        let overflow = detailCache.count - 32
+        detailCache
+            .sorted { $0.value.expiresAt < $1.value.expiresAt }
+            .prefix(overflow)
+            .forEach { detailCache.removeValue(forKey: $0.key) }
     }
 }

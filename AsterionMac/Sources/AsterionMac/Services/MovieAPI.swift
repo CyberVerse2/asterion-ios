@@ -21,54 +21,99 @@ enum MovieAPIError: LocalizedError {
 }
 
 actor MovieAPI {
+    static let shared = MovieAPI()
+
     private struct ErrorEnvelope: Decodable {
         let error: String?
     }
 
     private let baseURL: URL
     private let session: URLSession
+    private let responseCache: HTTPResponseCache
+
+    private static let catalogCacheNamespace = "movie.catalog"
+    private static let detailCacheNamespace = "movie.detail"
 
     init(
         baseURL: URL = URL(string: "https://asterion-movies.cyberverse.cloud")!,
-        session: URLSession = .shared
+        session: URLSession = .shared,
+        responseCache: HTTPResponseCache = HTTPResponseCache()
     ) {
         self.baseURL = baseURL
         self.session = session
+        self.responseCache = responseCache
+    }
+
+    func invalidateCatalogCache() async {
+        await responseCache.invalidate(namespace: Self.catalogCacheNamespace)
     }
 
     func fetchMovies(page: Int) async throws -> MovieCatalogPage {
-        try await request(path: "/api/movies", query: pageQuery(page))
+        try await request(
+            path: "/api/movies",
+            query: pageQuery(page),
+            namespace: Self.catalogCacheNamespace,
+            cacheLifetime: 120
+        )
     }
 
     func fetchTV(page: Int) async throws -> MovieCatalogPage {
-        try await request(path: "/api/tv", query: pageQuery(page))
+        try await request(
+            path: "/api/tv",
+            query: pageQuery(page),
+            namespace: Self.catalogCacheNamespace,
+            cacheLifetime: 120
+        )
     }
 
     func fetchTrendingMovies() async throws -> [MovieTitle] {
-        try await request(path: "/api/trending/movies")
+        try await request(
+            path: "/api/trending/movies",
+            namespace: Self.catalogCacheNamespace,
+            cacheLifetime: 120
+        )
     }
 
     func fetchPopularMovies() async throws -> [MovieTitle] {
-        try await request(path: "/api/popular/movies")
+        try await request(
+            path: "/api/popular/movies",
+            namespace: Self.catalogCacheNamespace,
+            cacheLifetime: 120
+        )
     }
 
     func fetchGenre(_ slug: String, page: Int) async throws -> [MovieTitle] {
-        try await request(path: "/api/genre/\(slug)", query: pageQuery(page))
+        try await request(
+            path: "/api/genre/\(slug)",
+            query: pageQuery(page),
+            namespace: Self.catalogCacheNamespace,
+            cacheLifetime: 120
+        )
     }
 
     func fetchGenres() async throws -> [MovieGenre] {
-        try await request(path: "/api/genres")
+        try await request(
+            path: "/api/genres",
+            namespace: Self.catalogCacheNamespace,
+            cacheLifetime: 3_600
+        )
     }
 
     func search(query: String) async throws -> [MovieTitle] {
         try await request(
             path: "/api/search",
-            query: [URLQueryItem(name: "q", value: query)]
+            query: [URLQueryItem(name: "q", value: query)],
+            namespace: Self.catalogCacheNamespace,
+            cacheLifetime: 120
         )
     }
 
     func fetchShow(slug: String) async throws -> MovieShow {
-        let show: MovieShow = try await request(path: "/api/show/\(slug)")
+        let show: MovieShow = try await request(
+            path: "/api/show/\(slug)",
+            namespace: "movie.playback",
+            cacheLifetime: 0
+        )
         return MovieShow(
             slug: show.slug,
             title: show.title,
@@ -92,7 +137,11 @@ actor MovieAPI {
     }
 
     func fetchEpisodes(slug: String) async throws -> [MovieEpisode] {
-        try await request(path: "/api/show/\(slug)/episodes")
+        try await request(
+            path: "/api/show/\(slug)/episodes",
+            namespace: Self.detailCacheNamespace,
+            cacheLifetime: 900
+        )
     }
 
     static func serviceURL(_ url: URL, relativeTo baseURL: URL) -> URL {
@@ -117,7 +166,9 @@ actor MovieAPI {
 
     private func request<Response: Decodable & Sendable>(
         path: String,
-        query: [URLQueryItem] = []
+        query: [URLQueryItem] = [],
+        namespace: String,
+        cacheLifetime: TimeInterval
     ) async throws -> Response {
         var components = URLComponents(
             url: baseURL.appending(path: path),
@@ -129,12 +180,23 @@ actor MovieAPI {
         var request = URLRequest(url: url)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
-        let (data, response) = try await session.data(for: request)
-        guard let response = response as? HTTPURLResponse else {
-            throw MovieAPIError.invalidResponse
+        let response: CachedHTTPResponse
+        if cacheLifetime > 0 {
+            response = try await responseCache.response(
+                for: request,
+                session: session,
+                namespace: namespace,
+                lifetime: cacheLifetime
+            )
+        } else {
+            let (data, urlResponse) = try await session.data(for: request)
+            guard let httpResponse = urlResponse as? HTTPURLResponse else {
+                throw MovieAPIError.invalidResponse
+            }
+            response = CachedHTTPResponse(data: data, statusCode: httpResponse.statusCode)
         }
         guard 200..<300 ~= response.statusCode else {
-            let envelope = try? Self.decoder.decode(ErrorEnvelope.self, from: data)
+            let envelope = try? Self.decoder.decode(ErrorEnvelope.self, from: response.data)
             throw MovieAPIError.http(
                 statusCode: response.statusCode,
                 message: envelope?.error ?? ""
@@ -142,7 +204,7 @@ actor MovieAPI {
         }
 
         do {
-            return try Self.decoder.decode(Response.self, from: data)
+            return try Self.decoder.decode(Response.self, from: response.data)
         } catch {
             throw MovieAPIError.invalidPayload
         }

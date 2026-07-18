@@ -2,6 +2,7 @@ import Combine
 import Foundation
 
 protocol AnimeCatalogServing: Sendable {
+    func invalidateCatalogCache() async
     func fetchLatest(page: Int) async throws -> [AnimeTitle]
     func fetchPopular(page: Int) async throws -> [AnimeTitle]
     func fetchNewReleases(page: Int) async throws -> [AnimeTitle]
@@ -14,6 +15,10 @@ protocol AnimeCatalogServing: Sendable {
     func search(query: String, page: Int) async throws -> [AnimeTitle]
     func fetchShow(slug: String) async throws -> AnimeShow
     func fetchEpisodes(showID: String) async throws -> [AnimeEpisode]
+}
+
+extension AnimeCatalogServing {
+    func invalidateCatalogCache() async {}
 }
 
 extension AnimeAPI: AnimeCatalogServing {}
@@ -82,7 +87,7 @@ final class AnimeStore: ObservableObject {
     private var canLoadNextPage = false
     private var selectedScheduleTitle: AnimeTitle?
 
-    init(api: any AnimeCatalogServing = AnimeAPI()) {
+    init(api: any AnimeCatalogServing = AnimeAPI.shared) {
         self.api = api
     }
 
@@ -158,6 +163,7 @@ final class AnimeStore: ObservableObject {
     }
 
     func refresh(section: AnimeSection, query: String) async {
+        await api.invalidateCatalogCache()
         if section == .schedule,
            query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             await loadSchedule(force: true)
