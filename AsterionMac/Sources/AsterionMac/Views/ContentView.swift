@@ -158,6 +158,7 @@ struct ContentView: View {
                 .frame(width: 360)
                 .help("Switch between novels, anime, movies, and football")
         }
+        .sharedBackgroundVisibility(.hidden)
 
         if mode.wrappedValue != .novels || section.wrappedValue != .account {
             ToolbarItem(placement: .primaryAction) {
