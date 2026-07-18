@@ -37,6 +37,7 @@ struct NovelDetailView: View {
             VStack(alignment: .leading, spacing: 25) {
                 hero
                     .id("detail-top")
+                sourceNotices
                 actions
                 Divider()
 
@@ -186,14 +187,7 @@ struct NovelDetailView: View {
 
     private var downloadAction: some View {
         Button {
-            Task {
-                downloadRequestError = nil
-                do {
-                    try await model.downloadForOffline(novel: novel)
-                } catch {
-                    downloadRequestError = error.localizedDescription
-                }
-            }
+            Task { await updateOfflineDownload() }
         } label: {
             Image(systemName: downloadButtonIcon)
                 .contentTransition(.symbolEffect(.replace))
@@ -204,8 +198,37 @@ struct NovelDetailView: View {
         .tint(isDownloaded ? .asterionAccent : nil)
         .help(downloadButtonTitle)
         .accessibilityLabel(downloadButtonTitle)
-        .disabled(isDownloaded || isDownloading || chapters.isEmpty)
+        .disabled(isDownloading || (!isDownloaded && chapters.isEmpty))
         .animation(reduceMotion ? nil : AsterionMotion.hover, value: isDownloaded)
+    }
+
+    @ViewBuilder
+    private var sourceNotices: some View {
+        if let notice = model.catalogState.notice {
+            sourceNotice(
+                message: notice,
+                icon: "wifi.exclamationmark"
+            )
+        }
+
+        if case .offline = model.chapterListState(for: novel.id),
+           let notice = model.chapterListState(for: novel.id).notice {
+            sourceNotice(
+                message: notice,
+                icon: "arrow.down.circle.fill"
+            )
+        }
+    }
+
+    private func sourceNotice(message: String, icon: String) -> some View {
+        Label(message, systemImage: icon)
+            .font(.callout)
+            .foregroundStyle(Color.asterionText)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+            .accessibilityLabel(message)
     }
 
     @ViewBuilder
@@ -328,7 +351,7 @@ struct NovelDetailView: View {
     }
 
     private var downloadButtonTitle: String {
-        if isDownloaded { return "Downloaded" }
+        if isDownloaded { return "Remove Download" }
         if let download = offlineDownload, download.isDownloading {
             guard download.totalChapters > 0 else { return "Preparing…" }
             return "Downloading \(Int(download.progress * 100))%"
@@ -338,7 +361,7 @@ struct NovelDetailView: View {
     }
 
     private var downloadButtonIcon: String {
-        if isDownloaded { return "checkmark.circle.fill" }
+        if isDownloaded { return "trash" }
         if offlineDownload?.phase == .failed { return "arrow.clockwise.circle" }
         return "arrow.down.circle"
     }
@@ -358,6 +381,20 @@ struct NovelDetailView: View {
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    private func updateOfflineDownload() async {
+        downloadRequestError = nil
+        do {
+            if isDownloaded {
+                try await model.removeOfflineDownload(novelID: novel.id)
+                await load()
+            } else {
+                try await model.downloadForOffline(novel: novel)
+            }
+        } catch {
+            downloadRequestError = error.localizedDescription
         }
     }
 

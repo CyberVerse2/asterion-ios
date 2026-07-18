@@ -7,6 +7,10 @@ struct DownloadCenterView: View {
         model.offlineDownloads.count(where: { $0.isDownloading })
     }
 
+    private var completedCount: Int {
+        model.offlineDownloads.count(where: { $0.phase == .completed })
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .firstTextBaseline) {
@@ -14,7 +18,7 @@ struct DownloadCenterView: View {
                     Text("Downloads")
                         .font(.asterionDisplay(18, weight: .semibold))
                         .foregroundStyle(Color.asterionText)
-                    Text(activeCount == 0 ? "No active downloads" : "\(activeCount) downloading")
+                    Text(downloadSummary)
                         .font(.caption)
                         .foregroundStyle(Color.asterionMuted)
                 }
@@ -31,7 +35,7 @@ struct DownloadCenterView: View {
 
             if model.offlineDownloads.isEmpty {
                 ContentUnavailableView {
-                    Label("Nothing downloading", systemImage: "arrow.down.circle")
+                    Label("No offline novels", systemImage: "arrow.down.circle")
                 } description: {
                     Text("Download a novel to read it offline.")
                 }
@@ -54,11 +58,20 @@ struct DownloadCenterView: View {
         .frame(width: 360)
         .background(.background)
     }
+
+    private var downloadSummary: String {
+        if activeCount > 0 {
+            return "\(activeCount) downloading · \(completedCount) available offline"
+        }
+        return completedCount == 1 ? "1 novel available offline" : "\(completedCount) novels available offline"
+    }
 }
 
 private struct DownloadRow: View {
     @EnvironmentObject private var model: AppModel
     let download: OfflineDownload
+    @State private var actionError: String?
+    @State private var isRemoving = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -88,16 +101,38 @@ private struct DownloadRow: View {
                 } else if download.phase == .failed,
                           let novel = model.novel(id: download.novelID) {
                     Button("Retry") {
-                        Task { try? await model.downloadForOffline(novel: novel) }
+                        Task { await retry(novel: novel) }
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
+                } else if download.phase == .completed {
+                    Button {
+                        Task { await removeDownload() }
+                    } label: {
+                        if isRemoving {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Label("Remove", systemImage: "trash")
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .help("Remove downloaded copy")
+                    .disabled(isRemoving)
                 }
             }
 
             if download.phase == .downloading {
                 ProgressView(value: download.progress)
                     .tint(Color.asterionAccent)
+            }
+
+            if let actionError {
+                Label(actionError, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(Color.red)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(.horizontal, 18)
@@ -129,6 +164,26 @@ private struct DownloadRow: View {
             return "Available offline"
         case .failed:
             return download.errorMessage ?? "Download failed"
+        }
+    }
+
+    private func retry(novel: Novel) async {
+        actionError = nil
+        do {
+            try await model.downloadForOffline(novel: novel)
+        } catch {
+            actionError = error.localizedDescription
+        }
+    }
+
+    private func removeDownload() async {
+        isRemoving = true
+        actionError = nil
+        defer { isRemoving = false }
+        do {
+            try await model.removeOfflineDownload(novelID: download.novelID)
+        } catch {
+            actionError = error.localizedDescription
         }
     }
 }
