@@ -65,7 +65,7 @@ final class AnimePlayerStore: ObservableObject {
             let requestedEpisode = route.initialEpisodeID.flatMap { episodeID in
                 episodes.first { $0.id == episodeID }
             }
-            guard let episode = requestedEpisode ?? episodes.last else { return }
+            guard let episode = requestedEpisode ?? episodes.first else { return }
             await play(episode)
         } catch {
             guard !Task.isCancelled, showRequestID == requestID else { return }

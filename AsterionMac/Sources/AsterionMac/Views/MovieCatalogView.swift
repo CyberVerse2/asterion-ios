@@ -103,6 +103,7 @@ struct MovieCatalogView: View {
         if !titles.isEmpty {
             let safeIndex = min(featuredIndex, titles.count - 1)
             let title = titles[safeIndex]
+            let synopsis = featuredSynopsis(for: title)
 
             ZStack {
                 AsyncImage(url: title.imageURL) { phase in
@@ -125,7 +126,7 @@ struct MovieCatalogView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
                     .padding(.trailing, 20)
             }
-            .frame(height: 250)
+            .frame(height: 300)
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay(alignment: .leading) {
                 VStack(alignment: .leading, spacing: 13) {
@@ -144,7 +145,17 @@ struct MovieCatalogView: View {
                         .foregroundStyle(.white.opacity(0.68))
                         .lineLimit(1)
 
-                    Spacer(minLength: 0)
+                    Spacer(minLength: 10)
+
+                    Text(synopsis)
+                        .font(.callout)
+                        .foregroundStyle(.white.opacity(0.76))
+                        .lineSpacing(2)
+                        .lineLimit(3)
+                        .accessibilityLabel("Synopsis")
+                        .accessibilityValue(synopsis)
+
+                    Spacer(minLength: 10)
 
                     Button {
                         openPlayer(title)
@@ -170,7 +181,10 @@ struct MovieCatalogView: View {
             .overlay(alignment: .topTrailing) {
                 HStack(spacing: 2) {
                     ForEach(titles.indices, id: \.self) { index in
-                        Button { featuredIndex = index } label: {
+                        Button {
+                            featuredIndex = index
+                            Task { await store.select(titles[index]) }
+                        } label: {
                             Circle()
                                 .fill(index == safeIndex ? Color.asterionAccent : .white.opacity(0.42))
                                 .frame(
@@ -218,21 +232,17 @@ struct MovieCatalogView: View {
         VStack(alignment: .leading, spacing: 18) {
             shelfHeader(title: shelfTitle, subtitle: shelfSubtitle)
 
-            LazyVGrid(columns: columns, alignment: .leading, spacing: 26) {
-                ForEach(store.titles) { title in
-                    MovieTitleTile(
-                        title: title,
-                        isSelected: store.selectedTitleID == title.id
-                    ) {
-                        Task { await store.select(title) }
+            if section == .discover, normalizedQuery.isEmpty {
+                ScrollView(.horizontal) {
+                    LazyHStack(alignment: .top, spacing: 22) {
+                        movieTiles
                     }
-                    .task {
-                        await store.loadNextPageIfNeeded(
-                            section: section,
-                            query: normalizedQuery,
-                            currentTitle: title
-                        )
-                    }
+                    .padding(.vertical, 2)
+                }
+                .hidingScrollIndicators()
+            } else {
+                LazyVGrid(columns: columns, alignment: .leading, spacing: 26) {
+                    movieTiles
                 }
             }
 
@@ -250,6 +260,25 @@ struct MovieCatalogView: View {
                         Task { await store.retryNextPage(section: section, query: normalizedQuery) }
                     }
                 }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var movieTiles: some View {
+        ForEach(store.titles) { title in
+            MovieTitleTile(
+                title: title,
+                isSelected: store.selectedTitleID == title.id
+            ) {
+                Task { await store.select(title) }
+            }
+            .task {
+                await store.loadNextPageIfNeeded(
+                    section: section,
+                    query: normalizedQuery,
+                    currentTitle: title
+                )
             }
         }
     }
@@ -278,6 +307,19 @@ struct MovieCatalogView: View {
         [title.year, title.isSeries ? "TV Series" : "Movie", title.imdbRating.map { "IMDb \($0)" }]
             .compactMap { $0 }
             .joined(separator: " · ")
+    }
+
+    private func featuredSynopsis(for title: MovieTitle) -> String {
+        guard store.selectedTitleID == title.id else { return "Loading synopsis…" }
+
+        let synopsis = store.show?.description?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let synopsis, !synopsis.isEmpty {
+            return synopsis
+        }
+        if store.isLoadingDetail {
+            return "Loading synopsis…"
+        }
+        return "Synopsis unavailable for this title."
     }
 
     private func openPlayer(_ title: MovieTitle) {

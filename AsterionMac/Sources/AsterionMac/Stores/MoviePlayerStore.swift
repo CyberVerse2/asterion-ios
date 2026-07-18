@@ -61,7 +61,7 @@ final class MoviePlayerStore: ObservableObject {
                 let requested = route.initialEpisodeID.flatMap { episodeID in
                     episodes.first { $0.id == episodeID }
                 }
-                guard let episode = requested ?? episodes.last else { return }
+                guard let episode = requested ?? episodes.first else { return }
                 await play(episode)
             } else {
                 isLoadingShow = false
