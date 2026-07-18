@@ -198,6 +198,18 @@ def by_genre(genre: str, page: int = 1) -> list[SearchResult]:
     return _listing(f"/genre/{quote_plus(genre.lower())}", page=page)
 
 
+def by_season(season: str, year: int, page: int = 1) -> list[SearchResult]:
+    return _listing(
+        "/filter",
+        page=page,
+        query={
+            "season[]": season.lower(),
+            "year[]": str(year),
+            "sort": "release-date",
+        },
+    )
+
+
 def _listing_content(html: str) -> str:
     match = re.search(
         r'<aside class="content">([\s\S]*?)(?=<aside class="sidebar">|</main>)',

@@ -218,6 +218,30 @@ def api_amp_genre(genre):
     return [r.__dict__ for r in animixplay.by_genre(genre, page=_positive_page_arg())]
 
 
+@app.route("/api/amp/season")
+@_json_or_error
+def api_amp_season():
+    season = flask.request.args.get("season", "").strip().lower()
+    if season not in {"winter", "spring", "summer", "fall"}:
+        return flask.abort(400, description="season must be winter, spring, summer, or fall")
+
+    try:
+        year = int(flask.request.args.get("year", ""))
+    except ValueError:
+        return flask.abort(400, description="year must be a number")
+    if not 1900 <= year <= 2100:
+        return flask.abort(400, description="year must be between 1900 and 2100")
+
+    return [
+        result.__dict__
+        for result in animixplay.by_season(
+            season=season,
+            year=year,
+            page=_positive_page_arg(),
+        )
+    ]
+
+
 @app.route("/api/amp/genres")
 def api_amp_genres():
     return flask.jsonify(animixplay.ALL_GENRES)
@@ -335,6 +359,9 @@ def proxy_m3u8():
                 seg = f"{base}/{s}"
             proxy_path = "/proxy/m3u8" if ".m3u8" in seg else "/proxy/ts"
             line = f"{proxy_path}?url={quote(seg, safe='')}"
+            # Prepend host for tools like ffmpeg that need absolute URLs
+            if flask.request.host:
+                line = f"http://{flask.request.host}{line}"
         lines.append(line)
 
     rv = flask.Response("\n".join(lines))
@@ -570,6 +597,14 @@ function renderCards(items, container) {
 
 function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
+function copyToClipboard(text) {
+  navigator.clipboard.writeText(text).then(() => {
+    alert('M3U8 URL copied! Use: yt-dlp <url>');
+  }).catch(() => {
+    prompt('Copy this URL:', text);
+  });
+}
+
 // ── Load show ──
 async function loadShow(id, url, title) {
   const detail = $('#detail');
@@ -646,11 +681,14 @@ async function playEpisodeAmp(animeId, epNum) {
     // Show player with first server in iframe
     showAmpPlayer(0);
 
-    // Server list below
     let html = `<strong>Ep ${epNum}</strong> &middot; ${sources.length} servers: `;
     sources.forEach((s, i) => {
       html += `<span class="server-link" onclick="showAmpPlayer(${i})" style="${i===0?'color:#fff;':''}">${esc(s.server)}</span> `;
     });
+    if (sources[0].source) {
+      html += `<br><span class="server-link" onclick="copyToClipboard('${esc(sources[0].source)}')">📋 copy m3u8</span>`;
+      html += ` <span style="font-size:11px;color:var(--muted)">→ yt-dlp &lt;url&gt;</span>`;
+    }
     $('#source-label').innerHTML = html;
   } catch(e) { console.error('Stream error:', e); alert('Failed to load stream: ' + (e.message || e)); }
 }
