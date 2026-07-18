@@ -170,6 +170,20 @@ struct CatalogRequestTests {
         #expect(calls == 2)
     }
 
+    @Test @MainActor func emptyFootballCatalogRefetchesOnReentry() async {
+        let fixture = Self.footballMatch("fixture-after-empty")
+        let service = FootballCatalogStub(responses: [[], [fixture]])
+        let store = FootballStore(api: service)
+
+        await store.load(section: .live)
+        #expect(store.matches.isEmpty)
+
+        await store.load(section: .live)
+        let calls = await service.callCount
+        #expect(calls == 2)
+        #expect(store.matches.map(\.id) == [fixture.id])
+    }
+
     private static func stubbedSession() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [CatalogURLProtocol.self]
@@ -216,6 +230,21 @@ struct CatalogRequestTests {
             year: nil,
             type: "movie",
             quality: nil
+        )
+    }
+
+    private static func footballMatch(_ id: String) -> FootballMatch {
+        FootballMatch(
+            id: id,
+            title: "Home vs Away",
+            category: "football",
+            kickoff: Date(timeIntervalSince1970: 1_784_330_000),
+            poster: nil,
+            posterURL: nil,
+            popular: false,
+            isLive: true,
+            teams: nil,
+            sources: [FootballStreamSource(source: "echo", id: id)]
         )
     }
 
@@ -383,10 +412,12 @@ private actor MovieCatalogStub: MovieCatalogServing {
 
 private actor FootballCatalogStub: FootballCatalogServing {
     let suspendFirstRequest: Bool
+    let responses: [[FootballMatch]]
     private(set) var callCount = 0
 
-    init(suspendFirstRequest: Bool) {
+    init(suspendFirstRequest: Bool = false, responses: [[FootballMatch]] = [[]]) {
         self.suspendFirstRequest = suspendFirstRequest
+        self.responses = responses
     }
 
     func fetchMatches(section: FootballSection) async throws -> [FootballMatch] {
@@ -394,6 +425,6 @@ private actor FootballCatalogStub: FootballCatalogServing {
         if suspendFirstRequest, callCount == 1 {
             try await Task.sleep(for: .seconds(30))
         }
-        return []
+        return responses[min(callCount - 1, responses.count - 1)]
     }
 }

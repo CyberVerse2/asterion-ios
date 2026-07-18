@@ -30,7 +30,11 @@ final class FootballStore: ObservableObject {
     }
 
     func load(section: FootballSection, force: Bool = false) async {
-        if !force, loadedSection == section {
+        if !force, isLoading, loadedSection == section {
+            return
+        }
+
+        if !force, loadedSection == section, !allMatches.isEmpty {
             applySearch()
             return
         }

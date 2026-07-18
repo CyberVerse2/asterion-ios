@@ -65,8 +65,8 @@ def streams():
     if (
         not isinstance(match_id, str)
         or not match_id.strip()
-        or not isinstance(home_team, str)
-        or not isinstance(away_team, str)
+        or (home_team is not None and not isinstance(home_team, str))
+        or (away_team is not None and not isinstance(away_team, str))
         or not isinstance(sources, list)
     ):
         return {"success": False, "error": "Invalid stream request."}, 400

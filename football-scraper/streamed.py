@@ -135,7 +135,11 @@ def _match_feed(path: str) -> list[dict[str, Any]]:
         _match(item, set())
 
     with _cache_lock:
-        _match_cache[path] = (time.monotonic(), payload)
+        # Streamed's live feed can briefly return an empty snapshot between
+        # populated responses. Other match feeds use an empty list as a stable
+        # result and can be cached normally.
+        if payload or path != "/matches/live":
+            _match_cache[path] = (time.monotonic(), payload)
     return payload
 
 
@@ -152,10 +156,19 @@ def _normalized(matches: list[dict[str, Any]], live: list[dict[str, Any]]) -> li
     return sorted((_match(item, live_ids) for item in matches), key=lambda item: item["date"])
 
 
+def _merged_matches(*feeds: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    merged: dict[str, dict[str, Any]] = {}
+    for feed in feeds:
+        for item in feed:
+            match_id = _required_string(item.get("id"), "match id")
+            merged[match_id] = item
+    return list(merged.values())
+
+
 def matches() -> list[dict[str, Any]]:
     scheduled = _match_feed("/matches/football")
     live = _live_raw()
-    return _normalized(scheduled, live)
+    return _normalized(_merged_matches(scheduled, live), live)
 
 
 def live_matches() -> list[dict[str, Any]]:
@@ -166,7 +179,8 @@ def live_matches() -> list[dict[str, Any]]:
 def popular_matches() -> list[dict[str, Any]]:
     popular = _match_feed("/matches/football/popular")
     live = _live_raw()
-    return _normalized(popular, live)
+    popular_live = [item for item in live if item.get("popular") is True]
+    return _normalized(_merged_matches(popular, popular_live), live)
 
 
 def _stream(value: Any) -> dict[str, Any]:

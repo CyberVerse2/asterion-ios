@@ -67,6 +67,67 @@ class StreamedTests(unittest.TestCase):
         )
 
     @patch.object(streamed._session, "get")
+    def test_empty_match_snapshot_is_not_cached(self, get):
+        fixture = {
+            "id": "fixture-after-empty",
+            "title": "Home vs Away",
+            "category": "football",
+            "date": 1_784_330_000_000,
+            "popular": False,
+            "sources": [{"source": "echo", "id": "fixture-after-empty"}],
+        }
+        get.side_effect = [response([]), response([fixture])]
+
+        self.assertEqual(streamed._match_feed("/matches/live"), [])
+        self.assertEqual(
+            streamed._match_feed("/matches/live")[0]["id"],
+            "fixture-after-empty",
+        )
+        self.assertEqual(get.call_count, 2)
+
+    @patch.object(streamed._session, "get")
+    def test_empty_schedule_snapshot_is_cached(self, get):
+        get.return_value = response([])
+
+        self.assertEqual(streamed._match_feed("/matches/football"), [])
+        self.assertEqual(streamed._match_feed("/matches/football"), [])
+        self.assertEqual(get.call_count, 1)
+
+    @patch.object(streamed._session, "get")
+    def test_schedule_includes_live_football_matches(self, get):
+        fixture = {
+            "id": "live-fixture",
+            "title": "United vs City",
+            "category": "football",
+            "date": 1_784_330_000_000,
+            "popular": False,
+            "sources": [{"source": "echo", "id": "live-fixture"}],
+        }
+        get.side_effect = [response([]), response([fixture])]
+
+        result = streamed.matches()
+
+        self.assertEqual([match["id"] for match in result], ["live-fixture"])
+        self.assertTrue(result[0]["isLive"])
+
+    @patch.object(streamed._session, "get")
+    def test_popular_includes_popular_live_football_matches(self, get):
+        fixture = {
+            "id": "popular-live-fixture",
+            "title": "United vs City",
+            "category": "football",
+            "date": 1_784_330_000_000,
+            "popular": True,
+            "sources": [{"source": "echo", "id": "popular-live-fixture"}],
+        }
+        get.side_effect = [response([]), response([fixture])]
+
+        result = streamed.popular_matches()
+
+        self.assertEqual([match["id"] for match in result], ["popular-live-fixture"])
+        self.assertTrue(result[0]["isLive"])
+
+    @patch.object(streamed._session, "get")
     def test_streams_keep_working_provider_when_another_fails(self, get):
         def result(url, **_kwargs):
             if "/admin/" in url:
@@ -102,6 +163,34 @@ class RouteTests(unittest.TestCase):
         result = self.client.post("/api/streams", json={})
         self.assertEqual(result.status_code, 400)
         self.assertFalse(result.get_json()["success"])
+
+    @patch("app.streamed.resolve_streams")
+    def test_teamless_match_can_resolve_streams(self, resolve_streams):
+        resolve_streams.return_value = [
+            {
+                "id": "stream-1",
+                "streamNo": 1,
+                "language": "English",
+                "hd": True,
+                "embedUrl": "https://embed.example/stream-1",
+                "source": "echo",
+                "viewers": None,
+            }
+        ]
+
+        result = self.client.post(
+            "/api/streams",
+            json={
+                "matchId": "teamless-match",
+                "homeTeam": None,
+                "awayTeam": None,
+                "sources": [{"source": "echo", "id": "teamless-match"}],
+            },
+        )
+
+        self.assertEqual(result.status_code, 200)
+        self.assertIsNone(result.get_json()["data"]["homeTeam"])
+        self.assertIsNone(result.get_json()["data"]["awayTeam"])
 
     @patch("app.streamed.popular_matches")
     def test_source_failure_is_visible(self, popular_matches):
