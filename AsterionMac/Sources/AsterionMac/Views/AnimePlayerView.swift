@@ -3,6 +3,7 @@ import SwiftUI
 struct AnimePlayerView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var mediaDownloads: MediaDownloadManager
     let route: AnimePlayerRoute
 
     @StateObject private var store = AnimePlayerStore()
@@ -59,7 +60,13 @@ struct AnimePlayerView: View {
             activePlaybackSessionID = nil
             playbackResumePosition = 0
             playbackPreparationID = UUID()
-            await store.load(route: route)
+            await store.load(
+                route: route,
+                offlineDownloads: mediaDownloads.completedRecords(
+                    mediaType: .anime,
+                    contentID: route.slug
+                )
+            )
             preparePlayback()
         }
         .onChange(of: store.episodes) { _, _ in

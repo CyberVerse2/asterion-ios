@@ -36,6 +36,7 @@ struct AsterionApp: App {
 
     @NSApplicationDelegateAdaptor(AsterionAppDelegate.self) private var appDelegate
     @StateObject private var model = AppModel()
+    @StateObject private var mediaDownloads = MediaDownloadManager()
 
     init() {
         AsterionFontRegistry.registerBundledFonts()
@@ -52,6 +53,7 @@ struct AsterionApp: App {
         WindowGroup("Asterion", id: "main") {
             ContentView()
                 .environmentObject(model)
+                .environmentObject(mediaDownloads)
                 .environment(Clerk.shared)
                 .task { await model.start() }
         }
@@ -73,6 +75,7 @@ struct AsterionApp: App {
             if let route {
                 AnimePlayerView(route: route)
                     .environmentObject(model)
+                    .environmentObject(mediaDownloads)
             }
         }
         .defaultSize(width: 1_080, height: 700)
@@ -84,6 +87,7 @@ struct AsterionApp: App {
             if let route {
                 MoviePlayerView(route: route)
                     .environmentObject(model)
+                    .environmentObject(mediaDownloads)
             }
         }
         .defaultSize(width: 1_080, height: 700)

@@ -3,10 +3,12 @@ import SwiftUI
 struct AnimeDetailView: View {
     @Environment(\.openWindow) private var openWindow
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var mediaDownloads: MediaDownloadManager
     @ObservedObject var store: AnimeStore
 
     @State private var scrollPosition: String?
     @State private var showsFullSynopsis = false
+    @State private var downloadError: String?
 
     var body: some View {
         Group {
@@ -88,6 +90,7 @@ struct AnimeDetailView: View {
         .navigationTitle(show.displayTitle)
         .task(id: show.id) {
             showsFullSynopsis = false
+            downloadError = nil
             scrollPosition = nil
             await Task.yield()
             scrollPosition = "detail-top"
@@ -159,10 +162,21 @@ struct AnimeDetailView: View {
                 .help("Open in Anime Player")
 
                 mediaBookmarkButton(show)
+
+                if let episode = preferredEpisode(for: show) {
+                    animeDownloadButton(show: show, episode: episode, showsLabel: true)
+                }
             }
 
             if let error = model.mediaBookmarkError {
                 Label(error, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(Color.asterionAccent)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let downloadError {
+                Label(downloadError, systemImage: "exclamationmark.triangle")
                     .font(.caption)
                     .foregroundStyle(Color.asterionAccent)
                     .fixedSize(horizontal: false, vertical: true)
@@ -210,35 +224,108 @@ struct AnimeDetailView: View {
         } else {
             LazyVStack(spacing: 0) {
                 ForEach(store.episodes) { episode in
-                    Button {
-                        openPlayer(show: show, episode: episode)
-                    } label: {
-                        HStack(spacing: 14) {
-                            Text(String(episode.number))
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(Color.asterionMuted)
-                                .frame(width: 34, alignment: .trailing)
+                    HStack(spacing: 10) {
+                        Button {
+                            openPlayer(show: show, episode: episode)
+                        } label: {
+                            HStack(spacing: 14) {
+                                Text(String(episode.number))
+                                    .font(.caption.monospacedDigit())
+                                    .foregroundStyle(Color.asterionMuted)
+                                    .frame(width: 34, alignment: .trailing)
 
-                            Text("Episode \(episode.number)")
-                                .font(.asterionDisplay(14, weight: .medium))
-                                .foregroundStyle(Color.asterionText)
-                                .lineLimit(1)
+                                Text("Episode \(episode.number)")
+                                    .font(.asterionDisplay(14, weight: .medium))
+                                    .foregroundStyle(Color.asterionText)
+                                    .lineLimit(1)
 
-                            Spacer()
+                                Spacer()
 
-                            Image(systemName: "arrow.up.right.square")
-                                .font(.caption)
-                                .foregroundStyle(Color.asterionMuted)
+                                Image(systemName: "arrow.up.right.square")
+                                    .font(.caption)
+                                    .foregroundStyle(Color.asterionMuted)
+                            }
+                            .padding(.vertical, 11)
+                            .contentShape(Rectangle())
                         }
-                        .padding(.vertical, 11)
-                        .contentShape(Rectangle())
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Open episode \(episode.number) in Anime Player")
+
+                        animeDownloadButton(show: show, episode: episode, showsLabel: false)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Open episode \(episode.number) in Anime Player")
 
                     Divider()
                 }
             }
+        }
+    }
+
+    private func animeDownloadButton(
+        show: AnimeShow,
+        episode: AnimeEpisode,
+        showsLabel: Bool
+    ) -> some View {
+        let record = mediaDownloads.record(
+            mediaType: .anime,
+            contentID: show.slug,
+            unitID: episode.id
+        )
+        let label = downloadLabel(for: record)
+
+        return Button {
+            Task { await handleDownload(record: record, show: show, episode: episode) }
+        } label: {
+            if record?.isActive == true {
+                ProgressView(value: record?.progress ?? 0)
+                    .progressViewStyle(.circular)
+                    .controlSize(.small)
+                    .frame(width: showsLabel ? 84 : 28)
+            } else if showsLabel {
+                Label(label.title, systemImage: label.icon)
+                    .frame(width: 84)
+            } else {
+                Image(systemName: label.icon)
+                    .frame(width: 28, height: 28)
+            }
+        }
+        .buttonStyle(.bordered)
+        .controlSize(showsLabel ? .large : .small)
+        .disabled(record?.isActive == true || record?.phase == .completed)
+        .help(label.help)
+        .accessibilityLabel(label.help)
+    }
+
+    private func handleDownload(
+        record: MediaDownloadRecord?,
+        show: AnimeShow,
+        episode: AnimeEpisode
+    ) async {
+        downloadError = nil
+        do {
+            if let record, record.phase == .failed {
+                try await mediaDownloads.retry(record)
+            } else if record?.phase == .completed {
+                return
+            } else {
+                try await mediaDownloads.downloadAnime(show: show, episode: episode)
+            }
+        } catch {
+            downloadError = error.localizedDescription
+        }
+    }
+
+    private func downloadLabel(
+        for record: MediaDownloadRecord?
+    ) -> (title: String, icon: String, help: String) {
+        switch record?.phase {
+        case .preparing, .downloading:
+            ("Loading", "arrow.down.circle.fill", "Downloading episode")
+        case .completed:
+            ("Offline", "checkmark.circle.fill", "Available offline. Manage it in Downloads")
+        case .failed:
+            ("Retry", "arrow.clockwise", "Retry episode download")
+        case nil:
+            ("Download", "arrow.down.circle", "Download episode for offline viewing")
         }
     }
 

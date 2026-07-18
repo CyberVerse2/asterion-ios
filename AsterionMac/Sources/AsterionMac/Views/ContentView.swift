@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var mediaDownloads: MediaDownloadManager
     @SceneStorage("selectedMode") private var selectedModeRaw = AppMode.novels.rawValue
     @SceneStorage("selectedSection") private var selectedSectionRaw = AppSection.discover.rawValue
     @SceneStorage("selectedAnimeSection") private var selectedAnimeSectionRaw = AnimeSection.discover.rawValue
@@ -93,7 +94,7 @@ struct ContentView: View {
     }
 
     private var activeDownloadCount: Int {
-        model.offlineDownloads.count(where: \.isDownloading)
+        model.offlineDownloads.count(where: \.isDownloading) + mediaDownloads.activeCount
     }
 
     var body: some View {
@@ -188,7 +189,7 @@ struct ContentView: View {
             }
         }
 
-        if mode.wrappedValue == .novels, !showsAccount {
+        if !showsAccount {
             ToolbarSpacer(.fixed)
 
             ToolbarItem(placement: .primaryAction) {
@@ -202,6 +203,7 @@ struct ContentView: View {
                 .popover(isPresented: $showsDownloads, arrowEdge: .top) {
                     DownloadCenterView()
                         .environmentObject(model)
+                        .environmentObject(mediaDownloads)
                 }
             }
         }

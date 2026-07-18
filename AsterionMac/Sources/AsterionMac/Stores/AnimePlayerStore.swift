@@ -15,6 +15,7 @@ final class AnimePlayerStore: ObservableObject {
 
     private let api: AnimeAPI
     private var route: AnimePlayerRoute?
+    private var offlineRecordsByEpisodeID: [AnimeEpisode.ID: MediaDownloadRecord] = [:]
     private var showRequestID = UUID()
 
     init(api: AnimeAPI = AnimeAPI()) {
@@ -39,10 +40,21 @@ final class AnimePlayerStore: ObservableObject {
         return "Episode \(selectedEpisode.number) · \(index + 1) of \(episodes.count)"
     }
 
-    func load(route: AnimePlayerRoute, force: Bool = false) async {
+    func load(
+        route: AnimePlayerRoute,
+        offlineDownloads: [MediaDownloadRecord],
+        force: Bool = false
+    ) async {
         guard force || self.route != route || show == nil else { return }
 
         self.route = route
+        offlineRecordsByEpisodeID = Dictionary(
+            uniqueKeysWithValues: offlineDownloads.compactMap { record in
+                guard record.isAvailableOffline,
+                      record.animeEpisode != nil else { return nil }
+                return (record.unitID, record)
+            }
+        )
         let requestID = UUID()
         showRequestID = requestID
         isLoadingShow = true
@@ -50,6 +62,12 @@ final class AnimePlayerStore: ObservableObject {
         show = nil
         episodes = []
         resetPlayback()
+
+        if let requestedID = route.initialEpisodeID,
+           let offlineRecord = offlineRecordsByEpisodeID[requestedID],
+           loadOffline(record: offlineRecord) {
+            return
+        }
 
         do {
             let loadedShow = try await api.fetchShow(slug: route.slug)
@@ -76,11 +94,35 @@ final class AnimePlayerStore: ObservableObject {
 
     func retryShow() async {
         guard let route else { return }
-        await load(route: route, force: true)
+        await load(
+            route: route,
+            offlineDownloads: Array(offlineRecordsByEpisodeID.values),
+            force: true
+        )
     }
 
     func play(_ episode: AnimeEpisode) async {
         guard episodes.contains(episode) else { return }
+
+        if let record = offlineRecordsByEpisodeID[episode.id],
+           let assetURL = record.localAssetURL,
+           FileManager.default.fileExists(atPath: assetURL.path) {
+            selectedEpisodeID = episode.id
+            let option = AnimePlaybackOption(
+                id: "offline-\(record.id)",
+                kind: .direct,
+                url: assetURL,
+                quality: nil,
+                server: "Downloaded",
+                variant: nil,
+                subtitleTracks: record.subtitleTracks
+            )
+            playbackOptions = [option]
+            selectedPlaybackOption = option
+            streamError = nil
+            isLoadingStream = false
+            return
+        }
 
         selectedEpisodeID = episode.id
         playbackOptions = []
@@ -134,6 +176,39 @@ final class AnimePlayerStore: ObservableObject {
         let adjacentIndex = index + offset
         guard episodes.indices.contains(adjacentIndex) else { return nil }
         return episodes[adjacentIndex]
+    }
+
+    private func loadOffline(record: MediaDownloadRecord) -> Bool {
+        guard let loadedShow = record.animeShow,
+              let selectedEpisode = record.animeEpisode,
+              let assetURL = record.localAssetURL,
+              FileManager.default.fileExists(atPath: assetURL.path) else {
+            return false
+        }
+
+        show = loadedShow
+        episodes = offlineRecordsByEpisodeID.values
+            .compactMap(\.animeEpisode)
+            .sorted { $0.number < $1.number }
+        if !episodes.contains(selectedEpisode) {
+            episodes.append(selectedEpisode)
+            episodes.sort { $0.number < $1.number }
+        }
+        isLoadingShow = false
+        selectedEpisodeID = selectedEpisode.id
+        let option = AnimePlaybackOption(
+            id: "offline-\(record.id)",
+            kind: .direct,
+            url: assetURL,
+            quality: nil,
+            server: "Downloaded",
+            variant: nil,
+            subtitleTracks: record.subtitleTracks
+        )
+        playbackOptions = [option]
+        selectedPlaybackOption = option
+        isLoadingStream = false
+        return true
     }
 
     private func resetPlayback() {

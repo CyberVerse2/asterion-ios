@@ -2,13 +2,15 @@ import SwiftUI
 
 struct DownloadCenterView: View {
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var mediaDownloads: MediaDownloadManager
 
     private var activeCount: Int {
-        model.offlineDownloads.count(where: { $0.isDownloading })
+        model.offlineDownloads.count(where: { $0.isDownloading }) + mediaDownloads.activeCount
     }
 
     private var completedCount: Int {
         model.offlineDownloads.count(where: { $0.phase == .completed })
+            + mediaDownloads.completedCount
     }
 
     var body: some View {
@@ -33,16 +35,30 @@ struct DownloadCenterView: View {
 
             Divider()
 
-            if model.offlineDownloads.isEmpty {
+            if model.offlineDownloads.isEmpty && mediaDownloads.downloads.isEmpty {
                 ContentUnavailableView {
-                    Label("No offline novels", systemImage: "arrow.down.circle")
+                    Label("No downloads", systemImage: "arrow.down.circle")
                 } description: {
-                    Text("Download a novel to read it offline.")
+                    Text("Download a novel, movie, or episode to enjoy it offline.")
                 }
                 .frame(maxWidth: .infinity, minHeight: 180)
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
+                        if let storageError = mediaDownloads.storageError {
+                            Label(storageError, systemImage: "exclamationmark.triangle.fill")
+                                .font(.caption)
+                                .foregroundStyle(Color.red)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .padding(18)
+                            Divider()
+                        }
+
+                        ForEach(mediaDownloads.downloads) { download in
+                            MediaDownloadRow(download: download)
+                            Divider()
+                        }
+
                         ForEach(model.offlineDownloads) { download in
                             DownloadRow(download: download)
                             if download.id != model.offlineDownloads.last?.id {
@@ -63,7 +79,182 @@ struct DownloadCenterView: View {
         if activeCount > 0 {
             return "\(activeCount) downloading · \(completedCount) available offline"
         }
-        return completedCount == 1 ? "1 novel available offline" : "\(completedCount) novels available offline"
+        return completedCount == 1 ? "1 item available offline" : "\(completedCount) items available offline"
+    }
+}
+
+private struct MediaDownloadRow: View {
+    @Environment(\.openWindow) private var openWindow
+    @EnvironmentObject private var mediaDownloads: MediaDownloadManager
+    let download: MediaDownloadRecord
+    @State private var actionError: String?
+    @State private var isWorking = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                Image(systemName: phaseIcon)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(phaseColor)
+                    .frame(width: 20)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(download.contentTitle)
+                        .font(.asterionDisplay(14, weight: .semibold))
+                        .foregroundStyle(Color.asterionText)
+                        .lineLimit(1)
+                    Text("\(download.detailLabel) · \(statusText)")
+                        .font(.caption)
+                        .foregroundStyle(download.phase == .failed ? Color.red : Color.asterionMuted)
+                        .lineLimit(2)
+                }
+
+                Spacer()
+
+                if download.isActive {
+                    HStack(spacing: 6) {
+                        Text(download.progress, format: .percent.precision(.fractionLength(0)))
+                            .font(.caption.monospacedDigit().weight(.semibold))
+                            .foregroundStyle(Color.asterionAccent)
+                        removeButton(icon: "xmark")
+                            .help("Cancel download")
+                    }
+                } else if download.phase == .failed {
+                    HStack(spacing: 6) {
+                        Button("Retry") {
+                            Task { await retry() }
+                        }
+                        removeButton(icon: "trash")
+                            .help("Remove failed download")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(isWorking)
+                } else {
+                    HStack(spacing: 6) {
+                        Button {
+                            openDownloadedItem()
+                        } label: {
+                            Label("Play", systemImage: "play.fill")
+                        }
+                        .help("Play downloaded copy")
+
+                        Button {
+                            Task { await remove() }
+                        } label: {
+                            if isWorking {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Image(systemName: "trash")
+                            }
+                        }
+                        .help("Remove downloaded copy")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(isWorking)
+                }
+            }
+
+            if download.isActive {
+                ProgressView(value: download.progress)
+                    .tint(Color.asterionAccent)
+            }
+
+            if let actionError {
+                Label(actionError, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(Color.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+    }
+
+    private var phaseIcon: String {
+        switch download.phase {
+        case .preparing, .downloading: "arrow.down.circle.fill"
+        case .completed: "checkmark.circle.fill"
+        case .failed: "exclamationmark.triangle.fill"
+        }
+    }
+
+    private var phaseColor: Color {
+        switch download.phase {
+        case .preparing, .downloading: Color.asterionAccent
+        case .completed: Color.green
+        case .failed: Color.red
+        }
+    }
+
+    private var statusText: String {
+        switch download.phase {
+        case .preparing: "Preparing…"
+        case .downloading: "Downloading"
+        case .completed: "Available offline"
+        case .failed: download.errorMessage ?? "Download failed"
+        }
+    }
+
+    private func retry() async {
+        isWorking = true
+        actionError = nil
+        defer { isWorking = false }
+        do {
+            try await mediaDownloads.retry(download)
+        } catch {
+            actionError = error.localizedDescription
+        }
+    }
+
+    private func remove() async {
+        isWorking = true
+        actionError = nil
+        defer { isWorking = false }
+        do {
+            try await mediaDownloads.remove(download)
+        } catch {
+            actionError = error.localizedDescription
+        }
+    }
+
+    private func removeButton(icon: String) -> some View {
+        Button {
+            Task { await remove() }
+        } label: {
+            if isWorking {
+                ProgressView().controlSize(.mini)
+            } else {
+                Image(systemName: icon)
+            }
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .disabled(isWorking)
+    }
+
+    private func openDownloadedItem() {
+        switch download.mediaType {
+        case .anime:
+            openWindow(
+                value: AnimePlayerRoute(
+                    slug: download.contentID,
+                    title: download.contentTitle,
+                    initialEpisodeID: download.unitID
+                )
+            )
+        case .movie:
+            openWindow(
+                value: MoviePlayerRoute(
+                    slug: download.contentID,
+                    title: download.contentTitle,
+                    initialEpisodeID: download.movieEpisode == nil ? nil : download.unitID
+                )
+            )
+        case .football:
+            break
+        }
     }
 }
 

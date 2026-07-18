@@ -15,6 +15,7 @@ final class MoviePlayerStore: ObservableObject {
 
     private let api: MovieAPI
     private var route: MoviePlayerRoute?
+    private var offlineRecordsByUnitID: [String: MediaDownloadRecord] = [:]
     private var showRequestID = UUID()
 
     init(api: MovieAPI = MovieAPI()) {
@@ -33,10 +34,19 @@ final class MoviePlayerStore: ObservableObject {
         return "S\(selectedEpisode.season) E\(selectedEpisode.number)"
     }
 
-    func load(route: MoviePlayerRoute, force: Bool = false) async {
+    func load(
+        route: MoviePlayerRoute,
+        offlineDownloads: [MediaDownloadRecord],
+        force: Bool = false
+    ) async {
         guard force || self.route != route || show == nil else { return }
 
         self.route = route
+        offlineRecordsByUnitID = Dictionary(
+            uniqueKeysWithValues: offlineDownloads
+                .filter(\.isAvailableOffline)
+                .map { ($0.unitID, $0) }
+        )
         let requestID = UUID()
         showRequestID = requestID
         isLoadingShow = true
@@ -44,6 +54,12 @@ final class MoviePlayerStore: ObservableObject {
         show = nil
         episodes = []
         resetPlayback()
+
+        let requestedUnitID = route.initialEpisodeID ?? route.slug
+        if let offlineRecord = offlineRecordsByUnitID[requestedUnitID],
+           loadOffline(record: offlineRecord) {
+            return
+        }
 
         do {
             let loadedShow = try await api.fetchShow(slug: route.slug)
@@ -76,11 +92,32 @@ final class MoviePlayerStore: ObservableObject {
 
     func retryShow() async {
         guard let route else { return }
-        await load(route: route, force: true)
+        await load(
+            route: route,
+            offlineDownloads: Array(offlineRecordsByUnitID.values),
+            force: true
+        )
     }
 
     func play(_ episode: MovieEpisode) async {
         guard episodes.contains(episode) else { return }
+
+        if let record = offlineRecordsByUnitID[episode.id],
+           let assetURL = record.localAssetURL,
+           FileManager.default.fileExists(atPath: assetURL.path) {
+            selectedEpisodeID = episode.id
+            let option = MoviePlaybackOption(
+                id: "offline-\(record.id)",
+                kind: .direct,
+                url: assetURL,
+                title: "Downloaded"
+            )
+            playbackOptions = [option]
+            selectedPlaybackOption = option
+            streamError = nil
+            isLoadingStream = false
+            return
+        }
 
         selectedEpisodeID = episode.id
         playbackOptions = []
@@ -133,6 +170,38 @@ final class MoviePlayerStore: ObservableObject {
         playbackOptions = options
         selectedPlaybackOption = MoviePlaybackOption.preferred(from: options)
         streamError = nil
+    }
+
+    private func loadOffline(record: MediaDownloadRecord) -> Bool {
+        guard let loadedShow = record.movieShow,
+              let assetURL = record.localAssetURL,
+              FileManager.default.fileExists(atPath: assetURL.path) else {
+            return false
+        }
+
+        show = loadedShow
+        if loadedShow.isSeries {
+            episodes = offlineRecordsByUnitID.values
+                .compactMap(\.movieEpisode)
+                .sorted { ($0.season, $0.number) < ($1.season, $1.number) }
+            guard let selectedEpisode = record.movieEpisode else { return false }
+            if !episodes.contains(selectedEpisode) {
+                episodes.append(selectedEpisode)
+                episodes.sort { ($0.season, $0.number) < ($1.season, $1.number) }
+            }
+            selectedEpisodeID = selectedEpisode.id
+        }
+        let option = MoviePlaybackOption(
+            id: "offline-\(record.id)",
+            kind: .direct,
+            url: assetURL,
+            title: "Downloaded"
+        )
+        playbackOptions = [option]
+        selectedPlaybackOption = option
+        isLoadingShow = false
+        isLoadingStream = false
+        return true
     }
 
     private func adjacentEpisode(offset: Int) -> MovieEpisode? {

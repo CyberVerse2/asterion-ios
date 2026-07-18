@@ -3,10 +3,12 @@ import SwiftUI
 struct MovieDetailView: View {
     @Environment(\.openWindow) private var openWindow
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var mediaDownloads: MediaDownloadManager
     @ObservedObject var store: MovieStore
 
     @State private var selectedSeason: Int?
     @State private var showsFullSynopsis = false
+    @State private var downloadError: String?
 
     var body: some View {
         Group {
@@ -88,6 +90,7 @@ struct MovieDetailView: View {
         .navigationTitle(show.displayTitle)
         .task(id: show.id) {
             showsFullSynopsis = false
+            downloadError = nil
             selectedSeason = preferredEpisode(for: show)?.season ?? availableSeasons.first
         }
         .onChange(of: activeProgress(for: show)?.unitId) { _, unitID in
@@ -152,14 +155,27 @@ struct MovieDetailView: View {
                 .controlSize(.large)
                 .tint(.asterionAccent)
                 .keyboardShortcut(.return, modifiers: .command)
-                .disabled(show.isSeries ? store.episodes.isEmpty : show.streams.isEmpty)
+                .disabled(show.isSeries ? store.episodes.isEmpty : false)
                 .help("Open in Asterion Player")
 
                 mediaBookmarkButton(show)
+
+                movieDownloadButton(
+                    show: show,
+                    episode: show.isSeries ? preferredEpisode(for: show) : nil,
+                    showsLabel: true
+                )
             }
 
             if let error = model.mediaBookmarkError {
                 Label(error, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(Color.asterionAccent)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let downloadError {
+                Label(downloadError, systemImage: "exclamationmark.triangle")
                     .font(.caption)
                     .foregroundStyle(Color.asterionAccent)
                     .fixedSize(horizontal: false, vertical: true)
@@ -219,37 +235,117 @@ struct MovieDetailView: View {
                     ForEach(episodesForSelectedSeason) { episode in
                         let progress = episodeProgress(for: episode, in: show)
 
-                        Button {
-                            openPlayer(show: show, episode: episode)
-                        } label: {
-                            HStack(spacing: 14) {
-                                Text(String(episode.number))
-                                    .font(.caption.monospacedDigit())
-                                    .foregroundStyle(Color.asterionMuted)
-                                    .frame(width: 30, alignment: .trailing)
-                                Text(episode.title)
-                                    .font(.asterionDisplay(14, weight: .medium))
-                                    .foregroundStyle(Color.asterionText)
-                                    .lineLimit(1)
-                                Spacer()
-                                episodeProgressAccessory(progress)
+                        HStack(spacing: 10) {
+                            Button {
+                                openPlayer(show: show, episode: episode)
+                            } label: {
+                                HStack(spacing: 14) {
+                                    Text(String(episode.number))
+                                        .font(.caption.monospacedDigit())
+                                        .foregroundStyle(Color.asterionMuted)
+                                        .frame(width: 30, alignment: .trailing)
+                                    Text(episode.title)
+                                        .font(.asterionDisplay(14, weight: .medium))
+                                        .foregroundStyle(Color.asterionText)
+                                        .lineLimit(1)
+                                    Spacer()
+                                    episodeProgressAccessory(progress)
+                                }
+                                .padding(.vertical, 11)
+                                .padding(.horizontal, 8)
+                                .background(
+                                    progress?.isCurrent == true
+                                        ? Color.asterionAccent.opacity(0.08)
+                                        : .clear,
+                                    in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                )
+                                .contentShape(Rectangle())
                             }
-                            .padding(.vertical, 11)
-                            .padding(.horizontal, 8)
-                            .background(
-                                progress?.isCurrent == true
-                                    ? Color.asterionAccent.opacity(0.08)
-                                    : .clear,
-                                in: RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            )
-                            .contentShape(Rectangle())
+                            .buttonStyle(.plain)
+                            .help(episodeProgressHelp(progress, episode: episode))
+
+                            movieDownloadButton(show: show, episode: episode, showsLabel: false)
                         }
-                        .buttonStyle(.plain)
-                        .help(episodeProgressHelp(progress, episode: episode))
                         Divider()
                     }
                 }
             }
+        }
+    }
+
+    private func movieDownloadButton(
+        show: MovieShow,
+        episode: MovieEpisode?,
+        showsLabel: Bool
+    ) -> some View {
+        let unitID = episode?.id ?? show.slug
+        let record = mediaDownloads.record(
+            mediaType: .movie,
+            contentID: show.slug,
+            unitID: unitID
+        )
+        let label = downloadLabel(for: record, isEpisode: episode != nil)
+
+        return Button {
+            Task { await handleDownload(record: record, show: show, episode: episode) }
+        } label: {
+            if record?.isActive == true {
+                ProgressView(value: record?.progress ?? 0)
+                    .progressViewStyle(.circular)
+                    .controlSize(.small)
+                    .frame(width: showsLabel ? 84 : 28)
+            } else if showsLabel {
+                Label(label.title, systemImage: label.icon)
+                    .frame(width: 84)
+            } else {
+                Image(systemName: label.icon)
+                    .frame(width: 28, height: 28)
+            }
+        }
+        .buttonStyle(.bordered)
+        .controlSize(showsLabel ? .large : .small)
+        .disabled(
+            record?.isActive == true
+                || record?.phase == .completed
+                || (show.isSeries && episode == nil)
+        )
+        .help(label.help)
+        .accessibilityLabel(label.help)
+    }
+
+    private func handleDownload(
+        record: MediaDownloadRecord?,
+        show: MovieShow,
+        episode: MovieEpisode?
+    ) async {
+        downloadError = nil
+        do {
+            if let record, record.phase == .failed {
+                try await mediaDownloads.retry(record)
+            } else if record?.phase == .completed {
+                return
+            } else {
+                try await mediaDownloads.downloadMovie(show: show, episode: episode)
+            }
+        } catch {
+            downloadError = error.localizedDescription
+        }
+    }
+
+    private func downloadLabel(
+        for record: MediaDownloadRecord?,
+        isEpisode: Bool
+    ) -> (title: String, icon: String, help: String) {
+        let subject = isEpisode ? "episode" : "movie"
+        return switch record?.phase {
+        case .preparing, .downloading:
+            ("Loading", "arrow.down.circle.fill", "Downloading \(subject)")
+        case .completed:
+            ("Offline", "checkmark.circle.fill", "Available offline. Manage it in Downloads")
+        case .failed:
+            ("Retry", "arrow.clockwise", "Retry \(subject) download")
+        case nil:
+            ("Download", "arrow.down.circle", "Download \(subject) for offline viewing")
         }
     }
 
