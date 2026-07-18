@@ -50,6 +50,6 @@ This builds the debug configuration with the development Clerk key, signs the ap
 
 Set `ASTERION_CLERK_PUBLISHABLE_KEY` to the production Clerk publishable key before packaging. Release exports reject development keys so they cannot be shipped accidentally.
 
-Set `ASTERION_VERSION`, `ASTERION_BUILD_NUMBER`, and `ASTERION_CODE_SIGN_IDENTITY` to override the default `0.2.0`, build `2`, and selected signing identity.
+Set `ASTERION_VERSION`, `ASTERION_BUILD_NUMBER`, and `ASTERION_CODE_SIGN_IDENTITY` to override the default `0.2.1`, build `3`, and selected signing identity.
 
 An Apple Development identity produces a local-development DMG. Public distribution requires a Developer ID Application identity, a sealed app bundle with hardened runtime, and Apple notarization.
