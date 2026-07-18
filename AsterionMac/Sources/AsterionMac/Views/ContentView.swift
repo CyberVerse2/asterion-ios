@@ -8,6 +8,7 @@ struct ContentView: View {
     @SceneStorage("selectedMovieSection") private var selectedMovieSectionRaw = MovieSection.discover.rawValue
     @SceneStorage("selectedFootballSection") private var selectedFootballSectionRaw = FootballSection.live.rawValue
     @SceneStorage("selectedNovelID") private var selectedNovelID = ""
+    @SceneStorage("showsAccount") private var showsAccount = false
     @StateObject private var animeStore = AnimeStore()
     @StateObject private var movieStore = MovieStore()
     @StateObject private var footballStore = FootballStore()
@@ -22,6 +23,7 @@ struct ContentView: View {
             get: { AppMode(rawValue: selectedModeRaw) ?? .novels },
             set: { newValue in
                 selectedModeRaw = newValue.rawValue
+                showsAccount = false
                 searchText = ""
                 if newValue == .anime, animeSection.wrappedValue == .bookmarks {
                     selectedAnimeBookmarkID = nil
@@ -40,10 +42,9 @@ struct ContentView: View {
             get: { AppSection(rawValue: selectedSectionRaw) ?? .discover },
             set: { newValue in
                 selectedSectionRaw = newValue.rawValue
+                showsAccount = false
                 searchText = ""
-                if newValue.showsNovelCatalog {
-                    selectFirstNovel(in: newValue)
-                }
+                selectFirstNovel(in: newValue)
             }
         )
     }
@@ -53,6 +54,7 @@ struct ContentView: View {
             get: { AnimeSection(rawValue: selectedAnimeSectionRaw) ?? .discover },
             set: { newValue in
                 selectedAnimeSectionRaw = newValue.rawValue
+                showsAccount = false
                 searchText = ""
                 if newValue == .bookmarks {
                     selectedAnimeBookmarkID = nil
@@ -66,6 +68,7 @@ struct ContentView: View {
             get: { MovieSection(rawValue: selectedMovieSectionRaw) ?? .discover },
             set: { newValue in
                 selectedMovieSectionRaw = newValue.rawValue
+                showsAccount = false
                 searchText = ""
                 if newValue == .bookmarks {
                     selectedMovieBookmarkID = nil
@@ -79,6 +82,7 @@ struct ContentView: View {
             get: { FootballSection(rawValue: selectedFootballSectionRaw) ?? .live },
             set: { newValue in
                 selectedFootballSectionRaw = newValue.rawValue
+                showsAccount = false
                 searchText = ""
             }
         )
@@ -95,16 +99,14 @@ struct ContentView: View {
     var body: some View {
         navigationContent
         .onAppear {
-            if mode.wrappedValue == .novels,
-               section.wrappedValue.showsNovelCatalog,
-               selectedNovelID.isEmpty {
+            if mode.wrappedValue == .novels, selectedNovelID.isEmpty {
                 selectFirstNovel(in: section.wrappedValue)
-            } else if mode.wrappedValue == .novels, section.wrappedValue.showsNovelCatalog {
+            } else if mode.wrappedValue == .novels {
                 ensureSelection()
             }
         }
         .onChange(of: model.novels) {
-            if mode.wrappedValue == .novels, section.wrappedValue.showsNovelCatalog {
+            if mode.wrappedValue == .novels {
                 ensureSelection()
             }
         }
@@ -113,17 +115,17 @@ struct ContentView: View {
             ensureSelection()
         }
         .onChange(of: selectedSectionRaw) {
-            if mode.wrappedValue == .novels, section.wrappedValue.showsNovelCatalog {
+            if mode.wrappedValue == .novels {
                 selectFirstNovel(in: section.wrappedValue)
             }
         }
         .onChange(of: selectedModeRaw) {
-            if mode.wrappedValue == .novels, section.wrappedValue.showsNovelCatalog {
+            if mode.wrappedValue == .novels {
                 ensureSelection()
             }
         }
         .onChange(of: searchText) {
-            if mode.wrappedValue == .novels, section.wrappedValue.showsNovelCatalog {
+            if mode.wrappedValue == .novels, !showsAccount {
                 ensureSelection()
             }
         }
@@ -136,7 +138,8 @@ struct ContentView: View {
                 novelSelection: section,
                 animeSelection: animeSection,
                 movieSelection: movieSection,
-                footballSelection: footballSection
+                footballSelection: footballSection,
+                showsAccount: $showsAccount
             )
                 .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 260)
         } content: {
@@ -150,7 +153,7 @@ struct ContentView: View {
         .catalogSearch(
             text: $searchText,
             prompt: searchPrompt,
-            isEnabled: mode.wrappedValue != .novels || section.wrappedValue != .account
+            isEnabled: !showsAccount
         )
         .toolbar {
             navigationToolbar
@@ -160,6 +163,7 @@ struct ContentView: View {
         .focusedSceneValue(\.asterionAnimeSection, animeSection)
         .focusedSceneValue(\.asterionMovieSection, movieSection)
         .focusedSceneValue(\.asterionFootballSection, footballSection)
+        .focusedSceneValue(\.asterionShowsAccount, $showsAccount)
         .tint(.asterionAccent)
         .frame(minWidth: 1_040, minHeight: 640)
     }
@@ -184,7 +188,7 @@ struct ContentView: View {
             }
         }
 
-        if mode.wrappedValue == .novels, section.wrappedValue.showsNovelCatalog {
+        if mode.wrappedValue == .novels, !showsAccount {
             ToolbarSpacer(.fixed)
 
             ToolbarItem(placement: .primaryAction) {
@@ -205,7 +209,9 @@ struct ContentView: View {
 
     @ViewBuilder
     private var catalogColumn: some View {
-        if mode.wrappedValue == .anime, animeSection.wrappedValue == .bookmarks {
+        if showsAccount {
+            AccountSummaryView()
+        } else if mode.wrappedValue == .anime, animeSection.wrappedValue == .bookmarks {
             SavedMediaCatalogView(
                 mediaType: .anime,
                 bookmarks: bookmarks(for: .anime),
@@ -241,8 +247,6 @@ struct ContentView: View {
                 section: footballSection.wrappedValue,
                 query: searchText
             )
-        } else if section.wrappedValue == .account {
-            AccountSummaryView()
         } else {
             EditorialCatalogView(
                 section: section.wrappedValue,
@@ -256,7 +260,9 @@ struct ContentView: View {
 
     @ViewBuilder
     private var detailColumn: some View {
-        if mode.wrappedValue == .anime,
+        if showsAccount {
+            AccountView()
+        } else if mode.wrappedValue == .anime,
            animeSection.wrappedValue == .bookmarks,
            !hasSelectedBookmark(for: .anime, contentID: selectedAnimeBookmarkID) {
             savedMediaDetailPlaceholder(for: .anime)
@@ -270,8 +276,6 @@ struct ContentView: View {
             MovieDetailView(store: movieStore)
         } else if mode.wrappedValue == .football {
             FootballDetailView(store: footballStore)
-        } else if section.wrappedValue == .account {
-            AccountView()
         } else if let selectedNovel {
             NovelDetailView(novel: selectedNovel)
                 .id(selectedNovel.id)
@@ -303,9 +307,10 @@ struct ContentView: View {
     }
 
     private var showsRefreshAction: Bool {
-        switch mode.wrappedValue {
+        guard !showsAccount else { return false }
+        return switch mode.wrappedValue {
         case .novels:
-            section.wrappedValue != .account
+            true
         case .anime:
             animeSection.wrappedValue != .bookmarks
         case .movies:
@@ -346,7 +351,6 @@ struct ContentView: View {
     }
 
     private func selectFirstNovel(in section: AppSection) {
-        guard section.showsNovelCatalog else { return }
         if section == .discover, searchText.isEmpty {
             selectedNovelID = model.featuredNovels.first?.id ?? ""
         } else {
@@ -355,7 +359,6 @@ struct ContentView: View {
     }
 
     private func ensureSelection() {
-        guard section.wrappedValue.showsNovelCatalog else { return }
         let visible = model.novels(for: section.wrappedValue, search: searchText)
         let visibleIDs: Set<String>
         if section.wrappedValue == .discover, searchText.isEmpty {
@@ -374,6 +377,7 @@ struct ContentView: View {
     }
 
     private func refreshActiveCatalog() async {
+        guard !showsAccount else { return }
         switch mode.wrappedValue {
         case .novels:
             await model.loadCatalog()

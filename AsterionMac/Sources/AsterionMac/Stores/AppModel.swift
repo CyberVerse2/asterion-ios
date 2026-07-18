@@ -231,8 +231,6 @@ final class AppModel: ObservableObject {
         case .library:
             source = novels.filter { libraryNovelIDs.contains($0.id) || downloadedNovelIDs.contains($0.id) }
                 .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
-        case .account:
-            source = []
         }
 
         let query = search.trimmingCharacters(in: .whitespacesAndNewlines)

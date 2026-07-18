@@ -178,19 +178,32 @@ struct AsterionNavigationCommands: Commands {
     @FocusedBinding(\.asterionAnimeSection) private var animeSection
     @FocusedBinding(\.asterionMovieSection) private var movieSection
     @FocusedBinding(\.asterionFootballSection) private var footballSection
+    @FocusedBinding(\.asterionShowsAccount) private var showsAccount
 
     var body: some Commands {
         CommandMenu("Navigate") {
-            Button("Novels") { mode = .novels }
+            Button("Novels") {
+                mode = .novels
+                showsAccount = false
+            }
                 .keyboardShortcut("1", modifiers: [.command, .option])
                 .disabled(mode == nil)
-            Button("Anime") { mode = .anime }
+            Button("Anime") {
+                mode = .anime
+                showsAccount = false
+            }
                 .keyboardShortcut("2", modifiers: [.command, .option])
                 .disabled(mode == nil)
-            Button("Movies") { mode = .movies }
+            Button("Movies") {
+                mode = .movies
+                showsAccount = false
+            }
                 .keyboardShortcut("3", modifiers: [.command, .option])
                 .disabled(mode == nil)
-            Button("Football") { mode = .football }
+            Button("Football") {
+                mode = .football
+                showsAccount = false
+            }
                 .keyboardShortcut("4", modifiers: [.command, .option])
                 .disabled(mode == nil)
 
@@ -198,29 +211,47 @@ struct AsterionNavigationCommands: Commands {
 
             if mode == .anime {
                 ForEach(Array(AnimeSection.allCases.enumerated()), id: \.element) { index, item in
-                    Button(item.title) { animeSection = item }
+                    Button(item.title) {
+                        animeSection = item
+                        showsAccount = false
+                    }
                         .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: .command)
                         .disabled(animeSection == nil)
                 }
             } else if mode == .movies {
                 ForEach(Array(MovieSection.allCases.enumerated()), id: \.element) { index, item in
-                    Button(item.title) { movieSection = item }
+                    Button(item.title) {
+                        movieSection = item
+                        showsAccount = false
+                    }
                         .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: .command)
                         .disabled(movieSection == nil)
                 }
             } else if mode == .football {
                 ForEach(Array(FootballSection.allCases.enumerated()), id: \.element) { index, item in
-                    Button(item.title) { footballSection = item }
+                    Button(item.title) {
+                        footballSection = item
+                        showsAccount = false
+                    }
                         .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: .command)
                         .disabled(footballSection == nil)
                 }
             } else {
                 ForEach(Array(AppSection.allCases.enumerated()), id: \.element) { index, item in
-                    Button(item.title) { section = item }
+                    Button(item.title) {
+                        section = item
+                        showsAccount = false
+                    }
                         .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: .command)
                         .disabled(section == nil)
                 }
             }
+
+            Divider()
+
+            Button("Account") { showsAccount = true }
+                .keyboardShortcut("0", modifiers: .command)
+                .disabled(showsAccount == nil)
         }
     }
 }
@@ -231,4 +262,5 @@ extension FocusedValues {
     @Entry var asterionAnimeSection: Binding<AnimeSection>?
     @Entry var asterionMovieSection: Binding<MovieSection>?
     @Entry var asterionFootballSection: Binding<FootballSection>?
+    @Entry var asterionShowsAccount: Binding<Bool>?
 }

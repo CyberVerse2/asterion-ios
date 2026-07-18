@@ -8,43 +8,37 @@ struct SidebarView: View {
     @Binding var animeSelection: AnimeSection
     @Binding var movieSelection: MovieSection
     @Binding var footballSelection: FootballSection
+    @Binding var showsAccount: Bool
 
-    private var novelListSelection: Binding<AppSection?> {
+    private var listSelection: Binding<SidebarSelection?> {
         Binding(
-            get: { novelSelection },
-            set: { newValue in
-                if let newValue {
-                    novelSelection = newValue
+            get: {
+                if showsAccount { return .account }
+                return switch mode {
+                case .novels: .novel(novelSelection)
+                case .anime: .anime(animeSelection)
+                case .movies: .movie(movieSelection)
+                case .football: .football(footballSelection)
                 }
-            }
-        )
-    }
-
-    private var animeListSelection: Binding<AnimeSection?> {
-        Binding(
-            get: { animeSelection },
+            },
             set: { newValue in
-                if let newValue {
-                    animeSelection = newValue
+                guard let newValue else { return }
+                switch newValue {
+                case .account:
+                    showsAccount = true
+                case .novel(let section):
+                    showsAccount = false
+                    novelSelection = section
+                case .anime(let section):
+                    showsAccount = false
+                    animeSelection = section
+                case .movie(let section):
+                    showsAccount = false
+                    movieSelection = section
+                case .football(let section):
+                    showsAccount = false
+                    footballSelection = section
                 }
-            }
-        )
-    }
-
-    private var movieListSelection: Binding<MovieSection?> {
-        Binding(
-            get: { movieSelection },
-            set: { newValue in
-                if let newValue { movieSelection = newValue }
-            }
-        )
-    }
-
-    private var footballListSelection: Binding<FootballSection?> {
-        Binding(
-            get: { footballSelection },
-            set: { newValue in
-                if let newValue { footballSelection = newValue }
             }
         )
     }
@@ -56,63 +50,51 @@ struct SidebarView: View {
                 .padding(.top, 16)
                 .padding(.bottom, 12)
 
-            if mode == .novels {
-                List(selection: novelListSelection) {
-                    Section("Novels") {
+            List(selection: listSelection) {
+                Section(mode.title) {
+                    if mode == .novels {
                         ForEach(AppSection.allCases, id: \.self) { section in
                             Label(section.title, systemImage: section.systemImage)
-                                .tag(section)
+                                .tag(SidebarSelection.novel(section))
                                 .help(section.title)
                         }
-                    }
-                }
-                .listStyle(.sidebar)
-                .scrollContentBackground(.hidden)
-            } else if mode == .anime {
-                List(selection: animeListSelection) {
-                    Section("Anime") {
+                    } else if mode == .anime {
                         ForEach(AnimeSection.allCases, id: \.self) { section in
                             sidebarRow(
                                 title: section.title,
                                 systemImage: section.systemImage,
                                 count: section == .bookmarks ? animeBookmarkCount : nil
                             )
-                                .tag(section)
+                                .tag(SidebarSelection.anime(section))
                                 .help(section.title)
                         }
-                    }
-                }
-                .listStyle(.sidebar)
-                .scrollContentBackground(.hidden)
-            } else if mode == .movies {
-                List(selection: movieListSelection) {
-                    Section("Movies") {
+                    } else if mode == .movies {
                         ForEach(MovieSection.allCases, id: \.self) { section in
                             sidebarRow(
                                 title: section.title,
                                 systemImage: section.systemImage,
                                 count: section == .bookmarks ? movieBookmarkCount : nil
                             )
-                                .tag(section)
+                                .tag(SidebarSelection.movie(section))
                                 .help(section.title)
                         }
-                    }
-                }
-                .listStyle(.sidebar)
-                .scrollContentBackground(.hidden)
-            } else {
-                List(selection: footballListSelection) {
-                    Section("Football") {
+                    } else {
                         ForEach(FootballSection.allCases, id: \.self) { section in
                             Label(section.title, systemImage: section.systemImage)
-                                .tag(section)
+                                .tag(SidebarSelection.football(section))
                                 .help(section.title)
                         }
                     }
                 }
-                .listStyle(.sidebar)
-                .scrollContentBackground(.hidden)
+
+                Section {
+                    Label("Account", systemImage: "person.crop.circle")
+                        .tag(SidebarSelection.account)
+                        .help("Account")
+                }
             }
+            .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
         }
         .navigationTitle("Asterion")
     }
@@ -171,4 +153,12 @@ struct SidebarView: View {
         }
         return Image(nsImage: image)
     }
+}
+
+private enum SidebarSelection: Hashable {
+    case novel(AppSection)
+    case anime(AnimeSection)
+    case movie(MovieSection)
+    case football(FootballSection)
+    case account
 }

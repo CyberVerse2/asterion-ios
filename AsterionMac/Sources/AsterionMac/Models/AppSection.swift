@@ -73,14 +73,12 @@ enum AppSection: String, CaseIterable, Codable, Hashable, Sendable {
     case discover
     case rankings
     case library
-    case account
 
     var title: String {
         switch self {
         case .discover: "Discover"
         case .rankings: "Rankings"
         case .library: "Library"
-        case .account: "Account"
         }
     }
 
@@ -89,16 +87,6 @@ enum AppSection: String, CaseIterable, Codable, Hashable, Sendable {
         case .discover: "sparkles"
         case .rankings: "crown"
         case .library: "books.vertical"
-        case .account: "person.crop.circle"
-        }
-    }
-
-    var showsNovelCatalog: Bool {
-        switch self {
-        case .discover, .rankings, .library:
-            true
-        case .account:
-            false
         }
     }
 }
