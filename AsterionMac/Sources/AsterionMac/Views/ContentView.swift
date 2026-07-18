@@ -10,12 +10,13 @@ struct ContentView: View {
     @SceneStorage("selectedFootballSection") private var selectedFootballSectionRaw = FootballSection.live.rawValue
     @SceneStorage("selectedNovelID") private var selectedNovelID = ""
     @SceneStorage("showsAccount") private var showsAccount = false
+    @SceneStorage("showsDownloadLibrary") private var showsDownloadLibrary = false
     @StateObject private var animeStore = AnimeStore()
     @StateObject private var movieStore = MovieStore()
     @StateObject private var footballStore = FootballStore()
     @State private var columnVisibility = NavigationSplitViewVisibility.all
     @State private var searchText = ""
-    @State private var showsDownloads = false
+    @State private var showsDownloadPopover = false
     @State private var selectedAnimeBookmarkID: String?
     @State private var selectedMovieBookmarkID: String?
 
@@ -25,6 +26,7 @@ struct ContentView: View {
             set: { newValue in
                 selectedModeRaw = newValue.rawValue
                 showsAccount = false
+                showsDownloadLibrary = false
                 searchText = ""
                 if newValue == .anime, animeSection.wrappedValue == .bookmarks {
                     selectedAnimeBookmarkID = nil
@@ -44,6 +46,7 @@ struct ContentView: View {
             set: { newValue in
                 selectedSectionRaw = newValue.rawValue
                 showsAccount = false
+                showsDownloadLibrary = false
                 searchText = ""
                 selectFirstNovel(in: newValue)
             }
@@ -56,6 +59,7 @@ struct ContentView: View {
             set: { newValue in
                 selectedAnimeSectionRaw = newValue.rawValue
                 showsAccount = false
+                showsDownloadLibrary = false
                 searchText = ""
                 if newValue == .bookmarks {
                     selectedAnimeBookmarkID = nil
@@ -70,6 +74,7 @@ struct ContentView: View {
             set: { newValue in
                 selectedMovieSectionRaw = newValue.rawValue
                 showsAccount = false
+                showsDownloadLibrary = false
                 searchText = ""
                 if newValue == .bookmarks {
                     selectedMovieBookmarkID = nil
@@ -84,6 +89,7 @@ struct ContentView: View {
             set: { newValue in
                 selectedFootballSectionRaw = newValue.rawValue
                 showsAccount = false
+                showsDownloadLibrary = false
                 searchText = ""
             }
         )
@@ -91,6 +97,16 @@ struct ContentView: View {
 
     private var selectedNovel: Novel? {
         model.novel(id: selectedNovelID)
+    }
+
+    private var accountVisibility: Binding<Bool> {
+        Binding(
+            get: { showsAccount },
+            set: { isVisible in
+                showsAccount = isVisible
+                if isVisible { showsDownloadLibrary = false }
+            }
+        )
     }
 
     private var activeDownloadCount: Int {
@@ -126,7 +142,7 @@ struct ContentView: View {
             }
         }
         .onChange(of: searchText) {
-            if mode.wrappedValue == .novels, !showsAccount {
+            if mode.wrappedValue == .novels, !showsAccount, !showsDownloadLibrary {
                 ensureSelection()
             }
         }
@@ -140,7 +156,8 @@ struct ContentView: View {
                 animeSelection: animeSection,
                 movieSelection: movieSection,
                 footballSelection: footballSection,
-                showsAccount: $showsAccount
+                showsAccount: accountVisibility,
+                showsDownloads: $showsDownloadLibrary
             )
                 .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 260)
         } content: {
@@ -154,7 +171,7 @@ struct ContentView: View {
         .catalogSearch(
             text: $searchText,
             prompt: searchPrompt,
-            isEnabled: !showsAccount
+            isEnabled: !showsAccount && !showsDownloadLibrary
         )
         .toolbar {
             navigationToolbar
@@ -164,7 +181,7 @@ struct ContentView: View {
         .focusedSceneValue(\.asterionAnimeSection, animeSection)
         .focusedSceneValue(\.asterionMovieSection, movieSection)
         .focusedSceneValue(\.asterionFootballSection, footballSection)
-        .focusedSceneValue(\.asterionShowsAccount, $showsAccount)
+        .focusedSceneValue(\.asterionShowsAccount, accountVisibility)
         .tint(.asterionAccent)
         .frame(minWidth: 1_040, minHeight: 640)
     }
@@ -189,18 +206,18 @@ struct ContentView: View {
             }
         }
 
-        if !showsAccount {
+        if !showsAccount && !showsDownloadLibrary {
             ToolbarSpacer(.fixed)
 
             ToolbarItem(placement: .primaryAction) {
                 Button {
-                    showsDownloads.toggle()
+                    showsDownloadPopover.toggle()
                 } label: {
                     Label("Downloads", systemImage: activeDownloadCount > 0 ? "arrow.down.circle.fill" : "arrow.down.circle")
                 }
                 .badge(activeDownloadCount)
                 .help("Downloads")
-                .popover(isPresented: $showsDownloads, arrowEdge: .top) {
+                .popover(isPresented: $showsDownloadPopover, arrowEdge: .top) {
                     DownloadCenterView()
                         .environmentObject(model)
                         .environmentObject(mediaDownloads)
@@ -211,7 +228,9 @@ struct ContentView: View {
 
     @ViewBuilder
     private var catalogColumn: some View {
-        if showsAccount {
+        if showsDownloadLibrary {
+            DownloadCenterView(presentation: .library)
+        } else if showsAccount {
             AccountSummaryView()
         } else if mode.wrappedValue == .anime, animeSection.wrappedValue == .bookmarks {
             SavedMediaCatalogView(
@@ -262,7 +281,9 @@ struct ContentView: View {
 
     @ViewBuilder
     private var detailColumn: some View {
-        if showsAccount {
+        if showsDownloadLibrary {
+            downloadedLibraryDetailPlaceholder
+        } else if showsAccount {
             AccountView()
         } else if mode.wrappedValue == .anime,
            animeSection.wrappedValue == .bookmarks,
@@ -309,7 +330,7 @@ struct ContentView: View {
     }
 
     private var showsRefreshAction: Bool {
-        guard !showsAccount else { return false }
+        guard !showsAccount, !showsDownloadLibrary else { return false }
         return switch mode.wrappedValue {
         case .novels:
             true
@@ -352,6 +373,16 @@ struct ContentView: View {
         .background(.background)
     }
 
+    private var downloadedLibraryDetailPlaceholder: some View {
+        ContentUnavailableView(
+            "Your offline library",
+            systemImage: "arrow.down.circle.fill",
+            description: Text("Choose Read or Play beside a downloaded title to open it offline.")
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(.background)
+    }
+
     private func selectFirstNovel(in section: AppSection) {
         if section == .discover, searchText.isEmpty {
             selectedNovelID = model.featuredNovels.first?.id ?? ""
@@ -379,7 +410,7 @@ struct ContentView: View {
     }
 
     private func refreshActiveCatalog() async {
-        guard !showsAccount else { return }
+        guard !showsAccount, !showsDownloadLibrary else { return }
         switch mode.wrappedValue {
         case .novels:
             await model.loadCatalog()

@@ -1,8 +1,18 @@
 import SwiftUI
 
+enum DownloadCenterPresentation: Equatable {
+    case popover
+    case library
+}
+
 struct DownloadCenterView: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var mediaDownloads: MediaDownloadManager
+    let presentation: DownloadCenterPresentation
+
+    init(presentation: DownloadCenterPresentation = .popover) {
+        self.presentation = presentation
+    }
 
     private var activeCount: Int {
         model.offlineDownloads.count(where: { $0.isDownloading }) + mediaDownloads.activeCount
@@ -13,12 +23,28 @@ struct DownloadCenterView: View {
             + mediaDownloads.completedCount
     }
 
+    private var novelDownloads: [OfflineDownload] {
+        model.offlineDownloads
+    }
+
+    private var animeDownloads: [MediaDownloadRecord] {
+        mediaDownloads.downloads.filter { $0.mediaType == .anime }
+    }
+
+    private var movieDownloads: [MediaDownloadRecord] {
+        mediaDownloads.downloads.filter { $0.mediaType == .movie }
+    }
+
+    private var isEmpty: Bool {
+        novelDownloads.isEmpty && animeDownloads.isEmpty && movieDownloads.isEmpty
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Downloads")
-                        .font(.asterionDisplay(18, weight: .semibold))
+                        .font(.asterionDisplay(presentation == .library ? 24 : 18, weight: .semibold))
                         .foregroundStyle(Color.asterionText)
                     Text(downloadSummary)
                         .font(.caption)
@@ -31,20 +57,20 @@ struct DownloadCenterView: View {
                         .tint(Color.asterionAccent)
                 }
             }
-            .padding(18)
+            .padding(presentation == .library ? 22 : 18)
 
             Divider()
 
-            if model.offlineDownloads.isEmpty && mediaDownloads.downloads.isEmpty {
+            if isEmpty {
                 ContentUnavailableView {
                     Label("No downloads", systemImage: "arrow.down.circle")
                 } description: {
                     Text("Download a novel, movie, or episode to enjoy it offline.")
                 }
-                .frame(maxWidth: .infinity, minHeight: 180)
+                .frame(maxWidth: .infinity, minHeight: 180, maxHeight: .infinity)
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 0) {
+                    LazyVStack(alignment: .leading, spacing: 0) {
                         if let storageError = mediaDownloads.storageError {
                             Label(storageError, systemImage: "exclamationmark.triangle.fill")
                                 .font(.caption)
@@ -54,25 +80,90 @@ struct DownloadCenterView: View {
                             Divider()
                         }
 
-                        ForEach(mediaDownloads.downloads) { download in
-                            MediaDownloadRow(download: download)
-                            Divider()
+                        downloadGroup(
+                            title: "Novels",
+                            systemImage: "books.vertical.fill",
+                            count: novelDownloads.count
+                        ) {
+                            ForEach(novelDownloads) { download in
+                                DownloadRow(download: download)
+                                if download.id != novelDownloads.last?.id {
+                                    Divider()
+                                }
+                            }
                         }
 
-                        ForEach(model.offlineDownloads) { download in
-                            DownloadRow(download: download)
-                            if download.id != model.offlineDownloads.last?.id {
-                                Divider()
+                        downloadGroup(
+                            title: "Anime",
+                            systemImage: "sparkles.tv.fill",
+                            count: animeDownloads.count
+                        ) {
+                            ForEach(animeDownloads) { download in
+                                MediaDownloadRow(download: download)
+                                if download.id != animeDownloads.last?.id {
+                                    Divider()
+                                }
+                            }
+                        }
+
+                        downloadGroup(
+                            title: "Movies & TV",
+                            systemImage: "film.stack.fill",
+                            count: movieDownloads.count
+                        ) {
+                            ForEach(movieDownloads) { download in
+                                MediaDownloadRow(download: download)
+                                if download.id != movieDownloads.last?.id {
+                                    Divider()
+                                }
                             }
                         }
                     }
                 }
                 .scrollIndicators(.hidden)
-                .frame(maxHeight: 420)
+                .frame(maxHeight: presentation == .popover ? 480 : .infinity)
             }
         }
-        .frame(width: 360)
+        .frame(
+            maxWidth: presentation == .library ? .infinity : nil,
+            maxHeight: presentation == .library ? .infinity : nil,
+            alignment: .topLeading
+        )
+        .frame(width: presentation == .popover ? 360 : nil)
         .background(.background)
+    }
+
+    private func downloadGroup<Content: View>(
+        title: String,
+        systemImage: String,
+        count: Int,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                Label(title, systemImage: systemImage)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.asterionText)
+                Spacer()
+                Text(count, format: .number)
+                    .font(.caption.monospacedDigit().weight(.medium))
+                    .foregroundStyle(Color.asterionMuted)
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 10)
+            .background(Color.asterionSurface.opacity(0.72))
+
+            if count == 0 {
+                Text("No downloaded \(title.lowercased())")
+                    .font(.caption)
+                    .foregroundStyle(Color.asterionMuted)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 14)
+            } else {
+                content()
+            }
+            Divider()
+        }
     }
 
     private var downloadSummary: String {
@@ -265,10 +356,12 @@ private struct MediaDownloadRow: View {
 }
 
 private struct DownloadRow: View {
+    @Environment(\.openWindow) private var openWindow
     @EnvironmentObject private var model: AppModel
     let download: OfflineDownload
     @State private var actionError: String?
     @State private var isRemoving = false
+    @State private var isOpening = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -303,20 +396,33 @@ private struct DownloadRow: View {
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                 } else if download.phase == .completed {
-                    Button {
-                        Task { await removeDownload() }
-                    } label: {
-                        if isRemoving {
-                            ProgressView()
-                                .controlSize(.small)
-                        } else {
-                            Label("Remove", systemImage: "trash")
+                    HStack(spacing: 6) {
+                        Button {
+                            Task { await openDownload() }
+                        } label: {
+                            if isOpening {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Label("Read", systemImage: "book.fill")
+                            }
                         }
+                        .help("Read downloaded novel")
+
+                        Button {
+                            Task { await removeDownload() }
+                        } label: {
+                            if isRemoving {
+                                ProgressView()
+                                    .controlSize(.small)
+                            } else {
+                                Image(systemName: "trash")
+                            }
+                        }
+                        .help("Remove downloaded copy")
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
-                    .help("Remove downloaded copy")
-                    .disabled(isRemoving)
+                    .disabled(isRemoving || isOpening)
                 }
             }
 
@@ -379,6 +485,33 @@ private struct DownloadRow: View {
         defer { isRemoving = false }
         do {
             try await model.removeOfflineDownload(novelID: download.novelID)
+        } catch {
+            actionError = error.localizedDescription
+        }
+    }
+
+    private func openDownload() async {
+        isOpening = true
+        actionError = nil
+        defer { isOpening = false }
+        do {
+            async let chapterRequest = model.chapters(for: download.novelID)
+            async let progressRequest = model.fetchProgress(novelID: download.novelID)
+            let chapters = try await chapterRequest
+            let sortedChapters = chapters.sorted { $0.chapterNumber < $1.chapterNumber }
+            let progress = try await progressRequest
+            guard let chapter = progress.flatMap({ saved in
+                sortedChapters.first { $0.id == saved.chapterId }
+            }) ?? sortedChapters.first else {
+                actionError = "This downloaded novel does not contain any chapters."
+                return
+            }
+            openWindow(
+                value: ReaderRoute(
+                    novelID: download.novelID,
+                    chapterID: chapter.id
+                )
+            )
         } catch {
             actionError = error.localizedDescription
         }

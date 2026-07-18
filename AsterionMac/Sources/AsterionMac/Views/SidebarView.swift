@@ -3,17 +3,20 @@ import SwiftUI
 
 struct SidebarView: View {
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var mediaDownloads: MediaDownloadManager
     let mode: AppMode
     @Binding var novelSelection: AppSection
     @Binding var animeSelection: AnimeSection
     @Binding var movieSelection: MovieSection
     @Binding var footballSelection: FootballSection
     @Binding var showsAccount: Bool
+    @Binding var showsDownloads: Bool
 
     private var listSelection: Binding<SidebarSelection?> {
         Binding(
             get: {
                 if showsAccount { return .account }
+                if showsDownloads { return .downloads }
                 return switch mode {
                 case .novels: .novel(novelSelection)
                 case .anime: .anime(animeSelection)
@@ -26,17 +29,25 @@ struct SidebarView: View {
                 switch newValue {
                 case .account:
                     showsAccount = true
+                    showsDownloads = false
+                case .downloads:
+                    showsAccount = false
+                    showsDownloads = true
                 case .novel(let section):
                     showsAccount = false
+                    showsDownloads = false
                     novelSelection = section
                 case .anime(let section):
                     showsAccount = false
+                    showsDownloads = false
                     animeSelection = section
                 case .movie(let section):
                     showsAccount = false
+                    showsDownloads = false
                     movieSelection = section
                 case .football(let section):
                     showsAccount = false
+                    showsDownloads = false
                     footballSelection = section
                 }
             }
@@ -88,6 +99,14 @@ struct SidebarView: View {
                 }
 
                 Section {
+                    sidebarRow(
+                        title: "Downloads",
+                        systemImage: "arrow.down.circle.fill",
+                        count: completedDownloadCount
+                    )
+                        .tag(SidebarSelection.downloads)
+                        .help("Downloaded novels, anime, and movies")
+
                     Label("Account", systemImage: "person.crop.circle")
                         .tag(SidebarSelection.account)
                         .help("Account")
@@ -105,6 +124,11 @@ struct SidebarView: View {
 
     private var movieBookmarkCount: Int {
         model.mediaBookmarks.count { $0.mediaType == .movie }
+    }
+
+    private var completedDownloadCount: Int {
+        model.offlineDownloads.count { $0.phase == .completed }
+            + mediaDownloads.completedCount
     }
 
     private func sidebarRow(
@@ -160,5 +184,6 @@ private enum SidebarSelection: Hashable {
     case anime(AnimeSection)
     case movie(MovieSection)
     case football(FootballSection)
+    case downloads
     case account
 }

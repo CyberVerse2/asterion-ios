@@ -20,20 +20,59 @@ struct MediaDirectPlayer: View {
         self.subtitleTracks = subtitleTracks
         self.initialPosition = initialPosition
         self.onProgress = onProgress
-        _controller = StateObject(wrappedValue: DirectMediaPlaybackController(url: url))
+        _controller = StateObject(
+            wrappedValue: DirectMediaPlaybackController(
+                url: url,
+                localSubtitleTracks: url.isFileURL ? subtitleTracks : []
+            )
+        )
     }
 
     var body: some View {
         Group {
-            if subtitleTracks.isEmpty {
-                VideoPlayer(player: controller.player)
-                    .onAppear {
-                        controller.start(
-                            initialPosition: initialPosition,
-                            onProgress: onProgress
-                        )
+            if subtitleTracks.isEmpty || url.isFileURL {
+                ZStack {
+                    NativeMediaPlayerView(player: controller.player)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                    if let caption = controller.activeCaption {
+                        VStack {
+                            Spacer()
+                            Text(caption)
+                                .font(.system(size: 20, weight: .semibold))
+                                .multilineTextAlignment(.center)
+                                .foregroundStyle(.white)
+                                .shadow(color: .black, radius: 2, x: 0, y: 1)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 7)
+                                .background(.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 7))
+                                .padding(.horizontal, 36)
+                                .padding(.bottom, 32)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .allowsHitTesting(false)
+                        .accessibilityLabel("Subtitles: \(caption)")
                     }
-                    .onDisappear { controller.stop() }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .onAppear {
+                    controller.start(
+                        initialPosition: initialPosition,
+                        onProgress: onProgress
+                    )
+                }
+                .onDisappear { controller.stop() }
+                .overlay(alignment: .top) {
+                    if let captionError = controller.captionError {
+                        Label(captionError, systemImage: "captions.bubble.fill")
+                            .font(.caption)
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 7)
+                            .background(.red.opacity(0.82), in: Capsule())
+                            .padding(.top, 12)
+                    }
+                }
             } else {
                 CaptionedMediaPlayer(
                     url: url,
@@ -41,16 +80,61 @@ struct MediaDirectPlayer: View {
                     initialPosition: initialPosition,
                     onProgress: onProgress
                 )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.black)
+    }
+}
+
+private struct NativeMediaPlayerView: NSViewRepresentable {
+    let player: AVPlayer
+
+    func makeNSView(context: Context) -> FullFramePlayerView {
+        let playerView = FullFramePlayerView()
+        playerView.player = player
+        playerView.controlsStyle = .floating
+        playerView.videoGravity = .resizeAspect
+        playerView.showsFullScreenToggleButton = true
+        playerView.allowsPictureInPicturePlayback = true
+        playerView.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        playerView.setContentHuggingPriority(.defaultLow, for: .vertical)
+        playerView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        playerView.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+        return playerView
+    }
+
+    func updateNSView(_ playerView: FullFramePlayerView, context: Context) {
+        if playerView.player !== player {
+            playerView.player = player
+        }
+        playerView.videoGravity = .resizeAspect
+    }
+
+    static func dismantleNSView(_ playerView: FullFramePlayerView, coordinator: Void) {
+        playerView.player = nil
+    }
+}
+
+private final class FullFramePlayerView: AVPlayerView {
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
+    }
+
+    override func layout() {
+        super.layout()
+        videoGravity = .resizeAspect
     }
 }
 
 @MainActor
 private final class DirectMediaPlaybackController: ObservableObject {
     let player: AVPlayer
+    @Published private(set) var activeCaption: String?
+    @Published private(set) var captionError: String?
 
+    private let subtitleCues: [WebVTTCue]
     private var periodicObserver: Any?
     private var timeControlObserver: NSKeyValueObservation?
     private var playbackEndObserver: NSObjectProtocol?
@@ -60,8 +144,21 @@ private final class DirectMediaPlaybackController: ObservableObject {
     private var hasConfirmedPlayback = false
     private var hasEnteredPlayingState = false
 
-    init(url: URL) {
+    init(url: URL, localSubtitleTracks: [AnimeSubtitleTrack]) {
         player = AVPlayer(url: url)
+        if let track = localSubtitleTracks.first(where: \.isDefault)
+            ?? localSubtitleTracks.first {
+            do {
+                subtitleCues = try WebVTTParser.parse(fileURL: track.fileURL)
+                captionError = nil
+            } catch {
+                subtitleCues = []
+                captionError = error.localizedDescription
+            }
+        } else {
+            subtitleCues = []
+            captionError = nil
+        }
     }
 
     func start(
@@ -82,7 +179,7 @@ private final class DirectMediaPlaybackController: ObservableObject {
         }
         if periodicObserver == nil {
             periodicObserver = player.addPeriodicTimeObserver(
-                forInterval: CMTime(seconds: 5, preferredTimescale: 600),
+                forInterval: CMTime(seconds: 0.2, preferredTimescale: 600),
                 queue: .main
             ) { [weak self] time in
                 Task { @MainActor [weak self] in
@@ -104,6 +201,7 @@ private final class DirectMediaPlaybackController: ObservableObject {
             self.periodicObserver = nil
         }
         player.pause()
+        activeCaption = nil
         onProgress = nil
     }
 
@@ -168,6 +266,10 @@ private final class DirectMediaPlaybackController: ObservableObject {
     ) {
         let position = time.seconds
         guard position.isFinite, position >= 0 else { return }
+        let caption = WebVTTParser.caption(at: position, in: subtitleCues)
+        if caption != activeCaption {
+            activeCaption = caption
+        }
         if !hasConfirmedPlayback,
            (player.rate > 0
                 || (allowStoppedPlaybackConfirmation && hasEnteredPlayingState)),
