@@ -3,6 +3,8 @@
 /build/
 *.ipa
 *.dmg
+__pycache__/
+*.py[cod]
 
 # Generated export artifacts
 /output/
