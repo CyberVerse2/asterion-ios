@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct AnimeCatalogView: View {
+    @EnvironmentObject private var model: AppModel
     @Environment(\.openWindow) private var openWindow
     @ObservedObject var store: AnimeStore
     let section: AnimeSection
@@ -44,6 +45,18 @@ struct AnimeCatalogView: View {
                     VStack(alignment: .leading, spacing: 34) {
                         if section == .discover, normalizedQuery.isEmpty {
                             featuredBanner
+
+                            if !animeContinueWatching.isEmpty {
+                                ContinueWatchingShelf(entries: animeContinueWatching) { progress in
+                                    openWindow(
+                                        value: AnimePlayerRoute(
+                                            slug: progress.contentId,
+                                            title: progress.title,
+                                            initialEpisodeID: progress.unitId
+                                        )
+                                    )
+                                }
+                            }
                         }
 
                         if section == .genres, normalizedQuery.isEmpty, !store.genres.isEmpty {
@@ -75,6 +88,10 @@ struct AnimeCatalogView: View {
             let lastFeaturedIndex = max(0, min(8, store.titles.count) - 1)
             featuredIndex = min(featuredIndex, lastFeaturedIndex)
         }
+    }
+
+    private var animeContinueWatching: [MediaPlaybackProgress] {
+        model.continueWatching.filter { $0.mediaType == .anime }
     }
 
     @ViewBuilder
