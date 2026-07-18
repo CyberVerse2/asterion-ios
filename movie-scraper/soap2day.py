@@ -121,13 +121,24 @@ def _parse_cards(html: str) -> list[SearchResult]:
         mid = item.get("data-movie-id", "0")
         link = item.select_one("a.ml-mask")
         href = link.get("href", "") if link else ""
-        title = link.get("oldtitle") or link.get("title", "") if link else ""
         img = item.select_one("img.mli-thumb")
+
+        title_candidates = [
+            link.get("oldtitle", "") if link else "",
+            link.get("title", "") if link else "",
+            _text(item.select_one(".mli-info .h2")),
+            _text(item.select_one("#hidden_tip .qtip-title")),
+            img.get("alt", "") if img else "",
+        ]
+        title = next((candidate.strip() for candidate in title_candidates if candidate and candidate.strip()), "")
+
         image_url = img.get("data-original") or img.get("src", "") if img else None
         imdb_el = item.select_one(".mli-add .imdb")
         imdb_rating = _text(imdb_el) if imdb_el else None
         runtime_el = item.select_one(".mli-add .runtime")
         runtime = _text(runtime_el) if runtime_el else None
+        year_el = item.select_one("#hidden_tip a[href*='/release-year/']")
+        year = _text(year_el) if year_el else None
         quality_el = item.select_one(".mli-quality")
         quality = _text(quality_el) if quality_el else None
         is_tv = "/series/" in href or "tv" in item.get("class", [])
@@ -138,6 +149,7 @@ def _parse_cards(html: str) -> list[SearchResult]:
             image_url=image_url,
             imdb_rating=imdb_rating,
             runtime=runtime,
+            year=year,
             quality=quality,
             type="tv" if is_tv else "movie",
         ))
