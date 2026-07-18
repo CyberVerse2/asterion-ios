@@ -232,7 +232,10 @@ private struct CaptionedMediaPlayer: View {
         .task(id: attempt) {
             phase = .loading
             do {
-                let loadedTracks = try await AnimeSubtitleLoader.load(subtitleTracks)
+                let loadedTracks = try await AnimeSubtitleLoader.load(
+                    subtitleTracks,
+                    allowsLocalFiles: url.isFileURL
+                )
                 try Task.checkCancellation()
                 phase = .ready(loadedTracks)
             } catch is CancellationError {

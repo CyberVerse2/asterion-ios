@@ -3,6 +3,7 @@ import Foundation
 enum AnimeSubtitleLoadError: LocalizedError, Equatable {
     case http(label: String, statusCode: Int)
     case invalidSource(label: String)
+    case localFileUnavailable(label: String)
     case invalidPayload(label: String)
     case payloadTooLarge(label: String)
 
@@ -12,6 +13,8 @@ enum AnimeSubtitleLoadError: LocalizedError, Equatable {
             "The \(label) subtitle track returned HTTP \(statusCode)."
         case .invalidSource(let label):
             "The \(label) subtitle track does not use a secure web address."
+        case .localFileUnavailable(let label):
+            "The downloaded \(label) subtitle file is missing or cannot be read."
         case .invalidPayload(let label):
             "The \(label) subtitle track is not a valid WebVTT file."
         case .payloadTooLarge(let label):
@@ -25,6 +28,7 @@ enum AnimeSubtitleLoader {
 
     static func load(
         _ tracks: [AnimeSubtitleTrack],
+        allowsLocalFiles: Bool = false,
         session: URLSession = .shared
     ) async throws -> [AnimeSubtitleTrack] {
         try await withThrowingTaskGroup(
@@ -33,7 +37,14 @@ enum AnimeSubtitleLoader {
         ) { group in
             for (index, track) in tracks.enumerated() {
                 group.addTask {
-                    (index, try await load(track, session: session))
+                    (
+                        index,
+                        try await load(
+                            track,
+                            allowsLocalFiles: allowsLocalFiles,
+                            session: session
+                        )
+                    )
                 }
             }
 
@@ -61,16 +72,22 @@ enum AnimeSubtitleLoader {
 
     private static func load(
         _ track: AnimeSubtitleTrack,
+        allowsLocalFiles: Bool,
         session: URLSession
     ) async throws -> AnimeSubtitleTrack {
+        if track.fileURL.isFileURL {
+            guard allowsLocalFiles else {
+                throw AnimeSubtitleLoadError.invalidSource(label: track.label)
+            }
+            return try loadLocal(track)
+        }
+
         guard isSecureTrackURL(track.fileURL) else {
             throw AnimeSubtitleLoadError.invalidSource(label: track.label)
         }
 
         var request = URLRequest(url: track.fileURL)
         request.setValue("text/vtt,text/plain;q=0.9,*/*;q=0.1", forHTTPHeaderField: "Accept")
-        request.setValue("https://vidtube.site", forHTTPHeaderField: "Origin")
-        request.setValue("https://vidtube.site/", forHTTPHeaderField: "Referer")
         request.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
 
         let redirectDelegate = AnimeSubtitleRedirectDelegate()
@@ -106,6 +123,41 @@ enum AnimeSubtitleLoader {
                 throw AnimeSubtitleLoadError.payloadTooLarge(label: track.label)
             }
             data.append(byte)
+        }
+
+        return AnimeSubtitleTrack(
+            fileURL: try dataURL(for: data, label: track.label),
+            label: track.label,
+            kind: track.kind,
+            languageCode: track.languageCode,
+            isDefault: track.isDefault
+        )
+    }
+
+    private static func loadLocal(_ track: AnimeSubtitleTrack) throws -> AnimeSubtitleTrack {
+        let values: URLResourceValues
+        do {
+            values = try track.fileURL.resourceValues(
+                forKeys: [.fileSizeKey, .isRegularFileKey, .isSymbolicLinkKey]
+            )
+        } catch {
+            throw AnimeSubtitleLoadError.localFileUnavailable(label: track.label)
+        }
+
+        guard values.isRegularFile == true,
+              values.isSymbolicLink != true,
+              let fileSize = values.fileSize else {
+            throw AnimeSubtitleLoadError.localFileUnavailable(label: track.label)
+        }
+        guard fileSize <= maximumTrackSize else {
+            throw AnimeSubtitleLoadError.payloadTooLarge(label: track.label)
+        }
+
+        let data: Data
+        do {
+            data = try Data(contentsOf: track.fileURL, options: .mappedIfSafe)
+        } catch {
+            throw AnimeSubtitleLoadError.localFileUnavailable(label: track.label)
         }
 
         return AnimeSubtitleTrack(
