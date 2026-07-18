@@ -132,7 +132,7 @@ class SearchResult:
     japanese_title: Optional[str] = None
     image_url: Optional[str] = None
     type: Optional[str] = None
-    episodes: Optional[str] = None
+    episode_label: Optional[str] = None
     url: Optional[str] = None
 
 
@@ -207,15 +207,21 @@ def _parse_cards(html: str) -> list[SearchResult]:
         if not title:
             title = _re_first(r'class="ani-name"[^>]*>([^<]+)<', chunk)
         ani_type = _re_first(r'class="[^"]*dot"[^>]*>\s*(\w+)\s*<', chunk)
-        eps = _re_first(r'class="total">(\d+)<', chunk)
+        total_episodes = _re_first(r'class="total">(\d+)<', chunk)
         slug = ""
         if href:
             m = re.search(r'/watch/([^/]+)', href)
             if m: slug = m.group(1)
+        latest_episode = _re_first(r'/ep-(\d+)', href or "")
+        episode_label = (
+            f"Ep {latest_episode}"
+            if latest_episode
+            else (f"{total_episodes} Eps" if total_episodes else None)
+        )
         results.append(SearchResult(
             id=slug, title=(title or "?").strip(), slug=slug,
             japanese_title=jp, image_url=img,
-            type=ani_type, episodes=eps, url=href,
+            type=ani_type, episode_label=episode_label, url=href,
         ))
     return results
 
@@ -244,12 +250,14 @@ def show_detail(slug: str) -> Show:
 
     sub_eps = int((re.search(r'class="sub">.*?(\d+)', html) or [0, "0"])[1])
     dub_eps = int((re.search(r'class="dub">.*?(\d+)', html) or [0, "0"])[1])
+    episode_count_match = re.search(r'\d+', meta.get("episodes", ""))
+    episodes_count = int(episode_count_match.group()) if episode_count_match else 0
 
     return Show(
         id=rid, title=title, slug=slug, japanese_title=jp,
         image_url=img, description=desc,
         type=meta.get("type"), status=meta.get("status"),
-        genres=genres, episodes_count=int(meta.get("episodes", "0")),
+        genres=genres, episodes_count=episodes_count,
         sub_episodes=sub_eps, dub_episodes=dub_eps,
         season=meta.get("premiered"), studio=meta.get("studios"),
         date_aired=meta.get("date aired"), mal_score=meta.get("mal"),
