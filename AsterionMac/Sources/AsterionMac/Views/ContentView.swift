@@ -154,15 +154,9 @@ struct ContentView: View {
     @ToolbarContentBuilder
     private var navigationToolbar: some ToolbarContent {
         ToolbarItem(placement: .principal) {
-            Picker("Content", selection: mode) {
-                ForEach(AppMode.allCases, id: \.self) { item in
-                    Text(item.title).tag(item)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(width: 360)
-            .help("Switch between novels, anime, movies, and football")
+            ContentModePicker(selection: mode)
+                .frame(width: 360)
+                .help("Switch between novels, anime, movies, and football")
         }
 
         if mode.wrappedValue != .novels || section.wrappedValue != .account {
