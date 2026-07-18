@@ -148,7 +148,7 @@ struct MovieCatalogView: View {
                         .tint(.asterionAccent)
                     }
 
-                    AnimeCoverView(url: title.imageURL, width: 118, height: 169)
+                    MediaCoverView(url: title.imageURL, width: 118, height: 169)
                 }
                 .padding(20)
             }
@@ -269,7 +269,7 @@ private struct MovieTitleTile: View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 8) {
                 ZStack(alignment: .bottomLeading) {
-                    AnimeCoverView(url: title.imageURL, width: 128, height: 184)
+                    MediaCoverView(url: title.imageURL, width: 128, height: 184)
 
                     if let rating = title.imdbRating {
                         Text("★ \(rating)")

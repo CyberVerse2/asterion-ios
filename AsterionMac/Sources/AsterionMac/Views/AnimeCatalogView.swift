@@ -260,7 +260,7 @@ private struct AnimeFeaturedBanner: View {
 
     private func featureContent(posterWidth: CGFloat) -> some View {
         ZStack(alignment: .trailing) {
-            AnimeCoverView(
+            MediaCoverView(
                 url: title.imageURL,
                 width: posterWidth,
                 height: posterWidth * 1.43
@@ -376,7 +376,7 @@ private struct AnimeTitleTile: View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 8) {
                 ZStack(alignment: .bottomLeading) {
-                    AnimeCoverView(url: title.imageURL, width: 128, height: 184)
+                    MediaCoverView(url: title.imageURL, width: 128, height: 184)
 
                     if let episodeLabel = title.episodeLabel {
                         Text(episodeLabel)
@@ -426,42 +426,5 @@ private struct AnimeTitleTile: View {
         .animation(reduceMotion ? nil : AsterionMotion.reveal, value: isSelected)
         .accessibilityLabel(title.displayTitle)
         .accessibilityValue(title.episodeLabel ?? title.type ?? "Anime")
-    }
-}
-
-struct AnimeCoverView: View {
-    let url: URL?
-    var width: CGFloat = 150
-    var height: CGFloat = 210
-
-    var body: some View {
-        AsyncImage(url: url) { phase in
-            switch phase {
-            case .success(let image):
-                image.resizable().scaledToFill()
-            case .empty:
-                fallback.overlay { ProgressView().controlSize(.small) }
-            case .failure:
-                fallback
-            @unknown default:
-                fallback
-            }
-        }
-        .frame(width: width, height: height)
-        .clipShape(RoundedRectangle(cornerRadius: max(6, width * 0.06), style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: max(6, width * 0.06), style: .continuous)
-                .stroke(Color.asterionBorder, lineWidth: 1)
-        }
-        .shadow(color: Color.black.opacity(0.10), radius: width * 0.08, y: width * 0.035)
-    }
-
-    private var fallback: some View {
-        Color.asterionCard
-            .overlay {
-                Image(systemName: "play.rectangle.fill")
-                    .font(.system(size: width * 0.25, weight: .light))
-                    .foregroundStyle(Color.asterionAccent.opacity(0.7))
-            }
     }
 }

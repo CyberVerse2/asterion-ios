@@ -95,7 +95,7 @@ struct AnimeDetailView: View {
 
     private func hero(_ show: AnimeShow) -> some View {
         HStack(alignment: .top, spacing: 20) {
-            AnimeCoverView(url: show.imageURL, width: 138, height: 198)
+            MediaCoverView(url: show.imageURL, width: 138, height: 198)
 
             VStack(alignment: .leading, spacing: 10) {
                 Text(show.displayTitle)
