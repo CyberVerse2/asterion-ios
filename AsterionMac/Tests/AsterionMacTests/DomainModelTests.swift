@@ -3,6 +3,47 @@ import Testing
 @testable import AsterionMac
 
 struct DomainModelTests {
+    @Test func movieCatalogAndPlaybackDecodeTheLiveServiceShape() throws {
+        let titleData = Data(
+            ##"{"id":"568145","slug":"obsession-soap2day","title":"Obsession","image_url":"https://example.com/poster.jpg","imdb_rating":"8.0","runtime":"1h 48min","year":"2026","type":"movie","quality":null}"##.utf8
+        )
+        let streamData = Data(
+            ##"[{"server_id":1,"label":"TIK 1","quality":"HLS Direct","embed_url":"https://video.example/master.m3u8","is_hls":true,"proxy_url":"/proxy/hls?url=https://video.example/master.m3u8"}]"##.utf8
+        )
+
+        let title = try animeDecoder.decode(MovieTitle.self, from: titleData)
+        let source = try #require(animeDecoder.decode([MovieStreamSource].self, from: streamData).first)
+        let serviceURL = try #require(URL(string: "https://asterion-movies.cyberverse.cloud"))
+        let normalized = MovieStreamSource(
+            serverID: source.serverID,
+            label: source.label,
+            quality: source.quality,
+            embedURL: source.embedURL,
+            isHLS: source.isHLS,
+            proxyURL: source.proxyURL.map { MovieAPI.serviceURL($0, relativeTo: serviceURL) }
+        )
+        let option = try #require(MoviePlaybackOption.options(from: [normalized]).first)
+
+        #expect(title.slug == "obsession-soap2day")
+        #expect(title.displayTitle == "Obsession")
+        #expect(title.imdbRating == "8.0")
+        #expect(!title.isSeries)
+        #expect(option.kind == .direct)
+        #expect(option.url.host == "asterion-movies.cyberverse.cloud")
+    }
+
+    @Test func movieEpisodesKeepSeasonAndEpisodeIdentity() throws {
+        let data = Data(
+            ##"[{"id":"episode/show-season-2-episode-3","season":2,"number":3,"title":"Episode 3","url":"https://ww25.soap2day.day/episode/show-season-2-episode-3/"}]"##.utf8
+        )
+
+        let episode = try #require(animeDecoder.decode([MovieEpisode].self, from: data).first)
+
+        #expect(episode.season == 2)
+        #expect(episode.number == 3)
+        #expect(episode.id == "episode/show-season-2-episode-3")
+    }
+
     @Test func animeTitleDecodesTheLiveServiceShapeAndFindsItsShowSlug() throws {
         let data = Data(
             ##"{"episode_label":"Ep 220","id":"naruto-abc12","image_url":"https://example.com/poster.jpg","japanese_title":"Naruto","slug":"naruto-abc12","title":" Naruto &amp;amp; Friends ","type":"TV","url":"https://animixplay.cz/watch/naruto-abc12"}"##.utf8
