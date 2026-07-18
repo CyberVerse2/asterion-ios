@@ -211,12 +211,20 @@ struct AsterionNavigationCommands: Commands {
 
             if mode == .anime {
                 ForEach(Array(AnimeSection.allCases.enumerated()), id: \.element) { index, item in
-                    Button(item.title) {
-                        animeSection = item
-                        showsAccount = false
+                    if index < 9 {
+                        Button(item.title) {
+                            animeSection = item
+                            showsAccount = false
+                        }
+                            .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: .command)
+                            .disabled(animeSection == nil)
+                    } else {
+                        Button(item.title) {
+                            animeSection = item
+                            showsAccount = false
+                        }
+                            .disabled(animeSection == nil)
                     }
-                        .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: .command)
-                        .disabled(animeSection == nil)
                 }
             } else if mode == .movies {
                 ForEach(Array(MovieSection.allCases.enumerated()), id: \.element) { index, item in

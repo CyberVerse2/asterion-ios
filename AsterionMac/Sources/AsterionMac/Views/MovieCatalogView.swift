@@ -105,105 +105,216 @@ struct MovieCatalogView: View {
             let title = titles[safeIndex]
             let synopsis = featuredSynopsis(for: title)
 
-            ZStack {
-                AsyncImage(url: title.imageURL) { phase in
-                    if case .success(let image) = phase {
-                        image.resizable().scaledToFill().blur(radius: 24).scaleEffect(1.18)
-                    } else {
-                        Color.asterionCard
+            GeometryReader { geometry in
+                ZStack {
+                    AsyncImage(url: title.imageURL) { phase in
+                        if case .success(let image) = phase {
+                            image.resizable().scaledToFill().blur(radius: 24).scaleEffect(1.18)
+                        } else {
+                            Color.asterionCard
+                        }
                     }
+                    .clipped()
+
+                    LinearGradient(
+                        colors: [.black.opacity(0.90), .black.opacity(0.24)],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+
+                    HStack(spacing: 0) {
+                        featuredPoster(title)
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("NOW TRENDING")
+                                .font(.asterionMono(10, weight: .semibold))
+                                .tracking(1.4)
+                                .foregroundStyle(Color.asterionAccent)
+
+                            Text(title.displayTitle)
+                                .font(.asterionDisplay(23, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .lineLimit(2)
+                                .minimumScaleFactor(0.82)
+
+                            featuredMetadataRow(title)
+
+                            Text(synopsis)
+                                .font(.callout)
+                                .foregroundStyle(.white.opacity(0.76))
+                                .lineSpacing(2)
+                                .lineLimit(2)
+                                .padding(.top, 3)
+                                .accessibilityLabel("Synopsis")
+                                .accessibilityValue(synopsis)
+
+                            Spacer(minLength: 6)
+
+                            HStack(spacing: 10) {
+                                Button {
+                                    openPlayer(title)
+                                } label: {
+                                    Label("Watch now", systemImage: "play.fill")
+                                        .font(.headline)
+                                        .frame(width: 132)
+                                }
+                                .buttonStyle(.glassProminent)
+                                .buttonBorderShape(.roundedRectangle(radius: 8))
+                                .controlSize(.large)
+                                .tint(.asterionAccent)
+
+                                featuredBookmarkButton(title)
+
+                                Spacer()
+
+                                featuredNavigationButton(
+                                    systemImage: "chevron.left",
+                                    help: "Previous featured title"
+                                ) {
+                                    moveFeatured(by: -1, titles: titles, selectedIndex: safeIndex)
+                                }
+
+                                featuredNavigationButton(
+                                    systemImage: "chevron.right",
+                                    help: "Next featured title"
+                                ) {
+                                    moveFeatured(by: 1, titles: titles, selectedIndex: safeIndex)
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 14)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                    }
+                    .frame(width: geometry.size.width, height: geometry.size.height, alignment: .leading)
                 }
-                .clipped()
-
-                LinearGradient(
-                    colors: [.black.opacity(0.90), .black.opacity(0.24)],
-                    startPoint: .leading,
-                    endPoint: .trailing
-                )
-
-                MediaCoverView(url: title.imageURL, width: 118, height: 169)
-                    .fixedSize()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
-                    .padding(.trailing, 20)
+                .frame(width: geometry.size.width, height: geometry.size.height)
             }
-            .frame(height: 300)
+            .frame(height: 220)
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(alignment: .leading) {
-                VStack(alignment: .leading, spacing: 13) {
-                    Text("NOW TRENDING")
-                        .font(.asterionMono(10, weight: .semibold))
-                        .tracking(1.4)
-                        .foregroundStyle(Color.asterionAccent)
-
-                    Text(title.displayTitle)
-                        .font(.asterionDisplay(23, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .lineLimit(3)
-
-                    Text(featuredMetadata(title))
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.68))
-                        .lineLimit(1)
-
-                    Spacer(minLength: 10)
-
-                    Text(synopsis)
-                        .font(.callout)
-                        .foregroundStyle(.white.opacity(0.76))
-                        .lineSpacing(2)
-                        .lineLimit(3)
-                        .accessibilityLabel("Synopsis")
-                        .accessibilityValue(synopsis)
-
-                    Spacer(minLength: 10)
-
-                    Button {
-                        openPlayer(title)
-                    } label: {
-                        Label("Watch now", systemImage: "play.fill")
-                            .font(.headline)
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.glassProminent)
-                    .buttonBorderShape(.roundedRectangle(radius: 10))
-                    .controlSize(.large)
-                    .tint(.asterionAccent)
-                }
-                .padding(.leading, 20)
-                .padding(.trailing, 158)
-                .padding(.vertical, 20)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            }
             .overlay {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .stroke(.white.opacity(0.12))
             }
-            .overlay(alignment: .topTrailing) {
-                HStack(spacing: 2) {
-                    ForEach(titles.indices, id: \.self) { index in
-                        Button {
-                            featuredIndex = index
-                            Task { await store.select(titles[index]) }
-                        } label: {
-                            Circle()
-                                .fill(index == safeIndex ? Color.asterionAccent : .white.opacity(0.42))
-                                .frame(
-                                    width: index == safeIndex ? 8 : 6,
-                                    height: index == safeIndex ? 8 : 6
-                                )
-                                .frame(width: 14, height: 14)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Show \(titles[index].displayTitle)")
-                        .accessibilityValue("Feature \(index + 1) of \(titles.count)")
-                        .accessibilityAddTraits(index == safeIndex ? .isSelected : [])
-                        .help(titles[index].displayTitle)
-                    }
-                }
-                .padding(10)
-            }
             .shadow(color: .black.opacity(0.18), radius: 18, y: 9)
+        }
+    }
+
+    private func featuredPoster(_ title: MovieTitle) -> some View {
+        AsyncImage(url: title.imageURL) { phase in
+            if case .success(let image) = phase {
+                image
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                Color.asterionCard
+                    .overlay {
+                        Image(systemName: "play.rectangle.fill")
+                            .font(.system(size: 38, weight: .light))
+                            .foregroundStyle(Color.asterionAccent.opacity(0.72))
+                    }
+            }
+        }
+        .frame(width: 156, height: 220)
+        .clipped()
+        .overlay(alignment: .trailing) {
+            LinearGradient(
+                colors: [.clear, .black.opacity(0.34)],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .frame(width: 30)
+        }
+        .accessibilityHidden(true)
+    }
+
+    @ViewBuilder
+    private func featuredMetadataRow(_ title: MovieTitle) -> some View {
+        HStack(spacing: 14) {
+            if let rating = title.imdbRating, !rating.isEmpty {
+                Label(rating, systemImage: "star.fill")
+            }
+
+            Label(title.isSeries ? "TV Series" : "Movie", systemImage: "play.fill")
+
+            if let year = title.year, !year.isEmpty {
+                Label(year, systemImage: "calendar")
+            }
+
+            if let quality = title.quality, !quality.isEmpty {
+                Text(quality.uppercased())
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.black.opacity(0.82))
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 4)
+                    .background(.white.opacity(0.74), in: RoundedRectangle(cornerRadius: 3))
+            }
+        }
+        .font(.caption.weight(.medium))
+        .foregroundStyle(.white.opacity(0.68))
+        .lineLimit(1)
+    }
+
+    private func featuredBookmarkButton(_ title: MovieTitle) -> some View {
+        let item = MediaItemDescriptor(
+            mediaType: .movie,
+            contentID: title.slug,
+            title: title.displayTitle,
+            subtitle: title.isSeries ? "TV Series" : "Movie",
+            imageURL: title.imageURL
+        )
+        let isSaved = model.isMediaBookmarked(item.key)
+        let isUpdating = model.isUpdatingMediaBookmark(item.key)
+
+        return Button {
+            guard model.isSignedIn else {
+                openWindow(id: "authentication")
+                return
+            }
+            Task { await model.toggleMediaBookmark(item) }
+        } label: {
+            if isUpdating {
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(width: 86)
+            } else {
+                Label(isSaved ? "Saved" : "Save", systemImage: isSaved ? "bookmark.fill" : "bookmark")
+                    .frame(width: 86)
+            }
+        }
+        .buttonStyle(.bordered)
+        .buttonBorderShape(.roundedRectangle(radius: 8))
+        .controlSize(.large)
+        .disabled(isUpdating)
+        .help(isSaved ? "Remove from saved movies" : "Save this title to your account")
+    }
+
+    private func featuredNavigationButton(
+        systemImage: String,
+        help: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.title3.weight(.semibold))
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.white.opacity(0.70))
+        .help(help)
+    }
+
+    private func moveFeatured(
+        by offset: Int,
+        titles: [MovieTitle],
+        selectedIndex: Int
+    ) {
+        guard !titles.isEmpty else { return }
+        let destination = (selectedIndex + offset + titles.count) % titles.count
+        featuredIndex = destination
+        Task {
+            await store.select(titles[destination])
         }
     }
 

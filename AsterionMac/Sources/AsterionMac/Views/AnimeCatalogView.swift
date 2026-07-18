@@ -25,6 +25,8 @@ struct AnimeCatalogView: View {
                     systemImage: "character.cursor.ibeam",
                     description: Text("Enter at least two characters to search anime.")
                 )
+            } else if section == .schedule, normalizedQuery.isEmpty {
+                scheduleContent
             } else if store.isLoadingCatalog, store.titles.isEmpty {
                 ProgressView(normalizedQuery.isEmpty ? "Curating your shelves…" : "Searching anime…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -64,6 +66,10 @@ struct AnimeCatalogView: View {
                         } else {
                             if section == .genres, normalizedQuery.isEmpty, !store.genres.isEmpty {
                                 genreSelection
+                            }
+
+                            if section == .types, normalizedQuery.isEmpty {
+                                typeSelection
                             }
 
                             shelf
@@ -325,6 +331,24 @@ struct AnimeCatalogView: View {
         }
     }
 
+    private var typeSelection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            AnimeShelfHeader(
+                title: "Choose a Type",
+                subtitle: "Narrow the catalog to a release format."
+            )
+
+            Picker("Type", selection: typeBinding) {
+                ForEach(AnimeStore.types, id: \.self) { type in
+                    Text(displayName(for: type)).tag(type)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .frame(maxWidth: 220, alignment: .leading)
+        }
+    }
+
     private var genreBinding: Binding<String> {
         Binding(
             get: { store.selectedGenre ?? store.genres.first ?? "" },
@@ -334,9 +358,19 @@ struct AnimeCatalogView: View {
         )
     }
 
+    private var typeBinding: Binding<String> {
+        Binding(
+            get: { store.selectedType },
+            set: { type in
+                Task { await store.selectType(type, query: normalizedQuery) }
+            }
+        )
+    }
+
     private var shelfTitle: String {
         if !normalizedQuery.isEmpty { return "Search Results" }
         if section == .genres, let genre = store.selectedGenre { return displayName(for: genre) }
+        if section == .types { return displayName(for: store.selectedType) }
         return section.catalogTitle
     }
 
@@ -353,6 +387,121 @@ struct AnimeCatalogView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.background)
+    }
+
+    private var scheduleContent: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                AnimeShelfHeader(
+                    title: "Release Schedule",
+                    subtitle: "Times are shown in \(TimeZone.current.localizedName(for: .standard, locale: .current) ?? TimeZone.current.identifier)."
+                )
+
+                if store.isLoadingSchedule, store.scheduleDays.isEmpty {
+                    ProgressView("Loading this week's schedule…")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 28)
+                } else if let error = store.scheduleError, store.scheduleDays.isEmpty {
+                    ContentUnavailableView {
+                        Label("Schedule unavailable", systemImage: "calendar.badge.exclamationmark")
+                    } description: {
+                        Text(error)
+                    } actions: {
+                        Button("Try Again") {
+                            Task { await store.retrySchedule() }
+                        }
+                    }
+                } else if store.scheduleDays.isEmpty {
+                    ContentUnavailableView(
+                        "No releases scheduled",
+                        systemImage: "calendar",
+                        description: Text("The anime service has no releases listed for this week.")
+                    )
+                } else {
+                    ForEach(store.scheduleDays) { day in
+                        scheduleDay(day)
+                    }
+                }
+            }
+            .frame(maxWidth: 920, alignment: .leading)
+            .padding(.horizontal, 28)
+            .padding(.top, 24)
+            .padding(.bottom, 48)
+            .frame(maxWidth: .infinity, alignment: .top)
+        }
+        .hidingScrollIndicators()
+    }
+
+    private func scheduleDay(_ day: AnimeScheduleDay) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(day.label)
+                .font(.asterionDisplay(18, weight: .semibold))
+                .foregroundStyle(Color.asterionText)
+
+            LazyVStack(spacing: 8) {
+                ForEach(day.entries) { entry in
+                    Button {
+                        Task { await store.select(entry) }
+                    } label: {
+                        HStack(spacing: 16) {
+                            Text(entry.time)
+                                .font(.callout.monospacedDigit().weight(.semibold))
+                                .foregroundStyle(entry.passed ? Color.asterionMuted : Color.asterionAccent)
+                                .frame(width: 58, alignment: .leading)
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(entry.displayTitle)
+                                    .font(.body.weight(.medium))
+                                    .foregroundStyle(Color.asterionText)
+                                    .lineLimit(1)
+                                if let japaneseTitle = entry.japaneseTitle, !japaneseTitle.isEmpty {
+                                    Text(japaneseTitle)
+                                        .font(.caption)
+                                        .foregroundStyle(Color.asterionMuted)
+                                        .lineLimit(1)
+                                }
+                            }
+
+                            Spacer(minLength: 12)
+
+                            if let episode = entry.episodeNumber {
+                                Text("Episode \(episode)")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(Color.asterionMuted)
+                                    .padding(.horizontal, 9)
+                                    .padding(.vertical, 5)
+                                    .background(Color.asterionCard, in: Capsule())
+                            }
+
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(Color.asterionMuted)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 11)
+                        .background(Color.asterionSurface.opacity(0.68), in: RoundedRectangle(cornerRadius: 10))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(
+                                    store.selectedTitleID == entry.slug
+                                        ? Color.asterionAccent
+                                        : Color.white.opacity(0.06),
+                                    lineWidth: 1
+                                )
+                        }
+                        .opacity(entry.passed ? 0.72 : 1)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(entry.displayTitle)
+                    .accessibilityValue(
+                        [entry.time, entry.episodeNumber.map { "Episode \($0)" }]
+                            .compactMap { $0 }
+                            .joined(separator: ", ")
+                    )
+                }
+            }
+        }
     }
 
     private func displayName(for genre: String) -> String {
@@ -395,12 +544,12 @@ private struct AnimeFeaturedBanner: View {
                     endPoint: .trailing
                 )
 
-                featureContent(posterWidth: 118)
+                featureContent(posterWidth: 104)
                     .frame(width: geometry.size.width, height: geometry.size.height)
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
         }
-        .frame(height: 300)
+        .frame(height: 252)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -418,7 +567,7 @@ private struct AnimeFeaturedBanner: View {
             )
             .padding(.trailing, 20)
 
-            VStack(alignment: .leading, spacing: 13) {
+            VStack(alignment: .leading, spacing: 9) {
                 HStack(spacing: 10) {
                     Text("FEATURED")
                         .font(.asterionMono(10, weight: .semibold))
@@ -433,7 +582,7 @@ private struct AnimeFeaturedBanner: View {
                 Text(title.displayTitle)
                     .font(.asterionDisplay(23, weight: .semibold))
                     .foregroundStyle(.white)
-                    .lineLimit(3)
+                    .lineLimit(2)
                     .minimumScaleFactor(0.82)
 
                 HStack(spacing: 7) {
@@ -448,7 +597,7 @@ private struct AnimeFeaturedBanner: View {
                 Text(synopsis)
                     .font(.callout)
                     .foregroundStyle(.white.opacity(0.76))
-                    .lineLimit(3)
+                    .lineLimit(2)
                     .lineSpacing(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityLabel("Synopsis")
@@ -469,7 +618,7 @@ private struct AnimeFeaturedBanner: View {
             }
             .padding(.leading, 20)
             .padding(.trailing, posterWidth + 38)
-            .padding(.vertical, 20)
+            .padding(.vertical, 16)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
     }
