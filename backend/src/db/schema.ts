@@ -87,3 +87,70 @@ export const userLibraryNovels = pgTable("user_library_novels", {
   uniqueIndex("user_library_novel_unique").on(table.userId, table.novelId),
   index("user_library_user_created_idx").on(table.userId, table.createdAt),
 ]);
+
+export const mediaBookmarks = pgTable("media_bookmarks", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  mediaType: text("media_type").notNull(),
+  contentId: text("content_id").notNull(),
+  title: text("title").notNull(),
+  subtitle: text("subtitle"),
+  imageUrl: text("image_url"),
+  createdAt: timestamp("created_at", { withTimezone: false, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: false, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("media_bookmark_user_content_unique").on(table.userId, table.mediaType, table.contentId),
+  index("media_bookmark_user_updated_idx").on(table.userId, table.updatedAt),
+]);
+
+export const mediaPlaybackProgress = pgTable("media_playback_progress", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  mediaType: text("media_type").notNull(),
+  contentId: text("content_id").notNull(),
+  title: text("title").notNull(),
+  imageUrl: text("image_url"),
+  unitId: text("unit_id"),
+  unitTitle: text("unit_title"),
+  seasonNumber: integer("season_number"),
+  episodeNumber: integer("episode_number"),
+  positionSeconds: doublePrecision("position_seconds").notNull().default(0),
+  durationSeconds: doublePrecision("duration_seconds").notNull().default(0),
+  percentage: doublePrecision("percentage").notNull().default(0),
+  completed: boolean("completed").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: false, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: false, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("media_progress_user_content_unique").on(table.userId, table.mediaType, table.contentId),
+  index("media_progress_user_updated_idx").on(table.userId, table.updatedAt),
+]);
+
+export const mediaViewingHistory = pgTable("media_viewing_history", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  mediaType: text("media_type").notNull(),
+  contentId: text("content_id").notNull(),
+  title: text("title").notNull(),
+  imageUrl: text("image_url"),
+  unitId: text("unit_id").notNull(),
+  unitTitle: text("unit_title"),
+  seasonNumber: integer("season_number"),
+  episodeNumber: integer("episode_number"),
+  positionSeconds: doublePrecision("position_seconds").notNull().default(0),
+  durationSeconds: doublePrecision("duration_seconds").notNull().default(0),
+  percentage: doublePrecision("percentage").notNull().default(0),
+  completed: boolean("completed").notNull().default(false),
+  visitCount: integer("visit_count").notNull().default(1),
+  firstViewedAt: timestamp("first_viewed_at", { withTimezone: false, mode: "date" }).notNull().defaultNow(),
+  lastViewedAt: timestamp("last_viewed_at", { withTimezone: false, mode: "date" }).notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: false, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: false, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("media_history_user_unit_unique").on(
+    table.userId,
+    table.mediaType,
+    table.contentId,
+    table.unitId
+  ),
+  index("media_history_user_viewed_idx").on(table.userId, table.lastViewedAt),
+]);

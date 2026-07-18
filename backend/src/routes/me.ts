@@ -12,6 +12,7 @@ import {
 } from "../db/schema";
 import { db } from "../lib/db";
 import { ensureUser, ensureUserPreferences } from "../lib/users";
+import { registerMediaAccountRoutes } from "./media-account";
 
 const profilePatchSchema = z.object({
   email: z.string().email().optional(),
@@ -451,4 +452,6 @@ export const meRoutes: FastifyPluginAsync = async (app) => {
     );
     return { data: { deleted: deleted.length > 0 } };
   });
+
+  registerMediaAccountRoutes(app);
 };
