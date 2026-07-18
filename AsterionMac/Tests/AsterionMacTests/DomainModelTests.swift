@@ -146,7 +146,7 @@ struct DomainModelTests {
 
     @Test func animePlaybackResolvesServiceRelativeVideoURLs() throws {
         let data = Data(
-            ##"[{"quality":"HD","server":"MegaPlay","source":"/proxy/m3u8?url=https%3A%2F%2Fexample.com%2Fmaster.m3u8","url":"https://player.example.com/embed/1716"}]"##.utf8
+            ##"[{"quality":"HD","server":"MegaPlay","source":"/proxy/m3u8?url=https%3A%2F%2Fexample.com%2Fmaster.m3u8","tracks":[{"default":true,"file":"/proxy/subtitle?url=https%3A%2F%2Fexample.com%2FEnglish.vtt","kind":"captions","label":"English"}],"url":"https://player.example.com/embed/1716"}]"##.utf8
         )
         let source = try #require(animeDecoder.decode([AnimeStreamSource].self, from: data).first)
         let serviceURL = try #require(URL(string: "https://asterion-scraper.cyberverse.cloud"))
@@ -156,7 +156,16 @@ struct DomainModelTests {
             server: source.server,
             embedURL: AnimeAPI.serviceURL(source.embedURL, relativeTo: serviceURL),
             quality: source.quality,
-            directURL: directURL
+            directURL: directURL,
+            tracks: source.tracks.map { track in
+                AnimeSubtitleTrack(
+                    fileURL: AnimeAPI.serviceURL(track.fileURL, relativeTo: serviceURL),
+                    label: track.label,
+                    kind: track.kind,
+                    languageCode: track.languageCode,
+                    isDefault: track.isDefault
+                )
+            }
         )
         let options = AnimePlaybackOption.options(from: [normalized])
 
@@ -164,6 +173,193 @@ struct DomainModelTests {
         #expect(directURL.path == "/proxy/m3u8")
         #expect(options.map(\.kind) == [.direct, .embed])
         #expect(options.first?.title == "MegaPlay · Direct · HD")
+        #expect(options.first?.subtitleTracks.first?.label == "English")
+        #expect(options.first?.subtitleTracks.first?.fileURL.host == "asterion-scraper.cyberverse.cloud")
+        #expect(options.first?.subtitleTracks.first?.isDefault == true)
+
+        let thirdPartyDirectURL = try #require(
+            URL(string: "https://mt.nekostream.site/video/master.m3u8")
+        )
+        let proxiedURL = AnimeAPI.playableDirectURL(thirdPartyDirectURL, relativeTo: serviceURL)
+        #expect(proxiedURL.host == "asterion-scraper.cyberverse.cloud")
+        #expect(proxiedURL.path == "/proxy/m3u8")
+        #expect(proxiedURL.query?.contains("mt.nekostream.site") == true)
+
+        let dubbedSource = AnimeStreamSource(
+            server: "VidPlay-1",
+            embedURL: try #require(URL(string: "https://vidtube.site/stream/episode/dub")),
+            quality: "HD",
+            directURL: thirdPartyDirectURL,
+            tracks: []
+        )
+        let dubbedOptions = AnimePlaybackOption.options(from: [dubbedSource])
+        #expect(dubbedOptions.first?.variant == .dubbed)
+        #expect(dubbedOptions.first?.title == "VidPlay-1 · Dub · Direct · HD")
+    }
+
+    @Test func captionedAnimePlaybackBuildsARestrictedVideoDocument() throws {
+        let videoURL = try #require(URL(string: "https://media.example/master.m3u8"))
+        let subtitleURL = try AnimeSubtitleLoader.dataURL(
+            for: Data("WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nHello".utf8),
+            label: "English"
+        )
+        let track = AnimeSubtitleTrack(
+            fileURL: subtitleURL,
+            label: "English \"CC\"",
+            kind: "captions",
+            languageCode: "en",
+            isDefault: true
+        )
+
+        let html = CaptionedMediaDocument.html(url: videoURL, tracks: [track])
+
+        #expect(html.contains("src=\"https://media.example/master.m3u8\""))
+        #expect(html.contains("src=\"data:text/vtt;base64,"))
+        #expect(html.contains("label=\"English &quot;CC&quot;\""))
+        #expect(html.contains("kind=\"captions\""))
+        #expect(html.contains("srclang=\"en\""))
+        #expect(html.contains(" default>"))
+        #expect(html.contains("default-src 'none'"))
+    }
+
+    @Test func animeSubtitleLoaderSendsProviderHeadersAndSurfacesHTTPFailures() async throws {
+        let trackURL = try #require(URL(string: "https://media.example/English.vtt"))
+        let track = AnimeSubtitleTrack(
+            fileURL: trackURL,
+            label: "English",
+            kind: "captions",
+            languageCode: "en",
+            isDefault: true
+        )
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [SubtitleURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer {
+            SubtitleURLProtocol.reset()
+            session.invalidateAndCancel()
+        }
+
+        SubtitleURLProtocol.install { request in
+            let response = try #require(
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 403,
+                    httpVersion: "HTTP/1.1",
+                    headerFields: nil
+                )
+            )
+            return (response, Data())
+        }
+
+        do {
+            _ = try await AnimeSubtitleLoader.load([track], session: session)
+            Issue.record("Expected HTTP 403 to be surfaced by the subtitle loader.")
+        } catch let error as AnimeSubtitleLoadError {
+            #expect(error == .http(label: "English", statusCode: 403))
+        }
+
+        SubtitleURLProtocol.install { request in
+            guard request.value(forHTTPHeaderField: "Origin") == "https://vidtube.site" else {
+                throw SubtitleProtocolError.invalidHeader("Origin")
+            }
+            guard request.value(forHTTPHeaderField: "Referer") == "https://vidtube.site/" else {
+                throw SubtitleProtocolError.invalidHeader("Referer")
+            }
+            guard request.value(forHTTPHeaderField: "Accept")
+                == "text/vtt,text/plain;q=0.9,*/*;q=0.1" else {
+                throw SubtitleProtocolError.invalidHeader("Accept")
+            }
+            guard request.value(forHTTPHeaderField: "User-Agent") == "Mozilla/5.0" else {
+                throw SubtitleProtocolError.invalidHeader("User-Agent")
+            }
+            let response = try #require(
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: "HTTP/1.1",
+                    headerFields: ["Content-Type": "text/vtt"]
+                )
+            )
+            return (response, Data("WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nHello".utf8))
+        }
+
+        let loadedTracks = try await AnimeSubtitleLoader.load([track], session: session)
+        #expect(loadedTracks.first?.fileURL.scheme == "data")
+
+        let insecureTrack = AnimeSubtitleTrack(
+            fileURL: try #require(URL(string: "http://media.example/English.vtt")),
+            label: "English",
+            kind: "captions",
+            languageCode: "en",
+            isDefault: true
+        )
+        do {
+            _ = try await AnimeSubtitleLoader.load([insecureTrack], session: session)
+            Issue.record("Expected an insecure subtitle URL to be rejected.")
+        } catch let error as AnimeSubtitleLoadError {
+            #expect(error == .invalidSource(label: "English"))
+        }
+    }
+
+    @Test func embeddedMediaNavigationAllowsOnlySecureRemotePages() throws {
+        let secureURL = try #require(URL(string: "https://player.example/embed/42"))
+        let insecureURL = try #require(URL(string: "http://player.example/embed/42"))
+        let credentialURL = try #require(URL(string: "https://name:secret@player.example/embed/42"))
+        let blankURL = try #require(URL(string: "about:blank"))
+
+        #expect(MediaNavigationPolicy.isSecureRemoteURL(secureURL))
+        #expect(!MediaNavigationPolicy.isSecureRemoteURL(insecureURL))
+        #expect(!MediaNavigationPolicy.isSecureRemoteURL(credentialURL))
+        #expect(!MediaNavigationPolicy.isSecureRemoteURL(blankURL))
+        #expect(MediaNavigationPolicy.isSafeSubframeURL(blankURL))
+
+        var navigation = MediaNavigationState(initialURL: secureURL)
+        let redirectURL = try #require(URL(string: "https://redirect.example/player/42"))
+        let advertisingURL = try #require(URL(string: "https://ads.example/landing"))
+
+        let allowsNewWindow = navigation.allows(advertisingURL, target: .newWindow)
+        let allowsBlankSubframe = navigation.allows(blankURL, target: .subframe)
+        let allowsInitialRedirect = navigation.allows(
+            redirectURL,
+            target: .topLevel(isUserLink: false)
+        )
+        navigation.markInitialNavigationFinished()
+        let allowsKnownRedirect = navigation.allows(
+            redirectURL,
+            target: .topLevel(isUserLink: false)
+        )
+        let allowsAdvertisingNavigation = navigation.allows(
+            advertisingURL,
+            target: .topLevel(isUserLink: false)
+        )
+        let allowsInsecureNavigation = navigation.allows(
+            insecureURL,
+            target: .topLevel(isUserLink: false)
+        )
+
+        #expect(!allowsNewWindow)
+        #expect(allowsBlankSubframe)
+        #expect(allowsInitialRedirect)
+        #expect(allowsKnownRedirect)
+        #expect(!allowsAdvertisingNavigation)
+        #expect(!allowsInsecureNavigation)
+        #expect(MediaNavigationPolicy.allowsHTTPStatus(200))
+        #expect(MediaNavigationPolicy.allowsHTTPStatus(399))
+        #expect(!MediaNavigationPolicy.allowsHTTPStatus(400))
+    }
+
+    @Test func animeSubtitleMetadataDefaultsWithoutLosingTheStream() throws {
+        let data = Data(
+            ##"[{"quality":"HD","server":"VidPlay","source":"https://media.example/master.m3u8","tracks":[{"file":"https://media.example/English.vtt"}],"url":"https://vidtube.site/stream/episode/sub"}]"##.utf8
+        )
+
+        let source = try #require(animeDecoder.decode([AnimeStreamSource].self, from: data).first)
+        let track = try #require(source.tracks.first)
+
+        #expect(track.label == "Subtitles")
+        #expect(track.kind == "subtitles")
+        #expect(track.languageCode == nil)
+        #expect(!track.isDefault)
     }
 
     @Test func animePlayerRouteRoundTripsThroughWindowState() throws {
@@ -408,4 +604,53 @@ struct DomainModelTests {
     private var animeDecoder: JSONDecoder {
         JSONDecoder()
     }
+}
+
+private enum SubtitleProtocolError: Error {
+    case invalidHeader(String)
+}
+
+private final class SubtitleURLProtocol: URLProtocol, @unchecked Sendable {
+    typealias Handler = @Sendable (URLRequest) throws -> (HTTPURLResponse, Data)
+
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var handler: Handler?
+
+    static func install(_ handler: @escaping Handler) {
+        lock.lock()
+        self.handler = handler
+        lock.unlock()
+    }
+
+    static func reset() {
+        lock.lock()
+        handler = nil
+        lock.unlock()
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        Self.lock.lock()
+        let handler = Self.handler
+        Self.lock.unlock()
+
+        guard let handler else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+
+        do {
+            let (response, data) = try handler(request)
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+
+    override func stopLoading() {}
 }

@@ -94,12 +94,22 @@ actor AnimeAPI {
             path: "/api/amp/stream/\(animeID)/\(episodeNumber)"
         )
         return sources.map { source in
-            AnimeStreamSource(
+            let hasDefaultTrack = source.tracks.contains(where: \.isDefault)
+            return AnimeStreamSource(
                 server: source.server,
                 embedURL: Self.serviceURL(source.embedURL, relativeTo: baseURL),
                 quality: source.quality,
                 directURL: source.directURL.map {
-                    Self.serviceURL($0, relativeTo: baseURL)
+                    Self.playableDirectURL($0, relativeTo: baseURL)
+                },
+                tracks: source.tracks.enumerated().map { index, track in
+                    AnimeSubtitleTrack(
+                        fileURL: Self.serviceURL(track.fileURL, relativeTo: baseURL),
+                        label: track.label,
+                        kind: track.kind,
+                        languageCode: track.languageCode,
+                        isDefault: track.isDefault || (!hasDefaultTrack && index == 0)
+                    )
                 }
             )
         }
@@ -109,6 +119,23 @@ actor AnimeAPI {
         guard !url.relativeString.isEmpty else { return url }
         guard url.scheme == nil else { return url }
         return URL(string: url.relativeString, relativeTo: baseURL)?.absoluteURL ?? url
+    }
+
+    static func playableDirectURL(_ url: URL, relativeTo baseURL: URL) -> URL {
+        let resolvedURL = serviceURL(url, relativeTo: baseURL)
+        guard resolvedURL.host?.lowercased() != baseURL.host?.lowercased()
+                || resolvedURL.path != "/proxy/m3u8" else {
+            return resolvedURL
+        }
+
+        var components = URLComponents(
+            url: baseURL.appending(path: "/proxy/m3u8"),
+            resolvingAgainstBaseURL: false
+        )
+        components?.queryItems = [
+            URLQueryItem(name: "url", value: resolvedURL.absoluteString),
+        ]
+        return components?.url ?? resolvedURL
     }
 
     private func request<Response: Decodable & Sendable>(

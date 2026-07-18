@@ -178,11 +178,63 @@ struct AnimeStreamSource: Codable, Hashable, Sendable {
     let embedURL: URL
     let quality: String?
     let directURL: URL?
+    let tracks: [AnimeSubtitleTrack]
 
     private enum CodingKeys: String, CodingKey {
-        case server, quality
+        case server, quality, tracks
         case embedURL = "url"
         case directURL = "source"
+    }
+}
+
+struct AnimeSubtitleTrack: Codable, Hashable, Sendable {
+    let fileURL: URL
+    let label: String
+    let kind: String
+    let languageCode: String?
+    let isDefault: Bool
+
+    init(
+        fileURL: URL,
+        label: String,
+        kind: String,
+        languageCode: String?,
+        isDefault: Bool
+    ) {
+        self.fileURL = fileURL
+        self.label = label
+        self.kind = kind
+        self.languageCode = languageCode
+        self.isDefault = isDefault
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        fileURL = try container.decode(URL.self, forKey: .fileURL)
+        let decodedLabel = try container.decodeIfPresent(String.self, forKey: .label)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        label = decodedLabel.flatMap { $0.isEmpty ? nil : $0 } ?? "Subtitles"
+        let decodedKind = try container.decodeIfPresent(String.self, forKey: .kind)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        kind = decodedKind.flatMap { $0.isEmpty ? nil : $0 } ?? "subtitles"
+        languageCode = try container.decodeIfPresent(String.self, forKey: .languageCode)
+        isDefault = try container.decodeIfPresent(Bool.self, forKey: .isDefault) ?? false
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(fileURL, forKey: .fileURL)
+        try container.encode(label, forKey: .label)
+        try container.encode(kind, forKey: .kind)
+        try container.encodeIfPresent(languageCode, forKey: .languageCode)
+        try container.encode(isDefault, forKey: .isDefault)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case label, kind
+        case fileURL = "file"
+        case languageCode = "srclang"
+        case isDefault = "default"
     }
 }
 
@@ -197,11 +249,15 @@ struct AnimePlaybackOption: Identifiable, Hashable, Sendable {
     let url: URL
     let quality: String?
     let server: String
+    let variant: AnimePlaybackVariant?
+    let subtitleTracks: [AnimeSubtitleTrack]
 
     var title: String {
         let format = kind == .direct ? "Direct" : "Web"
-        let qualityLabel = quality.map { " · \($0)" } ?? ""
-        return "\(server) · \(format)\(qualityLabel)"
+        return ([server, variant?.title, format, quality]
+            .compactMap { $0 }
+            .filter { !$0.isEmpty })
+            .joined(separator: " · ")
     }
 
     static func options(from sources: [AnimeStreamSource]) -> [AnimePlaybackOption] {
@@ -216,7 +272,9 @@ struct AnimePlaybackOption: Identifiable, Hashable, Sendable {
                         kind: .direct,
                         url: url,
                         quality: source.quality,
-                        server: source.server
+                        server: source.server,
+                        variant: AnimePlaybackVariant(streamURL: source.embedURL),
+                        subtitleTracks: source.tracks
                     )
                 )
             }
@@ -226,10 +284,30 @@ struct AnimePlaybackOption: Identifiable, Hashable, Sendable {
                     kind: .embed,
                     url: source.embedURL,
                     quality: source.quality,
-                    server: source.server
+                    server: source.server,
+                    variant: AnimePlaybackVariant(streamURL: source.embedURL),
+                    subtitleTracks: []
                 )
             )
             return options
+        }
+    }
+}
+
+enum AnimePlaybackVariant: String, Hashable, Sendable {
+    case subtitled = "sub"
+    case hardSubtitled = "hsub"
+    case dubbed = "dub"
+
+    init?(streamURL: URL) {
+        self.init(rawValue: streamURL.lastPathComponent.lowercased())
+    }
+
+    var title: String {
+        switch self {
+        case .subtitled: "Sub"
+        case .hardSubtitled: "Hard Sub"
+        case .dubbed: "Dub"
         }
     }
 }
