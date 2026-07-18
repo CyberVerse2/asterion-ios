@@ -8,7 +8,7 @@ import json
 import base64
 from html.parser import HTMLParser
 from urllib.request import Request, urlopen
-from urllib.parse import quote_plus, quote, urlencode
+from urllib.parse import quote_plus, quote, urlencode, urlparse
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -525,9 +525,6 @@ def resolve_source(stream_url: str) -> Optional[str]:
 def resolve_source_full(stream_url: str) -> Optional[dict]:
     """Resolve full source info: M3U8 + subtitle tracks."""
     try:
-        from urllib.request import Request, urlopen
-        import re, json
-
         html = _get(stream_url)
         player_id = _re_first(r'data-id="(\d+)"', html)
         ep_type = stream_url.rstrip("/").rsplit("/", 1)[-1] or "sub"
@@ -535,7 +532,11 @@ def resolve_source_full(stream_url: str) -> Optional[dict]:
         if not player_id:
             return None
 
-        api_url = f"{stream_url.split('/stream/')[0]}/stream/getSourcesNew?id={player_id}&type={ep_type}"
+        origin = stream_url.split('/stream/')[0]
+        if urlparse(stream_url).hostname == "vidwish.live":
+            api_url = f"{origin}/stream/getSources?id={player_id}"
+        else:
+            api_url = f"{origin}/stream/getSourcesNew?id={player_id}&type={ep_type}"
         data = _get_json(api_url, {"Referer": stream_url})
 
         source = data.get("sources", {}).get("file")

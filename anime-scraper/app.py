@@ -27,6 +27,10 @@ ALLOWED_VIDEO_HOSTS = frozenset({
     "mt.nekostream.site",
     "p1.ipstatp.com",
 })
+ALLOWED_VIDEO_HOST_SUFFIXES = (
+    ".watching.onl",
+    ".cloudbuzz.lol",
+)
 
 
 def _is_allowed_video_url(value):
@@ -34,9 +38,14 @@ def _is_allowed_video_url(value):
         parsed = urlparse(value)
     except ValueError:
         return False
+    hostname = parsed.hostname
     return (
         parsed.scheme == "https"
-        and parsed.hostname in ALLOWED_VIDEO_HOSTS
+        and hostname is not None
+        and (
+            hostname in ALLOWED_VIDEO_HOSTS
+            or any(hostname.endswith(suffix) for suffix in ALLOWED_VIDEO_HOST_SUFFIXES)
+        )
         and parsed.username is None
         and parsed.password is None
     )
