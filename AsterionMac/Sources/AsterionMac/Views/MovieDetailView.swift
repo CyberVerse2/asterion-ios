@@ -105,9 +105,7 @@ struct MovieDetailView: View {
 
             VStack(alignment: .leading, spacing: 10) {
                 Text(show.displayTitle)
-                    .font(.asterionDisplay(22, weight: .semibold))
-                    .fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
+                    .asterionDetailTitleStyle()
 
                 if !show.genres.isEmpty {
                     Text(show.genres.prefix(3).joined(separator: " · "))

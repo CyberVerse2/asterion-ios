@@ -36,6 +36,26 @@ extension Font {
     }
 }
 
+private struct AsterionDetailTitleStyle: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .font(.asterionDisplay(22, weight: .semibold))
+            .foregroundStyle(Color.asterionText)
+            .lineLimit(3)
+            .minimumScaleFactor(0.78)
+            .allowsTightening(true)
+            .multilineTextAlignment(.leading)
+            .textSelection(.enabled)
+            .layoutPriority(1)
+    }
+}
+
+extension View {
+    func asterionDetailTitleStyle() -> some View {
+        modifier(AsterionDetailTitleStyle())
+    }
+}
+
 enum AsterionFontRegistry {
     private static let fontResources = [
         "Literata-Variable",

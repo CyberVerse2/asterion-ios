@@ -100,11 +100,7 @@ struct AnimeDetailView: View {
 
             VStack(alignment: .leading, spacing: 10) {
                 Text(show.displayTitle)
-                    .font(.asterionDisplay(22, weight: .semibold))
-                    .foregroundStyle(Color.asterionText)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
-                    .layoutPriority(1)
+                    .asterionDetailTitleStyle()
 
                 if let byline = byline(for: show) {
                     Text(byline)
