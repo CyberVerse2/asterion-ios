@@ -44,6 +44,25 @@ struct DomainModelTests {
         #expect(episode.id == "episode/show-season-2-episode-3")
     }
 
+    @Test func moviePlaybackPrefersTheSubtitleCapableWebPlayer() throws {
+        let options = [
+            MoviePlaybackOption(
+                id: "direct-1",
+                kind: .direct,
+                url: try #require(URL(string: "https://video.example/master.m3u8")),
+                title: "HLS Direct"
+            ),
+            MoviePlaybackOption(
+                id: "web-2",
+                kind: .web,
+                url: try #require(URL(string: "https://vidnest.fun/movie/1")),
+                title: "VidNest (Ad-Free) · Direct Player"
+            ),
+        ]
+
+        #expect(MoviePlaybackOption.preferred(from: options)?.id == "web-2")
+    }
+
     @Test func animeTitleDecodesTheLiveServiceShapeAndFindsItsShowSlug() throws {
         let data = Data(
             ##"{"episode_label":"Ep 220","id":"naruto-abc12","image_url":"https://example.com/poster.jpg","japanese_title":"Naruto","slug":"naruto-abc12","title":" Naruto &amp;amp; Friends ","type":"TV","url":"https://animixplay.cz/watch/naruto-abc12"}"##.utf8

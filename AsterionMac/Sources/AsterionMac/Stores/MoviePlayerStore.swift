@@ -131,7 +131,7 @@ final class MoviePlayerStore: ObservableObject {
         let options = MoviePlaybackOption.options(from: sources)
         guard !options.isEmpty else { throw MovieAPIError.noPlaybackSource }
         playbackOptions = options
-        selectedPlaybackOption = options.first { $0.kind == .direct } ?? options[0]
+        selectedPlaybackOption = MoviePlaybackOption.preferred(from: options)
         streamError = nil
     }
 
