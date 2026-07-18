@@ -6,6 +6,7 @@ struct SidebarView: View {
     @Binding var novelSelection: AppSection
     @Binding var animeSelection: AnimeSection
     @Binding var movieSelection: MovieSection
+    @Binding var footballSelection: FootballSection
 
     private var novelListSelection: Binding<AppSection?> {
         Binding(
@@ -34,6 +35,15 @@ struct SidebarView: View {
             get: { movieSelection },
             set: { newValue in
                 if let newValue { movieSelection = newValue }
+            }
+        )
+    }
+
+    private var footballListSelection: Binding<FootballSection?> {
+        Binding(
+            get: { footballSelection },
+            set: { newValue in
+                if let newValue { footballSelection = newValue }
             }
         )
     }
@@ -69,10 +79,22 @@ struct SidebarView: View {
                 }
                 .listStyle(.sidebar)
                 .scrollContentBackground(.hidden)
-            } else {
+            } else if mode == .movies {
                 List(selection: movieListSelection) {
                     Section("Movies") {
                         ForEach(MovieSection.allCases, id: \.self) { section in
+                            Label(section.title, systemImage: section.systemImage)
+                                .tag(section)
+                                .help(section.title)
+                        }
+                    }
+                }
+                .listStyle(.sidebar)
+                .scrollContentBackground(.hidden)
+            } else {
+                List(selection: footballListSelection) {
+                    Section("Football") {
+                        ForEach(FootballSection.allCases, id: \.self) { section in
                             Label(section.title, systemImage: section.systemImage)
                                 .tag(section)
                                 .help(section.title)

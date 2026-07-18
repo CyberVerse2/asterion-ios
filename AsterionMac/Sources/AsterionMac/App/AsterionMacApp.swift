@@ -70,6 +70,15 @@ struct AsterionApp: App {
         .windowResizability(.contentMinSize)
         .restorationBehavior(.disabled)
 
+        WindowGroup("Asterion Live", for: FootballPlayerRoute.self) { $route in
+            if let route {
+                FootballPlayerView(route: route)
+            }
+        }
+        .defaultSize(width: 1_080, height: 700)
+        .windowResizability(.contentMinSize)
+        .restorationBehavior(.disabled)
+
         WindowGroup("Sign In to Asterion", id: "authentication") {
             AsterionAuthenticationView()
                 .environment(Clerk.shared)
@@ -88,6 +97,7 @@ struct AsterionNavigationCommands: Commands {
     @FocusedBinding(\.asterionSection) private var section
     @FocusedBinding(\.asterionAnimeSection) private var animeSection
     @FocusedBinding(\.asterionMovieSection) private var movieSection
+    @FocusedBinding(\.asterionFootballSection) private var footballSection
 
     var body: some Commands {
         CommandMenu("Navigate") {
@@ -99,6 +109,9 @@ struct AsterionNavigationCommands: Commands {
                 .disabled(mode == nil)
             Button("Movies") { mode = .movies }
                 .keyboardShortcut("3", modifiers: [.command, .shift])
+                .disabled(mode == nil)
+            Button("Football") { mode = .football }
+                .keyboardShortcut("4", modifiers: [.command, .shift])
                 .disabled(mode == nil)
 
             Divider()
@@ -114,6 +127,12 @@ struct AsterionNavigationCommands: Commands {
                     Button(item.title) { movieSection = item }
                         .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: .command)
                         .disabled(movieSection == nil)
+                }
+            } else if mode == .football {
+                ForEach(Array(FootballSection.allCases.enumerated()), id: \.element) { index, item in
+                    Button(item.title) { footballSection = item }
+                        .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: .command)
+                        .disabled(footballSection == nil)
                 }
             } else {
                 ForEach(Array(AppSection.allCases.enumerated()), id: \.element) { index, item in
@@ -131,4 +150,5 @@ extension FocusedValues {
     @Entry var asterionSection: Binding<AppSection>?
     @Entry var asterionAnimeSection: Binding<AnimeSection>?
     @Entry var asterionMovieSection: Binding<MovieSection>?
+    @Entry var asterionFootballSection: Binding<FootballSection>?
 }

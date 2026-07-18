@@ -6,9 +6,11 @@ struct ContentView: View {
     @SceneStorage("selectedSection") private var selectedSectionRaw = AppSection.discover.rawValue
     @SceneStorage("selectedAnimeSection") private var selectedAnimeSectionRaw = AnimeSection.discover.rawValue
     @SceneStorage("selectedMovieSection") private var selectedMovieSectionRaw = MovieSection.discover.rawValue
+    @SceneStorage("selectedFootballSection") private var selectedFootballSectionRaw = FootballSection.live.rawValue
     @SceneStorage("selectedNovelID") private var selectedNovelID = ""
     @StateObject private var animeStore = AnimeStore()
     @StateObject private var movieStore = MovieStore()
+    @StateObject private var footballStore = FootballStore()
     @State private var columnVisibility = NavigationSplitViewVisibility.all
     @State private var searchText = ""
     @State private var showsDownloads = false
@@ -59,6 +61,16 @@ struct ContentView: View {
         )
     }
 
+    private var footballSection: Binding<FootballSection> {
+        Binding(
+            get: { FootballSection(rawValue: selectedFootballSectionRaw) ?? .live },
+            set: { newValue in
+                selectedFootballSectionRaw = newValue.rawValue
+                searchText = ""
+            }
+        )
+    }
+
     private var selectedNovel: Novel? {
         model.novel(id: selectedNovelID)
     }
@@ -68,92 +80,7 @@ struct ContentView: View {
     }
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            SidebarView(
-                mode: mode.wrappedValue,
-                novelSelection: section,
-                animeSelection: animeSection,
-                movieSelection: movieSection
-            )
-                .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 260)
-        } content: {
-            catalogColumn
-                .navigationSplitViewColumnWidth(min: 480, ideal: 620, max: 900)
-        } detail: {
-            detailColumn
-                .navigationSplitViewColumnWidth(min: 520, ideal: 660, max: 900)
-        }
-        .navigationSplitViewStyle(.balanced)
-        .catalogSearch(
-            text: $searchText,
-            prompt: searchPrompt,
-            isEnabled: mode.wrappedValue != .novels || section.wrappedValue != .account
-        )
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                Picker("Content", selection: mode) {
-                    ForEach(AppMode.allCases, id: \.self) { item in
-                        Text(item.title).tag(item)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .frame(width: 280)
-                .help("Switch between novels, anime, and movies")
-            }
-
-            if mode.wrappedValue == .anime || section.wrappedValue != .account {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        Task {
-                            if mode.wrappedValue == .anime {
-                                await animeStore.refresh(
-                                    section: animeSection.wrappedValue,
-                                    query: searchText
-                                )
-                            } else if mode.wrappedValue == .movies {
-                                await movieStore.refresh(
-                                    section: movieSection.wrappedValue,
-                                    query: searchText
-                                )
-                            } else {
-                                await model.loadCatalog()
-                            }
-                        }
-                    } label: {
-                        Label(
-                            refreshTitle,
-                            systemImage: "arrow.clockwise"
-                        )
-                    }
-                    .help(refreshTitle)
-                }
-            }
-
-            if mode.wrappedValue == .novels, section.wrappedValue.showsNovelCatalog {
-                ToolbarSpacer(.fixed)
-
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        showsDownloads.toggle()
-                    } label: {
-                        Label("Downloads", systemImage: activeDownloadCount > 0 ? "arrow.down.circle.fill" : "arrow.down.circle")
-                    }
-                    .badge(activeDownloadCount)
-                    .help("Downloads")
-                    .popover(isPresented: $showsDownloads, arrowEdge: .top) {
-                        DownloadCenterView()
-                            .environmentObject(model)
-                    }
-                }
-            }
-        }
-        .focusedSceneValue(\.asterionSection, section)
-        .focusedSceneValue(\.asterionMode, mode)
-        .focusedSceneValue(\.asterionAnimeSection, animeSection)
-        .focusedSceneValue(\.asterionMovieSection, movieSection)
-        .tint(.asterionAccent)
-        .frame(minWidth: 1_040, minHeight: 640)
+        navigationContent
         .onAppear {
             if mode.wrappedValue == .novels,
                section.wrappedValue.showsNovelCatalog,
@@ -189,6 +116,85 @@ struct ContentView: View {
         }
     }
 
+    private var navigationContent: some View {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            SidebarView(
+                mode: mode.wrappedValue,
+                novelSelection: section,
+                animeSelection: animeSection,
+                movieSelection: movieSection,
+                footballSelection: footballSection
+            )
+                .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 260)
+        } content: {
+            catalogColumn
+                .navigationSplitViewColumnWidth(min: 480, ideal: 620, max: 900)
+        } detail: {
+            detailColumn
+                .navigationSplitViewColumnWidth(min: 520, ideal: 660, max: 900)
+        }
+        .navigationSplitViewStyle(.balanced)
+        .catalogSearch(
+            text: $searchText,
+            prompt: searchPrompt,
+            isEnabled: mode.wrappedValue != .novels || section.wrappedValue != .account
+        )
+        .toolbar {
+            navigationToolbar
+        }
+        .focusedSceneValue(\.asterionSection, section)
+        .focusedSceneValue(\.asterionMode, mode)
+        .focusedSceneValue(\.asterionAnimeSection, animeSection)
+        .focusedSceneValue(\.asterionMovieSection, movieSection)
+        .focusedSceneValue(\.asterionFootballSection, footballSection)
+        .tint(.asterionAccent)
+        .frame(minWidth: 1_040, minHeight: 640)
+    }
+
+    @ToolbarContentBuilder
+    private var navigationToolbar: some ToolbarContent {
+        ToolbarItem(placement: .principal) {
+            Picker("Content", selection: mode) {
+                ForEach(AppMode.allCases, id: \.self) { item in
+                    Text(item.title).tag(item)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(width: 360)
+            .help("Switch between novels, anime, movies, and football")
+        }
+
+        if mode.wrappedValue != .novels || section.wrappedValue != .account {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    Task { await refreshActiveCatalog() }
+                } label: {
+                    Label(refreshTitle, systemImage: "arrow.clockwise")
+                }
+                .help(refreshTitle)
+            }
+        }
+
+        if mode.wrappedValue == .novels, section.wrappedValue.showsNovelCatalog {
+            ToolbarSpacer(.fixed)
+
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    showsDownloads.toggle()
+                } label: {
+                    Label("Downloads", systemImage: activeDownloadCount > 0 ? "arrow.down.circle.fill" : "arrow.down.circle")
+                }
+                .badge(activeDownloadCount)
+                .help("Downloads")
+                .popover(isPresented: $showsDownloads, arrowEdge: .top) {
+                    DownloadCenterView()
+                        .environmentObject(model)
+                }
+            }
+        }
+    }
+
     @ViewBuilder
     private var catalogColumn: some View {
         if mode.wrappedValue == .anime {
@@ -201,6 +207,12 @@ struct ContentView: View {
             MovieCatalogView(
                 store: movieStore,
                 section: movieSection.wrappedValue,
+                query: searchText
+            )
+        } else if mode.wrappedValue == .football {
+            FootballCatalogView(
+                store: footballStore,
+                section: footballSection.wrappedValue,
                 query: searchText
             )
         } else if section.wrappedValue == .account {
@@ -222,6 +234,8 @@ struct ContentView: View {
             AnimeDetailView(store: animeStore)
         } else if mode.wrappedValue == .movies {
             MovieDetailView(store: movieStore)
+        } else if mode.wrappedValue == .football {
+            FootballDetailView(store: footballStore)
         } else if section.wrappedValue == .account {
             AccountView()
         } else if let selectedNovel {
@@ -237,6 +251,7 @@ struct ContentView: View {
         case .novels: "Search titles, authors, or genres"
         case .anime: "Search anime"
         case .movies: "Search movies and TV shows"
+        case .football: "Search teams or competitions"
         }
     }
 
@@ -245,6 +260,7 @@ struct ContentView: View {
         case .novels: "Refresh Catalog"
         case .anime: "Refresh Anime"
         case .movies: "Refresh Movies"
+        case .football: "Refresh Football"
         }
     }
 
@@ -303,6 +319,25 @@ struct ContentView: View {
 
         if !visibleIDs.contains(selectedNovelID) {
             selectFirstNovel(in: section.wrappedValue)
+        }
+    }
+
+    private func refreshActiveCatalog() async {
+        switch mode.wrappedValue {
+        case .novels:
+            await model.loadCatalog()
+        case .anime:
+            await animeStore.refresh(
+                section: animeSection.wrappedValue,
+                query: searchText
+            )
+        case .movies:
+            await movieStore.refresh(
+                section: movieSection.wrappedValue,
+                query: searchText
+            )
+        case .football:
+            await footballStore.refresh(section: footballSection.wrappedValue)
         }
     }
 }

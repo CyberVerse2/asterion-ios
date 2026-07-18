@@ -4,12 +4,14 @@ enum AppMode: String, CaseIterable, Codable, Hashable, Sendable {
     case novels
     case anime
     case movies
+    case football
 
     var title: String {
         switch self {
         case .novels: "Novels"
         case .anime: "Anime"
         case .movies: "Movies"
+        case .football: "Football"
         }
     }
 }
