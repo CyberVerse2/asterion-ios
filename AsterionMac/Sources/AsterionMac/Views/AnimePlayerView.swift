@@ -473,7 +473,8 @@ struct AnimePlayerView: View {
                                     sessionID: sessionID
                                 )
                             }
-                        }
+                        },
+                        onEnded: autoplayNextEpisode
                     )
                         .id(option.id)
                 case .embed:
@@ -488,7 +489,8 @@ struct AnimePlayerView: View {
                                     sessionID: sessionID
                                 )
                             }
-                        }
+                        },
+                        onEnded: autoplayNextEpisode
                     )
                         .id(option.id)
                 }
@@ -535,5 +537,10 @@ struct AnimePlayerView: View {
             activePlaybackSessionID = UUID().uuidString
             preparingPlayback = nil
         }
+    }
+
+    private func autoplayNextEpisode() {
+        guard store.nextEpisode != nil else { return }
+        Task { await store.playNext() }
     }
 }

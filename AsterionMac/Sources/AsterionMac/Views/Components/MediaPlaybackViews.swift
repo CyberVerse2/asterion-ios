@@ -7,6 +7,7 @@ struct MediaDirectPlayer: View {
     let subtitleTracks: [AnimeSubtitleTrack]
     let initialPosition: Double
     let onProgress: @MainActor @Sendable (MediaPlaybackSample) -> Void
+    let onEnded: @MainActor @Sendable () -> Void
 
     @StateObject private var controller: DirectMediaPlaybackController
 
@@ -14,12 +15,14 @@ struct MediaDirectPlayer: View {
         url: URL,
         subtitleTracks: [AnimeSubtitleTrack] = [],
         initialPosition: Double = 0,
-        onProgress: @escaping @MainActor @Sendable (MediaPlaybackSample) -> Void = { _ in }
+        onProgress: @escaping @MainActor @Sendable (MediaPlaybackSample) -> Void = { _ in },
+        onEnded: @escaping @MainActor @Sendable () -> Void = {}
     ) {
         self.url = url
         self.subtitleTracks = subtitleTracks
         self.initialPosition = initialPosition
         self.onProgress = onProgress
+        self.onEnded = onEnded
         _controller = StateObject(
             wrappedValue: DirectMediaPlaybackController(
                 url: url,
@@ -58,7 +61,8 @@ struct MediaDirectPlayer: View {
                 .onAppear {
                     controller.start(
                         initialPosition: initialPosition,
-                        onProgress: onProgress
+                        onProgress: onProgress,
+                        onEnded: onEnded
                     )
                 }
                 .onDisappear { controller.stop() }
@@ -78,7 +82,8 @@ struct MediaDirectPlayer: View {
                     url: url,
                     subtitleTracks: subtitleTracks,
                     initialPosition: initialPosition,
-                    onProgress: onProgress
+                    onProgress: onProgress,
+                    onEnded: onEnded
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -139,10 +144,12 @@ private final class DirectMediaPlaybackController: ObservableObject {
     private var timeControlObserver: NSKeyValueObservation?
     private var playbackEndObserver: NSObjectProtocol?
     private var onProgress: (@MainActor @Sendable (MediaPlaybackSample) -> Void)?
+    private var onEnded: (@MainActor @Sendable () -> Void)?
     private var lastReportedPosition = -Double.infinity
     private var startingPosition = 0.0
     private var hasConfirmedPlayback = false
     private var hasEnteredPlayingState = false
+    private var hasSentPlaybackEnd = false
 
     init(url: URL, localSubtitleTracks: [AnimeSubtitleTrack]) {
         player = AVPlayer(url: url)
@@ -163,12 +170,15 @@ private final class DirectMediaPlaybackController: ObservableObject {
 
     func start(
         initialPosition: Double,
-        onProgress: @escaping @MainActor @Sendable (MediaPlaybackSample) -> Void
+        onProgress: @escaping @MainActor @Sendable (MediaPlaybackSample) -> Void,
+        onEnded: @escaping @MainActor @Sendable () -> Void
     ) {
         self.onProgress = onProgress
+        self.onEnded = onEnded
         startingPosition = max(0, initialPosition)
         hasConfirmedPlayback = false
         hasEnteredPlayingState = false
+        hasSentPlaybackEnd = false
         lastReportedPosition = -Double.infinity
         if initialPosition > 0, player.currentTime().seconds < 1 {
             player.seek(
@@ -203,6 +213,7 @@ private final class DirectMediaPlaybackController: ObservableObject {
         player.pause()
         activeCaption = nil
         onProgress = nil
+        onEnded = nil
     }
 
     private func installPlaybackObserversIfNeeded() {
@@ -245,6 +256,10 @@ private final class DirectMediaPlaybackController: ObservableObject {
                         force: true,
                         allowStoppedPlaybackConfirmation: true
                     )
+                    if self.hasEnteredPlayingState, !self.hasSentPlaybackEnd {
+                        self.hasSentPlaybackEnd = true
+                        self.onEnded?()
+                    }
                 }
             }
         }
@@ -304,6 +319,7 @@ private struct CaptionedMediaPlayer: View {
     let subtitleTracks: [AnimeSubtitleTrack]
     let initialPosition: Double
     let onProgress: @MainActor @Sendable (MediaPlaybackSample) -> Void
+    let onEnded: @MainActor @Sendable () -> Void
 
     @State private var phase: Phase = .loading
     @State private var attempt = 0
@@ -323,6 +339,7 @@ private struct CaptionedMediaPlayer: View {
                     subtitleTracks: loadedTracks,
                     initialPosition: initialPosition,
                     onProgress: onProgress,
+                    onEnded: onEnded,
                     onError: { phase = .failure($0) }
                 )
             case .failure(let message):
@@ -353,6 +370,7 @@ struct MediaWebPlayer: View {
     let url: URL
     let initialPosition: Double
     let onProgress: @MainActor @Sendable (MediaPlaybackSample) -> Void
+    let onEnded: @MainActor @Sendable () -> Void
 
     @State private var errorMessage: String?
     @State private var playerAttempt = 0
@@ -360,11 +378,13 @@ struct MediaWebPlayer: View {
     init(
         url: URL,
         initialPosition: Double = 0,
-        onProgress: @escaping @MainActor @Sendable (MediaPlaybackSample) -> Void = { _ in }
+        onProgress: @escaping @MainActor @Sendable (MediaPlaybackSample) -> Void = { _ in },
+        onEnded: @escaping @MainActor @Sendable () -> Void = {}
     ) {
         self.url = url
         self.initialPosition = initialPosition
         self.onProgress = onProgress
+        self.onEnded = onEnded
     }
 
     var body: some View {
@@ -373,6 +393,7 @@ struct MediaWebPlayer: View {
                 url: url,
                 initialPosition: initialPosition,
                 onProgress: onProgress,
+                onEnded: onEnded,
                 onError: { errorMessage = $0 }
             )
             .id(playerAttempt)
@@ -413,10 +434,11 @@ private struct CaptionedMediaWebView: NSViewRepresentable {
     let subtitleTracks: [AnimeSubtitleTrack]
     let initialPosition: Double
     let onProgress: @MainActor @Sendable (MediaPlaybackSample) -> Void
+    let onEnded: @MainActor @Sendable () -> Void
     let onError: @MainActor (String) -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onProgress: onProgress, onError: onError)
+        Coordinator(onProgress: onProgress, onEnded: onEnded, onError: onError)
     }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -475,14 +497,17 @@ private struct CaptionedMediaWebView: NSViewRepresentable {
 
         var loadedSignature: String?
         private let onProgress: @MainActor @Sendable (MediaPlaybackSample) -> Void
+        private let onEnded: @MainActor @Sendable () -> Void
         private let onError: @MainActor (String) -> Void
         private var lastSample: MediaPlaybackSample?
 
         init(
             onProgress: @escaping @MainActor @Sendable (MediaPlaybackSample) -> Void,
+            onEnded: @escaping @MainActor @Sendable () -> Void,
             onError: @escaping @MainActor (String) -> Void
         ) {
             self.onProgress = onProgress
+            self.onEnded = onEnded
             self.onError = onError
         }
 
@@ -499,6 +524,8 @@ private struct CaptionedMediaWebView: NSViewRepresentable {
                   let type = payload["type"] as? String else { return }
             if type == "error", let error = payload["message"] as? String {
                 Task { @MainActor in onError(error) }
+            } else if type == "ended" {
+                Task { @MainActor in onEnded() }
             } else if type == "progress",
                       let position = (payload["position"] as? NSNumber)?.doubleValue,
                       let duration = (payload["duration"] as? NSNumber)?.doubleValue,
@@ -595,7 +622,10 @@ enum CaptionedMediaDocument {
             player.addEventListener('playing', () => { hasPlayed = true; });
             player.addEventListener('timeupdate', () => reportProgress(false));
             player.addEventListener('pause', () => reportProgress(true));
-            player.addEventListener('ended', () => reportProgress(true));
+            player.addEventListener('ended', () => {
+              reportProgress(true);
+              post({ type: 'ended' });
+            });
             player.addEventListener('error', () => reportError('The video source could not be played.'));
             document.querySelectorAll('track').forEach(track => {
               track.addEventListener('error', () => reportError(`The ${track.dataset.label} subtitle track could not be loaded.`));
@@ -632,10 +662,16 @@ private struct RestrictedMediaWebView: NSViewRepresentable {
     let url: URL
     let initialPosition: Double
     let onProgress: @MainActor @Sendable (MediaPlaybackSample) -> Void
+    let onEnded: @MainActor @Sendable () -> Void
     let onError: @MainActor (String) -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(initialURL: url, onProgress: onProgress, onError: onError)
+        Coordinator(
+            initialURL: url,
+            onProgress: onProgress,
+            onEnded: onEnded,
+            onError: onError
+        )
     }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -696,17 +732,20 @@ private struct RestrictedMediaWebView: NSViewRepresentable {
         private(set) var initialURL: URL
         private var navigationState: MediaNavigationState
         private let onProgress: @MainActor @Sendable (MediaPlaybackSample) -> Void
+        private let onEnded: @MainActor @Sendable () -> Void
         private let onError: @MainActor (String) -> Void
         private var lastSample: MediaPlaybackSample?
 
         init(
             initialURL: URL,
             onProgress: @escaping @MainActor @Sendable (MediaPlaybackSample) -> Void,
+            onEnded: @escaping @MainActor @Sendable () -> Void,
             onError: @escaping @MainActor (String) -> Void
         ) {
             self.initialURL = initialURL
             self.navigationState = MediaNavigationState(initialURL: initialURL)
             self.onProgress = onProgress
+            self.onEnded = onEnded
             self.onError = onError
         }
 
@@ -799,6 +838,12 @@ private struct RestrictedMediaWebView: NSViewRepresentable {
             guard message.name == Self.messageName,
                   message.world === RestrictedMediaWebView.telemetryContentWorld,
                   let payload = message.body as? [String: Any],
+                  let type = payload["type"] as? String else { return }
+            if type == "ended" {
+                Task { @MainActor in onEnded() }
+                return
+            }
+            guard type == "progress",
                   let position = (payload["position"] as? NSNumber)?.doubleValue,
                   let duration = (payload["duration"] as? NSNumber)?.doubleValue,
                   let completed = payload["completed"] as? Bool,
@@ -904,6 +949,7 @@ enum EmbeddedMediaProgressScript {
             if (!force && Math.abs(position - state.lastReport) < 15) return;
             state.lastReport = position;
             post({
+              type: 'progress',
               position,
               duration,
               completed: duration > 0 && position / duration >= 0.90
@@ -973,7 +1019,10 @@ enum EmbeddedMediaProgressScript {
               scheduleSelection();
             });
             player.addEventListener('ended', () => {
-              if (activePlayer === player) emit(player, true);
+              if (activePlayer === player) {
+                emit(player, true);
+                post({ type: 'ended' });
+              }
               scheduleSelection();
             });
             if (!player.paused && !player.ended) {

@@ -262,7 +262,8 @@ struct MoviePlayerView: View {
                                     sessionID: sessionID
                                 )
                             }
-                        }
+                        },
+                        onEnded: autoplayNextEpisode
                     )
                     .id(option.id)
                 case .web:
@@ -277,7 +278,8 @@ struct MoviePlayerView: View {
                                     sessionID: sessionID
                                 )
                             }
-                        }
+                        },
+                        onEnded: autoplayNextEpisode
                     )
                     .id(option.id)
                 }
@@ -342,5 +344,10 @@ struct MoviePlayerView: View {
             activePlaybackSessionID = UUID().uuidString
             preparingPlayback = nil
         }
+    }
+
+    private func autoplayNextEpisode() {
+        guard store.nextEpisode != nil else { return }
+        Task { await store.playNext() }
     }
 }
