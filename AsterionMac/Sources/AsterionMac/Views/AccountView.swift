@@ -108,7 +108,7 @@ struct AccountSummaryView: View {
                 .background(Color.asterionAccentSoft, in: Capsule())
         }
         .padding(24)
-        .glassEffect(.regular, in: .rect(cornerRadius: 16))
+        .stableAccountSurface(cornerRadius: 16)
     }
 
     private var readingStats: some View {
@@ -155,7 +155,7 @@ struct AccountSummaryView: View {
                 }
                 .padding(20)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.regularMaterial, in: .rect(cornerRadius: 12))
+                .stableAccountSurface(cornerRadius: 12)
             } else {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(model.continueReadingEntries.prefix(3).enumerated()), id: \.element.id) { index, entry in
@@ -173,7 +173,7 @@ struct AccountSummaryView: View {
                     }
                 }
                 .padding(.horizontal, 18)
-                .background(.regularMaterial, in: .rect(cornerRadius: 14))
+                .stableAccountSurface(cornerRadius: 14)
             }
         }
     }
@@ -204,7 +204,7 @@ struct AccountSummaryView: View {
                     ProfileBenefit(icon: "macbook.and.iphone", title: "Read across devices", detail: "Your library stays in sync automatically.")
                 }
                 .padding(.horizontal, 22)
-                .background(.regularMaterial, in: .rect(cornerRadius: 14))
+                .stableAccountSurface(cornerRadius: 14)
             }
             .frame(maxWidth: 900, alignment: .leading)
             .padding(34)
@@ -397,8 +397,12 @@ struct AsterionAuthenticationView: View {
                 .environment(\.clerkTheme, AsterionClerkTheme.make())
                 .hidingScrollIndicators()
                 .frame(width: 390, height: 430)
+                .background(Color.asterionSurface, in: .rect(cornerRadius: 16))
                 .clipShape(.rect(cornerRadius: 16))
-                .glassEffect(.regular, in: .rect(cornerRadius: 16))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(Color.asterionBorder, lineWidth: 1)
+                }
 
             Text("Your saved stories and reading position stay synced across Asterion.")
                 .font(.caption)
@@ -478,7 +482,7 @@ private struct ProfileStatCard: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.regularMaterial, in: .rect(cornerRadius: 12))
+        .stableAccountSurface(cornerRadius: 12)
     }
 }
 
@@ -583,6 +587,17 @@ private extension View {
     func accountCard() -> some View {
         padding(18)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.regularMaterial, in: .rect(cornerRadius: 12))
+            .stableAccountSurface(cornerRadius: 12)
+    }
+
+    func stableAccountSurface(cornerRadius: CGFloat) -> some View {
+        background(
+            Color.asterionSurface,
+            in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .stroke(Color.asterionBorder, lineWidth: 1)
+        }
     }
 }

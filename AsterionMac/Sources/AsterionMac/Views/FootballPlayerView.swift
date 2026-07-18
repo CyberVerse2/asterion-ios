@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct FootballPlayerView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let route: FootballPlayerRoute
 
     @StateObject private var store = FootballPlayerStore()
@@ -21,7 +22,9 @@ struct FootballPlayerView: View {
         .frame(minWidth: 850, minHeight: 540)
         .background(.black)
         .navigationTitle(route.match.displayTitle)
-        .animation(AsterionMotion.sidebar, value: showsSources)
+        .toolbar(removing: .title)
+        .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+        .animation(reduceMotion ? nil : AsterionMotion.sidebar, value: showsSources)
         .task(id: route) {
             showsSources = false
             await store.load(route: route)
@@ -62,7 +65,11 @@ struct FootballPlayerView: View {
                 .foregroundStyle(.white.opacity(0.78))
                 .lineLimit(1)
 
-            Spacer()
+            Spacer(minLength: 24)
+                .contentShape(Rectangle())
+                .gesture(WindowDragGesture())
+                .allowsWindowActivationEvents(true)
+                .accessibilityHidden(true)
 
             if let selected = store.selectedStream {
                 Text(selected.displayName)
@@ -80,6 +87,7 @@ struct FootballPlayerView: View {
             .foregroundStyle(.white.opacity(0.72))
             .disabled(store.streams.count < 2)
             .help(showsSources ? "Hide Sources" : "Show Sources")
+            .accessibilityLabel(showsSources ? "Hide Sources" : "Show Sources")
         }
         .controlSize(.small)
         .padding(.horizontal, 14)
@@ -162,6 +170,9 @@ struct FootballPlayerView: View {
                         ? Color.asterionAccent.opacity(0.16)
                         : Color.clear
                 )
+                .accessibilityLabel("Play \(stream.displayName)")
+                .accessibilityValue(sourceMetadata(stream))
+                .accessibilityAddTraits(store.selectedStreamID == stream.optionID ? .isSelected : [])
             }
             .listStyle(.sidebar)
             .scrollContentBackground(.hidden)

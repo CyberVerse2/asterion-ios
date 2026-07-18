@@ -13,7 +13,7 @@ struct CoverView: View {
             case .success(let image):
                 image.resizable().scaledToFill()
             case .empty:
-                fallback.overlay { ProgressView().controlSize(.small) }
+                loadingFallback
             case .failure:
                 fallback
             @unknown default:
@@ -35,6 +35,19 @@ struct CoverView: View {
             Image(systemName: "book.closed.fill")
                 .font(.system(size: width * 0.25, weight: .light))
                 .foregroundStyle(genreColor.opacity(0.7))
+        }
+    }
+
+
+    private var loadingFallback: some View {
+        fallback.overlay(alignment: .bottomTrailing) {
+            Image(systemName: "hourglass")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Color.asterionMuted)
+                .padding(6)
+                .background(Color.asterionSurface.opacity(0.94), in: Circle())
+                .padding(7)
+                .accessibilityLabel("Loading cover artwork")
         }
     }
 }

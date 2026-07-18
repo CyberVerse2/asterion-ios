@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct AnimePlayerView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let route: AnimePlayerRoute
 
     @StateObject private var store = AnimePlayerStore()
@@ -35,7 +36,7 @@ struct AnimePlayerView: View {
                     playerPane
                         .frame(minWidth: 560, maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .animation(AsterionMotion.sidebar, value: showsEpisodeList)
+                .animation(reduceMotion ? nil : AsterionMotion.sidebar, value: showsEpisodeList)
             } else {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -44,6 +45,8 @@ struct AnimePlayerView: View {
         .frame(minWidth: 850, minHeight: 540)
         .background(.background)
         .navigationTitle(route.title)
+        .toolbar(removing: .title)
+        .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         .task(id: route) {
             await store.load(route: route)
         }
@@ -294,7 +297,7 @@ struct AnimePlayerView: View {
         guard let destination else { return }
 
         DispatchQueue.main.async {
-            if animated {
+            if animated, !reduceMotion {
                 withAnimation(AsterionMotion.sidebar) {
                     proxy.scrollTo(destination, anchor: .center)
                 }
@@ -356,7 +359,11 @@ struct AnimePlayerView: View {
                 .font(.system(size: 13, weight: .medium).monospacedDigit())
                 .foregroundStyle(.white.opacity(0.72))
 
-            Spacer()
+            Spacer(minLength: 24)
+                .contentShape(Rectangle())
+                .gesture(WindowDragGesture())
+                .allowsWindowActivationEvents(true)
+                .accessibilityHidden(true)
 
             Button {
                 Task { await store.playPrevious() }
@@ -428,7 +435,7 @@ struct AnimePlayerView: View {
             } else if let option = store.selectedPlaybackOption {
                 switch option.kind {
                 case .direct:
-                    MediaDirectPlayer(url: option.url)
+                    MediaDirectPlayer(url: option.url, subtitleTracks: option.subtitleTracks)
                         .id(option.id)
                 case .embed:
                     MediaWebPlayer(url: option.url)

@@ -103,60 +103,74 @@ struct MovieCatalogView: View {
                     endPoint: .trailing
                 )
 
-                HStack(spacing: 20) {
-                    VStack(alignment: .leading, spacing: 13) {
-                        HStack {
-                            Text("NOW TRENDING")
-                                .font(.asterionMono(10, weight: .semibold))
-                                .tracking(1.4)
-                                .foregroundStyle(Color.asterionAccent)
-                            Spacer()
-                            HStack(spacing: 6) {
-                                ForEach(titles.indices, id: \.self) { index in
-                                    Button { featuredIndex = index } label: {
-                                        Circle()
-                                            .fill(index == safeIndex ? Color.asterionAccent : .white.opacity(0.42))
-                                            .frame(width: index == safeIndex ? 8 : 6, height: index == safeIndex ? 8 : 6)
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
-                        }
-
-                        Text(title.displayTitle)
-                            .font(.asterionDisplay(23, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .lineLimit(3)
-
-                        Text(featuredMetadata(title))
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(0.68))
-                            .lineLimit(1)
-
-                        Spacer(minLength: 0)
-
-                        Button {
-                            openPlayer(title)
-                        } label: {
-                            Label("Watch now", systemImage: "play.fill")
-                                .font(.headline)
-                                .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.glassProminent)
-                        .buttonBorderShape(.roundedRectangle(radius: 10))
-                        .controlSize(.large)
-                        .tint(.asterionAccent)
-                    }
-
-                    MediaCoverView(url: title.imageURL, width: 118, height: 169)
-                }
-                .padding(20)
+                MediaCoverView(url: title.imageURL, width: 118, height: 169)
+                    .fixedSize()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                    .padding(.trailing, 20)
             }
             .frame(height: 250)
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(alignment: .leading) {
+                VStack(alignment: .leading, spacing: 13) {
+                    Text("NOW TRENDING")
+                        .font(.asterionMono(10, weight: .semibold))
+                        .tracking(1.4)
+                        .foregroundStyle(Color.asterionAccent)
+
+                    Text(title.displayTitle)
+                        .font(.asterionDisplay(23, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(3)
+
+                    Text(featuredMetadata(title))
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.68))
+                        .lineLimit(1)
+
+                    Spacer(minLength: 0)
+
+                    Button {
+                        openPlayer(title)
+                    } label: {
+                        Label("Watch now", systemImage: "play.fill")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.glassProminent)
+                    .buttonBorderShape(.roundedRectangle(radius: 10))
+                    .controlSize(.large)
+                    .tint(.asterionAccent)
+                }
+                .padding(.leading, 20)
+                .padding(.trailing, 158)
+                .padding(.vertical, 20)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            }
             .overlay {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .stroke(.white.opacity(0.12))
+            }
+            .overlay(alignment: .topTrailing) {
+                HStack(spacing: 2) {
+                    ForEach(titles.indices, id: \.self) { index in
+                        Button { featuredIndex = index } label: {
+                            Circle()
+                                .fill(index == safeIndex ? Color.asterionAccent : .white.opacity(0.42))
+                                .frame(
+                                    width: index == safeIndex ? 8 : 6,
+                                    height: index == safeIndex ? 8 : 6
+                                )
+                                .frame(width: 14, height: 14)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Show \(titles[index].displayTitle)")
+                        .accessibilityValue("Feature \(index + 1) of \(titles.count)")
+                        .accessibilityAddTraits(index == safeIndex ? .isSelected : [])
+                        .help(titles[index].displayTitle)
+                    }
+                }
+                .padding(10)
             }
             .shadow(color: .black.opacity(0.18), radius: 18, y: 9)
         }

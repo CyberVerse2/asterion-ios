@@ -128,10 +128,10 @@ struct ContentView: View {
                 .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 260)
         } content: {
             catalogColumn
-                .navigationSplitViewColumnWidth(min: 480, ideal: 620, max: 900)
+                .navigationSplitViewColumnWidth(min: 420, ideal: 560, max: 900)
         } detail: {
             detailColumn
-                .navigationSplitViewColumnWidth(min: 520, ideal: 660, max: 900)
+                .navigationSplitViewColumnWidth(min: 420, ideal: 620, max: 900)
         }
         .navigationSplitViewStyle(.balanced)
         .catalogSearch(

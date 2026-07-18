@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct MoviePlayerView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let route: MoviePlayerRoute
 
     @StateObject private var store = MoviePlayerStore()
@@ -32,7 +33,7 @@ struct MoviePlayerView: View {
                     playerPane(show)
                         .frame(minWidth: 580, maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .animation(AsterionMotion.sidebar, value: showsEpisodeList)
+                .animation(reduceMotion ? nil : AsterionMotion.sidebar, value: showsEpisodeList)
             } else {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -41,6 +42,8 @@ struct MoviePlayerView: View {
         .frame(minWidth: 850, minHeight: 540)
         .background(.black)
         .navigationTitle(route.title)
+        .toolbar(removing: .title)
+        .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         .task(id: route) {
             showsEpisodeList = false
             await store.load(route: route)
@@ -107,6 +110,8 @@ struct MoviePlayerView: View {
                         ? Color.asterionAccent.opacity(0.16)
                         : Color.clear
                 )
+                .accessibilityLabel("Play \(episode.title), episode \(episode.number)")
+                .accessibilityAddTraits(store.selectedEpisodeID == episode.id ? .isSelected : [])
             }
             .listStyle(.sidebar)
             .scrollContentBackground(.hidden)
@@ -144,6 +149,7 @@ struct MoviePlayerView: View {
                     Image(systemName: "sidebar.left")
                 }
                 .help(showsEpisodeList ? "Hide Episodes" : "Show Episodes")
+                .accessibilityLabel(showsEpisodeList ? "Hide Episodes" : "Show Episodes")
             }
 
             Text(store.positionLabel)
@@ -151,7 +157,11 @@ struct MoviePlayerView: View {
                 .foregroundStyle(.white.opacity(0.72))
                 .lineLimit(1)
 
-            Spacer()
+            Spacer(minLength: 24)
+                .contentShape(Rectangle())
+                .gesture(WindowDragGesture())
+                .allowsWindowActivationEvents(true)
+                .accessibilityHidden(true)
 
             if show.isSeries {
                 Button { Task { await store.playPrevious() } } label: {
@@ -159,12 +169,14 @@ struct MoviePlayerView: View {
                 }
                 .disabled(store.previousEpisode == nil || store.isLoadingStream)
                 .help("Previous Episode")
+                .accessibilityLabel("Previous Episode")
 
                 Button { Task { await store.playNext() } } label: {
                     Image(systemName: "forward.end.fill")
                 }
                 .disabled(store.nextEpisode == nil || store.isLoadingStream)
                 .help("Next Episode")
+                .accessibilityLabel("Next Episode")
             }
 
             if store.playbackOptions.count > 1 {
