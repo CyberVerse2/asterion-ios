@@ -652,7 +652,7 @@ async function playEpisodeAmp(animeId, epNum) {
       html += `<span class="server-link" onclick="showAmpPlayer(${i})" style="${i===0?'color:#fff;':''}">${esc(s.server)}</span> `;
     });
     $('#source-label').innerHTML = html;
-  } catch(e) { alert('Failed to load stream'); }
+  } catch(e) { console.error('Stream error:', e); alert('Failed to load stream: ' + (e.message || e)); }
 }
 
 let ampServerSources = [];
@@ -678,7 +678,8 @@ function showAmpPlayer(idx) {
     hls = new Hls({ enableWorker: false });
 
     // Clear existing tracks
-    $('#player-video').find('track').remove();
+    const tracks = $('#player-video').querySelectorAll('track');
+    tracks.forEach(t => t.remove());
 
     // Add subtitle tracks if available
     if (src.tracks && src.tracks.length) {
@@ -689,7 +690,7 @@ function showAmpPlayer(idx) {
         trackEl.srclang = track.srclang || 'en';
         trackEl.src = track.file;
         trackEl.default = track.default || i === 0;
-        $('#player-video').append(trackEl);
+        $('#player-video').appendChild(trackEl);
       });
     }
 
