@@ -8,6 +8,7 @@ MIN_SYSTEM_VERSION="26.0"
 APP_VERSION="${ASTERION_VERSION:-0.1.0}"
 BUILD_NUMBER="${ASTERION_BUILD_NUMBER:-1}"
 CODE_SIGN_IDENTITY="${ASTERION_CODE_SIGN_IDENTITY:-}"
+CLERK_PUBLISHABLE_KEY="${ASTERION_CLERK_PUBLISHABLE_KEY:-}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
@@ -37,14 +38,16 @@ if [[ -z "$CODE_SIGN_IDENTITY" ]]; then
 fi
 
 if [[ "$MODE" == "--package" || "$MODE" == "package" ]]; then
+  if [[ "$CLERK_PUBLISHABLE_KEY" != pk_live_* ]]; then
+    echo "error: ASTERION_CLERK_PUBLISHABLE_KEY must contain a production Clerk publishable key" >&2
+    exit 1
+  fi
+
   if ! /usr/bin/security find-identity -v -p codesigning \
     | /usr/bin/grep -F "$CODE_SIGN_IDENTITY" \
     | /usr/bin/grep -q '"Developer ID Application:'; then
     echo "warning: no Developer ID Application identity is selected" >&2
     echo "warning: the DMG will be development-signed and cannot be notarized for public distribution" >&2
-  else
-    echo "warning: this SwiftPM wrapper is not a sealed, notarization-ready distribution bundle" >&2
-    echo "warning: the DMG is for installation testing until the app is archived with a distribution target" >&2
   fi
 fi
 
@@ -60,44 +63,34 @@ pkill -x "AsterionMac" >/dev/null 2>&1 || true
 cd "$ROOT_DIR"
 swift build -c "$BUILD_CONFIGURATION"
 BIN_DIR="$(swift build -c "$BUILD_CONFIGURATION" --show-bin-path)"
+
+# SwiftPM's command-line resource accessors look beside the executable. Inside
+# a macOS app bundle, signed resources belong in Contents/Resources instead.
+# Rebuild the affected modules with accessors that support both layouts.
+while IFS= read -r -d '' RESOURCE_ACCESSOR; do
+  /usr/bin/perl -pi -e \
+    's/Bundle\.main\.bundleURL\.appendingPathComponent/\(Bundle.main.resourceURL ?? Bundle.main.bundleURL\).appendingPathComponent/g' \
+    "$RESOURCE_ACCESSOR"
+done < <(/usr/bin/find "$BIN_DIR" -path '*/DerivedSources/resource_bundle_accessor.swift' -print0)
+swift build -c "$BUILD_CONFIGURATION"
+
 BUILD_BINARY="$BIN_DIR/$APP_NAME"
 mkdir -p "$DIST_DIR"
-SIGNED_BINARY="$(/usr/bin/mktemp "$DIST_DIR/.${APP_NAME}.XXXXXX")"
-VERIFICATION_BINARY=""
 
 cleanup() {
   if [[ "$DMG_ATTACHED" == true ]]; then
     /usr/bin/hdiutil detach "$DMG_MOUNT" -force >/dev/null 2>&1 || true
   fi
-  rm -f "$SIGNED_BINARY"
-  if [[ -n "$VERIFICATION_BINARY" ]]; then
-    rm -f "$VERIFICATION_BINARY"
-  fi
   rm -rf "$DMG_STAGING" "$DMG_MOUNT"
 }
 trap cleanup EXIT
 
-cp "$BUILD_BINARY" "$SIGNED_BINARY"
-chmod +x "$SIGNED_BINARY"
-
-/usr/bin/codesign \
-  --force \
-  --timestamp=none \
-  --sign "$CODE_SIGN_IDENTITY" \
-  --identifier "$BUNDLE_ID" \
-  "$SIGNED_BINARY"
-
-/usr/bin/codesign \
-  --verify \
-  --strict \
-  -R="identifier \"$BUNDLE_ID\" and anchor apple generic" \
-  "$SIGNED_BINARY"
-
 rm -rf "$APP_BUNDLE" "$DIST_DIR/AsterionMac.app"
 mkdir -p "$APP_MACOS" "$APP_RESOURCES"
-mv "$SIGNED_BINARY" "$APP_BINARY"
+cp "$BUILD_BINARY" "$APP_BINARY"
+chmod +x "$APP_BINARY"
 
-find "$BIN_DIR" -maxdepth 1 -type d -name '*.bundle' -exec cp -R {} "$APP_BUNDLE/" \;
+find "$BIN_DIR" -maxdepth 1 -type d -name '*.bundle' -exec cp -R {} "$APP_RESOURCES/" \;
 
 while IFS= read -r -d '' RESOURCE_BUNDLE; do
   ASSET_CATALOGS=()
@@ -115,7 +108,7 @@ while IFS= read -r -d '' RESOURCE_BUNDLE; do
       "${ASSET_CATALOGS[@]}"
     rm -rf "${ASSET_CATALOGS[@]}" "$PARTIAL_PLIST"
   fi
-done < <(find "$APP_BUNDLE" -maxdepth 1 -type d -name '*.bundle' -print0)
+done < <(find "$APP_RESOURCES" -maxdepth 1 -type d -name '*.bundle' -print0)
 
 if [[ -f "$ROOT_DIR/Resources/AppIcon.icns" ]]; then
   cp "$ROOT_DIR/Resources/AppIcon.icns" "$APP_RESOURCES/AppIcon.icns"
@@ -152,6 +145,27 @@ cat >"$INFO_PLIST" <<PLIST
 </plist>
 PLIST
 
+if [[ -n "$CLERK_PUBLISHABLE_KEY" ]]; then
+  /usr/libexec/PlistBuddy \
+    -c "Add :AsterionClerkPublishableKey string $CLERK_PUBLISHABLE_KEY" \
+    "$INFO_PLIST"
+fi
+
+/usr/bin/codesign \
+  --force \
+  --timestamp=none \
+  --options runtime \
+  --sign "$CODE_SIGN_IDENTITY" \
+  --identifier "$BUNDLE_ID" \
+  "$APP_BUNDLE"
+
+/usr/bin/codesign \
+  --verify \
+  --deep \
+  --strict \
+  -R="identifier \"$BUNDLE_ID\" and anchor apple generic" \
+  "$APP_BUNDLE"
+
 package_dmg() {
   rm -rf "$DMG_STAGING" "$DMG_MOUNT"
   rm -f "$DMG_PATH" "$DMG_CHECKSUM_PATH"
@@ -185,16 +199,12 @@ package_dmg() {
   [[ -d "$DMG_MOUNT/$APP_NAME.app" ]]
   [[ -L "$DMG_MOUNT/Applications" ]]
   [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$DMG_MOUNT/$APP_NAME.app/Contents/Info.plist")" == "$BUNDLE_ID" ]]
-  VERIFICATION_BINARY="$(/usr/bin/mktemp "$DIST_DIR/.${APP_NAME}-verify.XXXXXX")"
-  cp "$DMG_MOUNT/$APP_NAME.app/Contents/MacOS/$APP_NAME" "$VERIFICATION_BINARY"
-  chmod +x "$VERIFICATION_BINARY"
   /usr/bin/codesign \
     --verify \
+    --deep \
     --strict \
     -R="identifier \"$BUNDLE_ID\" and anchor apple generic" \
-    "$VERIFICATION_BINARY"
-  rm -f "$VERIFICATION_BINARY"
-  VERIFICATION_BINARY=""
+    "$DMG_MOUNT/$APP_NAME.app"
 
   /usr/bin/hdiutil detach "$DMG_MOUNT" >/dev/null
   DMG_ATTACHED=false

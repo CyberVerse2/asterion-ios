@@ -329,6 +329,10 @@ private actor AnimeCatalogStub: AnimeCatalogServing {
     func fetchPopular(page: Int) async throws -> [AnimeTitle] { pages[page] ?? [] }
     func fetchNewReleases(page: Int) async throws -> [AnimeTitle] { pages[page] ?? [] }
     func fetchGenre(_ genre: String, page: Int) async throws -> [AnimeTitle] { pages[page] ?? [] }
+    func fetchSeason(season: String, year: Int, page: Int) async throws -> [AnimeTitle] { pages[page] ?? [] }
+    func fetchType(_ type: String, page: Int) async throws -> [AnimeTitle] { pages[page] ?? [] }
+    func fetchStatus(_ status: String, page: Int) async throws -> [AnimeTitle] { pages[page] ?? [] }
+    func fetchSchedule(timeZoneHours: Double) async throws -> [AnimeScheduleDay] { [] }
     func fetchGenres() async throws -> [String] { [] }
     func search(query: String, page: Int) async throws -> [AnimeTitle] { pages[page] ?? [] }
 

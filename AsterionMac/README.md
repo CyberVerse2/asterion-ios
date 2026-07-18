@@ -40,6 +40,8 @@ swift test
 
 Packaging builds the release configuration, stages `dist/Asterion.app`, creates `dist/Asterion.dmg` with an Applications shortcut, signs the disk image, mounts it read-only, validates its contents and executable identity, and writes `dist/Asterion.dmg.sha256`.
 
+Set `ASTERION_CLERK_PUBLISHABLE_KEY` to the production Clerk publishable key before packaging. Release exports reject development keys so they cannot be shipped accidentally.
+
 Set `ASTERION_VERSION`, `ASTERION_BUILD_NUMBER`, and `ASTERION_CODE_SIGN_IDENTITY` to override the default `0.1.0`, build `1`, and selected signing identity.
 
 An Apple Development identity produces a local-development DMG. Public distribution requires a Developer ID Application identity, a sealed app bundle with hardened runtime, and Apple notarization.
