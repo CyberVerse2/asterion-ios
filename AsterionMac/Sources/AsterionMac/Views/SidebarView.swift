@@ -5,6 +5,7 @@ struct SidebarView: View {
     let mode: AppMode
     @Binding var novelSelection: AppSection
     @Binding var animeSelection: AnimeSection
+    @Binding var movieSelection: MovieSection
 
     private var novelListSelection: Binding<AppSection?> {
         Binding(
@@ -28,6 +29,15 @@ struct SidebarView: View {
         )
     }
 
+    private var movieListSelection: Binding<MovieSection?> {
+        Binding(
+            get: { movieSelection },
+            set: { newValue in
+                if let newValue { movieSelection = newValue }
+            }
+        )
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             brand
@@ -47,10 +57,22 @@ struct SidebarView: View {
                 }
                 .listStyle(.sidebar)
                 .scrollContentBackground(.hidden)
-            } else {
+            } else if mode == .anime {
                 List(selection: animeListSelection) {
                     Section("Anime") {
                         ForEach(AnimeSection.allCases, id: \.self) { section in
+                            Label(section.title, systemImage: section.systemImage)
+                                .tag(section)
+                                .help(section.title)
+                        }
+                    }
+                }
+                .listStyle(.sidebar)
+                .scrollContentBackground(.hidden)
+            } else {
+                List(selection: movieListSelection) {
+                    Section("Movies") {
+                        ForEach(MovieSection.allCases, id: \.self) { section in
                             Label(section.title, systemImage: section.systemImage)
                                 .tag(section)
                                 .help(section.title)

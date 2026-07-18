@@ -5,8 +5,10 @@ struct ContentView: View {
     @SceneStorage("selectedMode") private var selectedModeRaw = AppMode.novels.rawValue
     @SceneStorage("selectedSection") private var selectedSectionRaw = AppSection.discover.rawValue
     @SceneStorage("selectedAnimeSection") private var selectedAnimeSectionRaw = AnimeSection.discover.rawValue
+    @SceneStorage("selectedMovieSection") private var selectedMovieSectionRaw = MovieSection.discover.rawValue
     @SceneStorage("selectedNovelID") private var selectedNovelID = ""
     @StateObject private var animeStore = AnimeStore()
+    @StateObject private var movieStore = MovieStore()
     @State private var columnVisibility = NavigationSplitViewVisibility.all
     @State private var searchText = ""
     @State private var showsDownloads = false
@@ -47,6 +49,16 @@ struct ContentView: View {
         )
     }
 
+    private var movieSection: Binding<MovieSection> {
+        Binding(
+            get: { MovieSection(rawValue: selectedMovieSectionRaw) ?? .discover },
+            set: { newValue in
+                selectedMovieSectionRaw = newValue.rawValue
+                searchText = ""
+            }
+        )
+    }
+
     private var selectedNovel: Novel? {
         model.novel(id: selectedNovelID)
     }
@@ -60,7 +72,8 @@ struct ContentView: View {
             SidebarView(
                 mode: mode.wrappedValue,
                 novelSelection: section,
-                animeSelection: animeSection
+                animeSelection: animeSection,
+                movieSelection: movieSection
             )
                 .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 260)
         } content: {
@@ -73,10 +86,8 @@ struct ContentView: View {
         .navigationSplitViewStyle(.balanced)
         .catalogSearch(
             text: $searchText,
-            prompt: mode.wrappedValue == .anime
-                ? "Search anime"
-                : "Search titles, authors, or genres",
-            isEnabled: mode.wrappedValue == .anime || section.wrappedValue != .account
+            prompt: searchPrompt,
+            isEnabled: mode.wrappedValue != .novels || section.wrappedValue != .account
         )
         .toolbar {
             ToolbarItem(placement: .principal) {
@@ -87,8 +98,8 @@ struct ContentView: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                .frame(width: 220)
-                .help("Switch between novels and anime")
+                .frame(width: 280)
+                .help("Switch between novels, anime, and movies")
             }
 
             if mode.wrappedValue == .anime || section.wrappedValue != .account {
@@ -100,17 +111,22 @@ struct ContentView: View {
                                     section: animeSection.wrappedValue,
                                     query: searchText
                                 )
+                            } else if mode.wrappedValue == .movies {
+                                await movieStore.refresh(
+                                    section: movieSection.wrappedValue,
+                                    query: searchText
+                                )
                             } else {
                                 await model.loadCatalog()
                             }
                         }
                     } label: {
                         Label(
-                            mode.wrappedValue == .anime ? "Refresh Anime" : "Refresh Catalog",
+                            refreshTitle,
                             systemImage: "arrow.clockwise"
                         )
                     }
-                    .help(mode.wrappedValue == .anime ? "Refresh Anime" : "Refresh Catalog")
+                    .help(refreshTitle)
                 }
             }
 
@@ -135,6 +151,7 @@ struct ContentView: View {
         .focusedSceneValue(\.asterionSection, section)
         .focusedSceneValue(\.asterionMode, mode)
         .focusedSceneValue(\.asterionAnimeSection, animeSection)
+        .focusedSceneValue(\.asterionMovieSection, movieSection)
         .tint(.asterionAccent)
         .frame(minWidth: 1_040, minHeight: 640)
         .onAppear {
@@ -180,6 +197,12 @@ struct ContentView: View {
                 section: animeSection.wrappedValue,
                 query: searchText
             )
+        } else if mode.wrappedValue == .movies {
+            MovieCatalogView(
+                store: movieStore,
+                section: movieSection.wrappedValue,
+                query: searchText
+            )
         } else if section.wrappedValue == .account {
             AccountSummaryView()
         } else {
@@ -197,6 +220,8 @@ struct ContentView: View {
     private var detailColumn: some View {
         if mode.wrappedValue == .anime {
             AnimeDetailView(store: animeStore)
+        } else if mode.wrappedValue == .movies {
+            MovieDetailView(store: movieStore)
         } else if section.wrappedValue == .account {
             AccountView()
         } else if let selectedNovel {
@@ -204,6 +229,22 @@ struct ContentView: View {
                 .id(selectedNovel.id)
         } else {
             detailPlaceholder
+        }
+    }
+
+    private var searchPrompt: String {
+        switch mode.wrappedValue {
+        case .novels: "Search titles, authors, or genres"
+        case .anime: "Search anime"
+        case .movies: "Search movies and TV shows"
+        }
+    }
+
+    private var refreshTitle: String {
+        switch mode.wrappedValue {
+        case .novels: "Refresh Catalog"
+        case .anime: "Refresh Anime"
+        case .movies: "Refresh Movies"
         }
     }
 
