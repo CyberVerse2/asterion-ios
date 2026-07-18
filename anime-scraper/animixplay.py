@@ -205,7 +205,7 @@ def by_season(season: str, year: int, page: int = 1) -> list[SearchResult]:
         query={
             "season[]": season.lower(),
             "year[]": str(year),
-            "sort": "release-date",
+            "sort": "most-viewed",
         },
     )
 
