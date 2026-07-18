@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct ReaderChapterPicker: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     let chapters: [Chapter]
     let selectedIndex: Int
     let palette: ReaderPalette
@@ -155,8 +157,12 @@ struct ReaderChapterPicker: View {
     private func scrollToSelection(using proxy: ScrollViewProxy) {
         Task { @MainActor in
             await Task.yield()
-            withAnimation(.easeOut(duration: 0.18)) {
+            if reduceMotion {
                 proxy.scrollTo(selectedIndex, anchor: .center)
+            } else {
+                withAnimation(.easeOut(duration: 0.18)) {
+                    proxy.scrollTo(selectedIndex, anchor: .center)
+                }
             }
         }
     }

@@ -323,9 +323,14 @@ private struct AnimeFeaturedBanner: View {
                     Circle()
                         .fill(index == selectedIndex ? Color.asterionAccent : Color.white.opacity(0.42))
                         .frame(width: index == selectedIndex ? 8 : 6, height: index == selectedIndex ? 8 : 6)
+                        .frame(width: 18, height: 18)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Show featured title \(index + 1)")
+                .accessibilityLabel("Show \(titles[index].displayTitle)")
+                .accessibilityValue("Feature \(index + 1) of \(titles.count)")
+                .accessibilityAddTraits(index == selectedIndex ? .isSelected : [])
+                .help(titles[index].displayTitle)
             }
         }
     }

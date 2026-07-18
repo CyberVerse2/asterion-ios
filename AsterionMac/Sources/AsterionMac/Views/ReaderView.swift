@@ -81,6 +81,7 @@ struct ReaderPalette {
 
 struct ReaderView: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let route: ReaderRoute
 
     @AppStorage("readerFontSize") private var fontSize = 19.0
@@ -126,17 +127,29 @@ struct ReaderView: View {
         .frame(minWidth: 560, minHeight: 560)
         .background(palette.background)
         .preferredColorScheme(readerTheme.preferredColorScheme)
-        .animation(.easeInOut(duration: 0.3), value: readerTheme)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: readerTheme)
         .navigationTitle(chapter?.title ?? "Reader")
         .toolbar { readerToolbar }
         .safeAreaInset(edge: .bottom) {
-            if let error = model.accountError {
-                Label(error, systemImage: "exclamationmark.triangle.fill")
-                    .font(.callout)
-                    .foregroundStyle(Color.asterionAccent)
-                    .padding(10)
-                    .frame(maxWidth: .infinity)
-                    .background(.ultraThinMaterial)
+            VStack(spacing: 0) {
+                if case .offline = model.chapterListState(for: route.novelID),
+                   let notice = model.chapterListState(for: route.novelID).notice {
+                    Label(notice, systemImage: "arrow.down.circle.fill")
+                        .font(.callout)
+                        .foregroundStyle(palette.text)
+                        .padding(10)
+                        .frame(maxWidth: .infinity)
+                        .background(.regularMaterial)
+                }
+
+                if let error = model.accountError {
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                        .font(.callout)
+                        .foregroundStyle(Color.asterionAccent)
+                        .padding(10)
+                        .frame(maxWidth: .infinity)
+                        .background(.ultraThinMaterial)
+                }
             }
         }
         .task(id: route) { await load() }
@@ -170,7 +183,7 @@ struct ReaderView: View {
                         onClose: { showsChapterPicker = false }
                     )
                     .frame(width: 300)
-                    .transition(.move(edge: .leading).combined(with: .opacity))
+                    .transition(chapterPickerTransition)
                 }
 
                 ScrollViewReader { proxy in
@@ -184,6 +197,7 @@ struct ReaderView: View {
                                 fontSize: fontSize,
                                 lineSpacing: lineSpacing,
                                 palette: palette,
+                                reduceMotion: reduceMotion,
                                 initialLine: restoredLine ?? currentLine,
                                 onVisibleLineChange: recordVisibleLine,
                                 onChapterTurn: navigate
@@ -203,6 +217,10 @@ struct ReaderView: View {
                                 .frame(maxWidth: .infinity)
                             }
                             .hidingScrollIndicators()
+                            .coordinateSpace(name: ReaderScrollCoordinateSpace.name)
+                            .onPreferenceChange(ReaderLineFramePreferenceKey.self) {
+                                recordVisibleLine(from: $0)
+                            }
                             .background(palette.background)
                         }
                     }
@@ -218,7 +236,10 @@ struct ReaderView: View {
                     }
                 }
             }
-            .animation(.easeInOut(duration: 0.18), value: showsChapterPicker)
+            .animation(
+                reduceMotion ? nil : .easeInOut(duration: 0.18),
+                value: showsChapterPicker
+            )
 
             ReaderBottomBar(
                 progress: chapterProgress,
@@ -331,7 +352,22 @@ struct ReaderView: View {
             .lineSpacing(lineSpacing)
             .textSelection(.enabled)
             .id(index)
-            .onAppear { recordVisibleLine(index) }
+            .background {
+                GeometryReader { geometry in
+                    Color.clear.preference(
+                        key: ReaderLineFramePreferenceKey.self,
+                        value: [
+                            index: geometry.frame(
+                                in: .named(ReaderScrollCoordinateSpace.name)
+                            ),
+                        ]
+                    )
+                }
+            }
+    }
+
+    private var chapterPickerTransition: AnyTransition {
+        reduceMotion ? .opacity : .move(edge: .leading).combined(with: .opacity)
     }
 
     private var chapterProgress: Double {
@@ -408,12 +444,27 @@ struct ReaderView: View {
     }
 
     private func recordVisibleLine(_ line: Int) {
+        guard line != currentLine else { return }
         currentLine = line
         progressTask?.cancel()
         progressTask = Task {
             try? await Task.sleep(for: .seconds(1.2))
             guard !Task.isCancelled else { return }
             syncProgress()
+        }
+    }
+
+    private func recordVisibleLine(from frames: [Int: CGRect]) {
+        let viewportTop: CGFloat = 1
+        let intersectingLine = frames
+            .filter { $0.value.minY <= viewportTop && $0.value.maxY > viewportTop }
+            .min { $0.key < $1.key }?.key
+        let nextLine = frames
+            .filter { $0.value.minY > viewportTop }
+            .min { $0.value.minY < $1.value.minY }?.key
+
+        if let visibleLine = intersectingLine ?? nextLine {
+            recordVisibleLine(visibleLine)
         }
     }
 
@@ -444,6 +495,18 @@ struct ReaderView: View {
                 _ = try? await model.chapter(id: id)
             }
         }
+    }
+}
+
+private enum ReaderScrollCoordinateSpace {
+    static let name = "reader-scroll"
+}
+
+private struct ReaderLineFramePreferenceKey: PreferenceKey {
+    static let defaultValue: [Int: CGRect] = [:]
+
+    static func reduce(value: inout [Int: CGRect], nextValue: () -> [Int: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, next in next })
     }
 }
 
@@ -511,6 +574,7 @@ private struct ReaderWebSpreadView: View {
     let fontSize: Double
     let lineSpacing: Double
     let palette: ReaderPalette
+    let reduceMotion: Bool
     let initialLine: Int
     let onVisibleLineChange: (Int) -> Void
     let onChapterTurn: (Int) -> Void
@@ -663,7 +727,9 @@ private struct ReaderWebSpreadView: View {
                 return Math.max(0, Math.min(turnCount - 1, Math.round(window.scrollX / turnUnit)));
               };
 
-              const scrollToTurn = (turn, behavior = 'smooth') => {
+              const preferredScrollBehavior = '\(reduceMotion ? "instant" : "smooth")';
+
+              const scrollToTurn = (turn, behavior = preferredScrollBehavior) => {
                 const { turnUnit, maxX, turnCount, inset } = pageMetrics();
                 const target = Math.max(0, Math.min(turnCount - 1, Math.round(turn)));
                 const targetX = Math.max(0, target * turnUnit - (target > 0 ? inset : 0));
@@ -685,7 +751,7 @@ private struct ReaderWebSpreadView: View {
               };
 
               const reportProgress = () => {
-                const probeX = window.scrollX + Math.max(48, window.innerWidth * 0.08);
+                const probeX = Math.max(48, window.innerWidth * 0.08);
                 const probeY = 96;
                 let bestLine = 0;
                 let bestDistance = Infinity;
