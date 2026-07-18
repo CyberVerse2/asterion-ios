@@ -30,10 +30,12 @@ ALLOWED_VIDEO_HOSTS = frozenset({
 })
 ALLOWED_VIDEO_HOST_SUFFIXES = (
     ".anivideo.sbs",
+    ".lostproject.club",
     ".nekostream.site",
     ".watching.onl",
     ".cloudbuzz.lol",
 )
+MAXIMUM_SUBTITLE_SIZE = 5 * 1024 * 1024
 
 
 def _is_allowed_video_url(value):
@@ -75,6 +77,7 @@ def _hls_request_headers(target):
     elif (
         hostname == "megaplay.buzz"
         or hostname == "p16-ad-sg.ibyteimg.com"
+        or hostname.endswith(".lostproject.club")
         or hostname.endswith(".nekostream.site")
     ):
         provider_origin = "https://megaplay.buzz"
@@ -99,6 +102,17 @@ def _rewrite_hls_attribute_urls(line, playlist_url):
         return f'URI="{_proxied_hls_path(resource_url)}"'
 
     return re.sub(r'URI="([^"]+)"', replace_uri, line)
+
+
+def _proxied_subtitle_tracks(tracks):
+    proxied = []
+    for track in tracks:
+        item = dict(track)
+        source = item.get("file", "")
+        if _is_allowed_video_url(source):
+            item["file"] = f"/proxy/subtitle?url={quote(source, safe='')}"
+        proxied.append(item)
+    return proxied
 
 # ---------------------------------------------------------------------------
 # API endpoints
@@ -367,7 +381,7 @@ def api_amp_stream(anime_id, episode):
             "url": s.url,
             "quality": s.quality,
             "source": full.get("source"),
-            "tracks": full.get("tracks", []),
+            "tracks": _proxied_subtitle_tracks(full.get("tracks", [])),
         })
     return result
 
@@ -466,6 +480,33 @@ def proxy_ts():
         return rv
     except Exception:
         return "segment unavailable", 502
+
+
+@app.route("/proxy/subtitle")
+def proxy_subtitle():
+    """Proxy provider-protected WebVTT subtitles through the API origin."""
+    target = flask.request.args.get("url", "")
+    if not target or not _is_allowed_video_url(target):
+        return "invalid subtitle url", 400
+
+    req = Request(target, headers=_hls_request_headers(target))
+    try:
+        with video_opener.open(req, timeout=15) as resp:
+            content_length = resp.headers.get("Content-Length")
+            if content_length and int(content_length) > MAXIMUM_SUBTITLE_SIZE:
+                return "subtitle too large", 413
+            content = resp.read(MAXIMUM_SUBTITLE_SIZE + 1)
+    except Exception:
+        app.logger.exception("Subtitle proxy request failed")
+        return "subtitle unavailable", 502
+
+    if len(content) > MAXIMUM_SUBTITLE_SIZE:
+        return "subtitle too large", 413
+
+    rv = flask.Response(content, mimetype="text/vtt")
+    rv.headers["Access-Control-Allow-Origin"] = "*"
+    rv.headers["Cache-Control"] = "private, max-age=3600"
+    return rv
 
 
 # ---------------------------------------------------------------------------
