@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MovieDetailView: View {
     @Environment(\.openWindow) private var openWindow
+    @EnvironmentObject private var model: AppModel
     @ObservedObject var store: MovieStore
 
     @State private var selectedSeason: Int?
@@ -133,19 +134,65 @@ struct MovieDetailView: View {
     }
 
     private func watchAction(_ show: MovieShow) -> some View {
-        Button {
-            openPlayer(show: show, episode: preferredEpisode)
-        } label: {
-            Label(watchButtonTitle(show), systemImage: "play.fill")
-                .frame(maxWidth: .infinity)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Button {
+                    openPlayer(show: show, episode: preferredEpisode)
+                } label: {
+                    Label(watchButtonTitle(show), systemImage: "play.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.glassProminent)
+                .buttonBorderShape(.roundedRectangle(radius: 10))
+                .controlSize(.large)
+                .tint(.asterionAccent)
+                .keyboardShortcut(.return, modifiers: .command)
+                .disabled(show.isSeries ? store.episodes.isEmpty : show.streams.isEmpty)
+                .help("Open in Asterion Player")
+
+                mediaBookmarkButton(show)
+            }
+
+            if let error = model.mediaBookmarkError {
+                Label(error, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(Color.asterionAccent)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
-        .buttonStyle(.glassProminent)
-        .buttonBorderShape(.roundedRectangle(radius: 10))
+    }
+
+    private func mediaBookmarkButton(_ show: MovieShow) -> some View {
+        let item = MediaItemDescriptor(
+            mediaType: .movie,
+            contentID: show.slug,
+            title: show.displayTitle,
+            subtitle: show.isSeries ? "TV Series" : "Movie",
+            imageURL: show.imageURL
+        )
+        let isSaved = model.isMediaBookmarked(item.key)
+        let isUpdating = model.isUpdatingMediaBookmark(item.key)
+
+        return Button {
+            guard model.isSignedIn else {
+                openWindow(id: "authentication")
+                return
+            }
+            Task { await model.toggleMediaBookmark(item) }
+        } label: {
+            if isUpdating {
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(width: 72)
+            } else {
+                Label(isSaved ? "Saved" : "Save", systemImage: isSaved ? "bookmark.fill" : "bookmark")
+                    .frame(width: 72)
+            }
+        }
+        .buttonStyle(.bordered)
         .controlSize(.large)
-        .tint(.asterionAccent)
-        .keyboardShortcut(.return, modifiers: .command)
-        .disabled(show.isSeries ? store.episodes.isEmpty : show.streams.isEmpty)
-        .help("Open in Asterion Player")
+        .disabled(isUpdating)
+        .help(isSaved ? "Remove from saved movies" : "Save this title to your account")
     }
 
     private func episodeBrowser(_ show: MovieShow) -> some View {

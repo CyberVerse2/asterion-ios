@@ -5,26 +5,189 @@ import WebKit
 struct MediaDirectPlayer: View {
     let url: URL
     let subtitleTracks: [AnimeSubtitleTrack]
+    let initialPosition: Double
+    let onProgress: @MainActor @Sendable (MediaPlaybackSample) -> Void
 
-    @State private var player: AVPlayer
+    @StateObject private var controller: DirectMediaPlaybackController
 
-    init(url: URL, subtitleTracks: [AnimeSubtitleTrack] = []) {
+    init(
+        url: URL,
+        subtitleTracks: [AnimeSubtitleTrack] = [],
+        initialPosition: Double = 0,
+        onProgress: @escaping @MainActor @Sendable (MediaPlaybackSample) -> Void = { _ in }
+    ) {
         self.url = url
         self.subtitleTracks = subtitleTracks
-        _player = State(initialValue: AVPlayer(url: url))
+        self.initialPosition = initialPosition
+        self.onProgress = onProgress
+        _controller = StateObject(wrappedValue: DirectMediaPlaybackController(url: url))
     }
 
     var body: some View {
         Group {
             if subtitleTracks.isEmpty {
-                VideoPlayer(player: player)
-                    .onAppear { player.play() }
-                    .onDisappear { player.pause() }
+                VideoPlayer(player: controller.player)
+                    .onAppear {
+                        controller.start(
+                            initialPosition: initialPosition,
+                            onProgress: onProgress
+                        )
+                    }
+                    .onDisappear { controller.stop() }
             } else {
-                CaptionedMediaPlayer(url: url, subtitleTracks: subtitleTracks)
+                CaptionedMediaPlayer(
+                    url: url,
+                    subtitleTracks: subtitleTracks,
+                    initialPosition: initialPosition,
+                    onProgress: onProgress
+                )
             }
         }
         .background(.black)
+    }
+}
+
+@MainActor
+private final class DirectMediaPlaybackController: ObservableObject {
+    let player: AVPlayer
+
+    private var periodicObserver: Any?
+    private var timeControlObserver: NSKeyValueObservation?
+    private var playbackEndObserver: NSObjectProtocol?
+    private var onProgress: (@MainActor @Sendable (MediaPlaybackSample) -> Void)?
+    private var lastReportedPosition = -Double.infinity
+    private var startingPosition = 0.0
+    private var hasConfirmedPlayback = false
+    private var hasEnteredPlayingState = false
+
+    init(url: URL) {
+        player = AVPlayer(url: url)
+    }
+
+    func start(
+        initialPosition: Double,
+        onProgress: @escaping @MainActor @Sendable (MediaPlaybackSample) -> Void
+    ) {
+        self.onProgress = onProgress
+        startingPosition = max(0, initialPosition)
+        hasConfirmedPlayback = false
+        hasEnteredPlayingState = false
+        lastReportedPosition = -Double.infinity
+        if initialPosition > 0, player.currentTime().seconds < 1 {
+            player.seek(
+                to: CMTime(seconds: initialPosition, preferredTimescale: 600),
+                toleranceBefore: .zero,
+                toleranceAfter: .zero
+            )
+        }
+        if periodicObserver == nil {
+            periodicObserver = player.addPeriodicTimeObserver(
+                forInterval: CMTime(seconds: 5, preferredTimescale: 600),
+                queue: .main
+            ) { [weak self] time in
+                Task { @MainActor [weak self] in
+                    self?.report(time: time, force: false)
+                }
+            }
+        }
+        installPlaybackObserversIfNeeded()
+        player.play()
+    }
+
+    func stop() {
+        if hasConfirmedPlayback {
+            report(time: player.currentTime(), force: true)
+        }
+        removePlaybackObservers()
+        if let periodicObserver {
+            player.removeTimeObserver(periodicObserver)
+            self.periodicObserver = nil
+        }
+        player.pause()
+        onProgress = nil
+    }
+
+    private func installPlaybackObserversIfNeeded() {
+        if timeControlObserver == nil {
+            timeControlObserver = player.observe(
+                \.timeControlStatus,
+                options: [.old, .new]
+            ) { [weak self] _, change in
+                let enteredPlaying = change.newValue == .playing
+                let becamePaused = change.newValue == .paused
+                    && change.oldValue != .paused
+                let pausedAfterPlaying = change.oldValue == .playing
+
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    if enteredPlaying || pausedAfterPlaying {
+                        self.hasEnteredPlayingState = true
+                    }
+                    if becamePaused, self.hasEnteredPlayingState {
+                        self.report(
+                            time: self.player.currentTime(),
+                            force: true,
+                            allowStoppedPlaybackConfirmation: true
+                        )
+                    }
+                }
+            }
+        }
+
+        if playbackEndObserver == nil, let currentItem = player.currentItem {
+            playbackEndObserver = NotificationCenter.default.addObserver(
+                forName: .AVPlayerItemDidPlayToEndTime,
+                object: currentItem,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.report(
+                        time: self.player.currentTime(),
+                        force: true,
+                        allowStoppedPlaybackConfirmation: true
+                    )
+                }
+            }
+        }
+    }
+
+    private func removePlaybackObservers() {
+        timeControlObserver?.invalidate()
+        timeControlObserver = nil
+        if let playbackEndObserver {
+            NotificationCenter.default.removeObserver(playbackEndObserver)
+            self.playbackEndObserver = nil
+        }
+    }
+
+    private func report(
+        time: CMTime,
+        force: Bool,
+        allowStoppedPlaybackConfirmation: Bool = false
+    ) {
+        let position = time.seconds
+        guard position.isFinite, position >= 0 else { return }
+        if !hasConfirmedPlayback,
+           (player.rate > 0
+                || (allowStoppedPlaybackConfirmation && hasEnteredPlayingState)),
+           position > startingPosition + 0.25 {
+            hasConfirmedPlayback = true
+        }
+        guard hasConfirmedPlayback else { return }
+        guard force || abs(position - lastReportedPosition) >= 15 else { return }
+
+        let rawDuration = player.currentItem?.duration.seconds ?? 0
+        let duration = rawDuration.isFinite && rawDuration > 0 ? rawDuration : 0
+        lastReportedPosition = position
+        onProgress?(
+            MediaPlaybackSample(
+                positionSeconds: position,
+                durationSeconds: duration,
+                completed: duration > 0 && position / duration >= 0.90,
+                observedAt: Date()
+            )
+        )
     }
 }
 
@@ -37,6 +200,8 @@ private struct CaptionedMediaPlayer: View {
 
     let url: URL
     let subtitleTracks: [AnimeSubtitleTrack]
+    let initialPosition: Double
+    let onProgress: @MainActor @Sendable (MediaPlaybackSample) -> Void
 
     @State private var phase: Phase = .loading
     @State private var attempt = 0
@@ -54,6 +219,8 @@ private struct CaptionedMediaPlayer: View {
                 CaptionedMediaWebView(
                     url: url,
                     subtitleTracks: loadedTracks,
+                    initialPosition: initialPosition,
+                    onProgress: onProgress,
                     onError: { phase = .failure($0) }
                 )
             case .failure(let message):
@@ -79,14 +246,28 @@ private struct CaptionedMediaPlayer: View {
 
 struct MediaWebPlayer: View {
     let url: URL
+    let initialPosition: Double
+    let onProgress: @MainActor @Sendable (MediaPlaybackSample) -> Void
 
     @State private var errorMessage: String?
     @State private var playerAttempt = 0
+
+    init(
+        url: URL,
+        initialPosition: Double = 0,
+        onProgress: @escaping @MainActor @Sendable (MediaPlaybackSample) -> Void = { _ in }
+    ) {
+        self.url = url
+        self.initialPosition = initialPosition
+        self.onProgress = onProgress
+    }
 
     var body: some View {
         ZStack {
             RestrictedMediaWebView(
                 url: url,
+                initialPosition: initialPosition,
+                onProgress: onProgress,
                 onError: { errorMessage = $0 }
             )
             .id(playerAttempt)
@@ -125,10 +306,12 @@ private struct PlayerFailureView: View {
 private struct CaptionedMediaWebView: NSViewRepresentable {
     let url: URL
     let subtitleTracks: [AnimeSubtitleTrack]
+    let initialPosition: Double
+    let onProgress: @MainActor @Sendable (MediaPlaybackSample) -> Void
     let onError: @MainActor (String) -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onError: onError)
+        Coordinator(onProgress: onProgress, onError: onError)
     }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -146,23 +329,39 @@ private struct CaptionedMediaWebView: NSViewRepresentable {
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {
-        let signature = CaptionedMediaDocument.signature(url: url, tracks: subtitleTracks)
+        let signature = CaptionedMediaDocument.signature(
+            url: url,
+            tracks: subtitleTracks,
+            initialPosition: initialPosition
+        )
         guard context.coordinator.loadedSignature != signature else { return }
         loadPlayer(in: webView, coordinator: context.coordinator)
     }
 
     static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
         webView.stopLoading()
-        webView.configuration.userContentController.removeScriptMessageHandler(
-            forName: Coordinator.messageName
-        )
-        webView.loadHTMLString("", baseURL: nil)
+        coordinator.flushLastProgress()
+        webView.evaluateJavaScript("window.__asterionFlush?.();") { [weak webView] _, _ in
+            guard let webView else { return }
+            webView.configuration.userContentController.removeScriptMessageHandler(
+                forName: Coordinator.messageName
+            )
+            webView.loadHTMLString("", baseURL: nil)
+        }
     }
 
     private func loadPlayer(in webView: WKWebView, coordinator: Coordinator) {
-        let signature = CaptionedMediaDocument.signature(url: url, tracks: subtitleTracks)
+        let signature = CaptionedMediaDocument.signature(
+            url: url,
+            tracks: subtitleTracks,
+            initialPosition: initialPosition
+        )
         coordinator.loadedSignature = signature
-        let html = CaptionedMediaDocument.html(url: url, tracks: subtitleTracks)
+        let html = CaptionedMediaDocument.html(
+            url: url,
+            tracks: subtitleTracks,
+            initialPosition: initialPosition
+        )
         webView.loadHTMLString(html, baseURL: url.deletingLastPathComponent())
     }
 
@@ -170,9 +369,15 @@ private struct CaptionedMediaWebView: NSViewRepresentable {
         static let messageName = "asterionPlayback"
 
         var loadedSignature: String?
+        private let onProgress: @MainActor @Sendable (MediaPlaybackSample) -> Void
         private let onError: @MainActor (String) -> Void
+        private var lastSample: MediaPlaybackSample?
 
-        init(onError: @escaping @MainActor (String) -> Void) {
+        init(
+            onProgress: @escaping @MainActor @Sendable (MediaPlaybackSample) -> Void,
+            onError: @escaping @MainActor (String) -> Void
+        ) {
+            self.onProgress = onProgress
             self.onError = onError
         }
 
@@ -180,21 +385,55 @@ private struct CaptionedMediaWebView: NSViewRepresentable {
             _ userContentController: WKUserContentController,
             didReceive message: WKScriptMessage
         ) {
-            guard message.name == Self.messageName,
-                  let error = message.body as? String else { return }
-            Task { @MainActor in onError(error) }
+            guard message.name == Self.messageName else { return }
+            if let error = message.body as? String {
+                Task { @MainActor in onError(error) }
+                return
+            }
+            guard let payload = message.body as? [String: Any],
+                  let type = payload["type"] as? String else { return }
+            if type == "error", let error = payload["message"] as? String {
+                Task { @MainActor in onError(error) }
+            } else if type == "progress",
+                      let position = (payload["position"] as? NSNumber)?.doubleValue,
+                      let duration = (payload["duration"] as? NSNumber)?.doubleValue,
+                      let completed = payload["completed"] as? Bool {
+                let sample = MediaPlaybackSample(
+                    positionSeconds: position,
+                    durationSeconds: duration,
+                    completed: completed,
+                    observedAt: Date()
+                )
+                lastSample = sample
+                Task { @MainActor in
+                    onProgress(sample)
+                }
+            }
+        }
+
+        func flushLastProgress() {
+            guard let lastSample else { return }
+            Task { @MainActor in onProgress(lastSample) }
         }
     }
 }
 
 enum CaptionedMediaDocument {
-    static func signature(url: URL, tracks: [AnimeSubtitleTrack]) -> String {
-        ([url.absoluteString] + tracks.map {
+    static func signature(
+        url: URL,
+        tracks: [AnimeSubtitleTrack],
+        initialPosition: Double = 0
+    ) -> String {
+        ([url.absoluteString, String(initialPosition)] + tracks.map {
             "\($0.fileURL.absoluteString)|\($0.label)|\($0.kind)|\($0.languageCode ?? "")|\($0.isDefault)"
         }).joined(separator: "\n")
     }
 
-    static func html(url: URL, tracks: [AnimeSubtitleTrack]) -> String {
+    static func html(
+        url: URL,
+        tracks: [AnimeSubtitleTrack],
+        initialPosition: Double = 0
+    ) -> String {
         let trackElements = tracks.map { track in
             let kind = allowedTrackKind(track.kind)
             let language = track.languageCode.map {
@@ -225,11 +464,38 @@ enum CaptionedMediaDocument {
           </video>
           <script>
             const player = document.getElementById('player');
-            const report = message => window.webkit.messageHandlers.asterionPlayback.postMessage(message);
-            player.addEventListener('error', () => report('The video source could not be played.'));
-            document.querySelectorAll('track').forEach(track => {
-              track.addEventListener('error', () => report(`The ${track.dataset.label} subtitle track could not be loaded.`));
+            const initialPosition = \(max(0, initialPosition));
+            let lastReport = -Infinity;
+            let hasPlayed = false;
+            const post = payload => window.webkit.messageHandlers.asterionPlayback.postMessage(payload);
+            const reportError = message => post({ type: 'error', message });
+            const reportProgress = force => {
+              if (!hasPlayed) return;
+              const position = Number.isFinite(player.currentTime) ? player.currentTime : 0;
+              const duration = Number.isFinite(player.duration) ? player.duration : 0;
+              if (!force && Math.abs(position - lastReport) < 15) return;
+              lastReport = position;
+              post({
+                type: 'progress',
+                position,
+                duration,
+                completed: duration > 0 && position / duration >= 0.90
+              });
+            };
+            player.addEventListener('loadedmetadata', () => {
+              if (initialPosition > 0 && initialPosition < player.duration) {
+                player.currentTime = initialPosition;
+              }
             });
+            player.addEventListener('playing', () => { hasPlayed = true; });
+            player.addEventListener('timeupdate', () => reportProgress(false));
+            player.addEventListener('pause', () => reportProgress(true));
+            player.addEventListener('ended', () => reportProgress(true));
+            player.addEventListener('error', () => reportError('The video source could not be played.'));
+            document.querySelectorAll('track').forEach(track => {
+              track.addEventListener('error', () => reportError(`The ${track.dataset.label} subtitle track could not be loaded.`));
+            });
+            window.__asterionFlush = () => reportProgress(true);
             player.play().catch(() => {});
           </script>
         </body>
@@ -254,11 +520,17 @@ enum CaptionedMediaDocument {
 }
 
 private struct RestrictedMediaWebView: NSViewRepresentable {
+    private static let telemetryContentWorld = WKContentWorld.world(
+        name: "cloud.cyberverse.Asterion.media-playback-telemetry"
+    )
+
     let url: URL
+    let initialPosition: Double
+    let onProgress: @MainActor @Sendable (MediaPlaybackSample) -> Void
     let onError: @MainActor (String) -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(initialURL: url, onError: onError)
+        Coordinator(initialURL: url, onProgress: onProgress, onError: onError)
     }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -267,6 +539,19 @@ private struct RestrictedMediaWebView: NSViewRepresentable {
         configuration.allowsAirPlayForMediaPlayback = true
         configuration.mediaTypesRequiringUserActionForPlayback = []
         configuration.preferences.isElementFullscreenEnabled = true
+        configuration.userContentController.add(
+            context.coordinator,
+            contentWorld: Self.telemetryContentWorld,
+            name: Coordinator.messageName
+        )
+        configuration.userContentController.addUserScript(
+            WKUserScript(
+                source: EmbeddedMediaProgressScript.source(initialPosition: initialPosition),
+                injectionTime: .atDocumentEnd,
+                forMainFrameOnly: false,
+                in: Self.telemetryContentWorld
+            )
+        )
 
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = context.coordinator
@@ -281,20 +566,42 @@ private struct RestrictedMediaWebView: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
-        webView.stopLoading()
+        coordinator.flushLastProgress()
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
-        webView.loadHTMLString("", baseURL: nil)
+        webView.evaluateJavaScript(
+            "window.__asterionFlush?.();",
+            in: nil,
+            in: Self.telemetryContentWorld
+        ) { [weak webView] _ in
+            guard let webView else { return }
+            webView.stopLoading()
+            webView.configuration.userContentController.removeScriptMessageHandler(
+                forName: Coordinator.messageName,
+                contentWorld: Self.telemetryContentWorld
+            )
+            webView.configuration.userContentController.removeAllUserScripts()
+            webView.loadHTMLString("", baseURL: nil)
+        }
     }
 
-    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
+        static let messageName = "asterionEmbeddedPlayback"
+
         private(set) var initialURL: URL
         private var navigationState: MediaNavigationState
+        private let onProgress: @MainActor @Sendable (MediaPlaybackSample) -> Void
         private let onError: @MainActor (String) -> Void
+        private var lastSample: MediaPlaybackSample?
 
-        init(initialURL: URL, onError: @escaping @MainActor (String) -> Void) {
+        init(
+            initialURL: URL,
+            onProgress: @escaping @MainActor @Sendable (MediaPlaybackSample) -> Void,
+            onError: @escaping @MainActor (String) -> Void
+        ) {
             self.initialURL = initialURL
             self.navigationState = MediaNavigationState(initialURL: initialURL)
+            self.onProgress = onProgress
             self.onError = onError
         }
 
@@ -380,9 +687,220 @@ private struct RestrictedMediaWebView: NSViewRepresentable {
             nil
         }
 
+        func userContentController(
+            _ userContentController: WKUserContentController,
+            didReceive message: WKScriptMessage
+        ) {
+            guard message.name == Self.messageName,
+                  message.world === RestrictedMediaWebView.telemetryContentWorld,
+                  let payload = message.body as? [String: Any],
+                  let position = (payload["position"] as? NSNumber)?.doubleValue,
+                  let duration = (payload["duration"] as? NSNumber)?.doubleValue,
+                  let completed = payload["completed"] as? Bool,
+                  position.isFinite,
+                  duration.isFinite,
+                  position > 0 else { return }
+            let sample = MediaPlaybackSample(
+                positionSeconds: position,
+                durationSeconds: duration,
+                completed: completed,
+                observedAt: Date()
+            )
+            lastSample = sample
+            Task { @MainActor in onProgress(sample) }
+        }
+
+        func flushLastProgress() {
+            guard let lastSample else { return }
+            Task { @MainActor in onProgress(lastSample) }
+        }
+
         private func report(_ message: String) {
             Task { @MainActor in onError(message) }
         }
+    }
+}
+
+enum EmbeddedMediaProgressScript {
+    static func source(initialPosition: Double) -> String {
+        """
+        (() => {
+          if (globalThis.__asterionProgressInstalled) return;
+          globalThis.__asterionProgressInstalled = true;
+          const initialPosition = \(max(0, initialPosition));
+          const players = new Set();
+          const playerState = new WeakMap();
+          let activePlayer = null;
+          let selectionQueued = false;
+
+          const post = payload => {
+            try {
+              window.webkit.messageHandlers.asterionEmbeddedPlayback.postMessage(payload);
+            } catch (_) {}
+          };
+
+          const stateFor = player => {
+            let state = playerState.get(player);
+            if (!state) {
+              state = {
+                hasPlayed: false,
+                lastReport: -Infinity,
+                resumeApplied: false
+              };
+              playerState.set(player, state);
+            }
+            return state;
+          };
+
+          const visiblePlayingArea = player => {
+            if (!player.isConnected
+                || player.paused
+                || player.ended
+                || player.playbackRate <= 0
+                || player.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+              return 0;
+            }
+            if (typeof player.checkVisibility === 'function'
+                && !player.checkVisibility({
+                  checkOpacity: true,
+                  checkVisibilityCSS: true
+                })) {
+              return 0;
+            }
+
+            const style = getComputedStyle(player);
+            if (style.display === 'none'
+                || style.visibility === 'hidden'
+                || style.visibility === 'collapse'
+                || Number.parseFloat(style.opacity || '1') <= 0) {
+              return 0;
+            }
+
+            const bounds = player.getBoundingClientRect();
+            const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
+            const viewportHeight = document.documentElement.clientHeight || window.innerHeight;
+            const width = Math.max(
+              0,
+              Math.min(bounds.right, viewportWidth) - Math.max(bounds.left, 0)
+            );
+            const height = Math.max(
+              0,
+              Math.min(bounds.bottom, viewportHeight) - Math.max(bounds.top, 0)
+            );
+            return width * height;
+          };
+
+          const emit = (player, force) => {
+            const state = stateFor(player);
+            if (!state.hasPlayed) return;
+            const position = Number.isFinite(player.currentTime) ? player.currentTime : 0;
+            const duration = Number.isFinite(player.duration) ? player.duration : 0;
+            if (position <= 0) return;
+            if (!force && Math.abs(position - state.lastReport) < 15) return;
+            state.lastReport = position;
+            post({
+              position,
+              duration,
+              completed: duration > 0 && position / duration >= 0.90
+            });
+          };
+
+          const applyResume = player => {
+            const state = stateFor(player);
+            if (state.resumeApplied || !state.hasPlayed || activePlayer !== player) return;
+            if (initialPosition <= 0 || !Number.isFinite(player.duration)) return;
+            state.resumeApplied = true;
+            if (initialPosition < player.duration) {
+              player.currentTime = initialPosition;
+            }
+          };
+
+          const selectActivePlayer = () => {
+            let selected = null;
+            let selectedArea = 0;
+            players.forEach(player => {
+              if (!player.isConnected) {
+                players.delete(player);
+                return;
+              }
+              const area = visiblePlayingArea(player);
+              if (area > selectedArea) {
+                selected = player;
+                selectedArea = area;
+              }
+            });
+
+            if (activePlayer !== selected) {
+              if (activePlayer) emit(activePlayer, true);
+              activePlayer = selected;
+            }
+            if (activePlayer) applyResume(activePlayer);
+            return activePlayer;
+          };
+
+          const scheduleSelection = () => {
+            if (selectionQueued) return;
+            selectionQueued = true;
+            requestAnimationFrame(() => {
+              selectionQueued = false;
+              selectActivePlayer();
+            });
+          };
+
+          const reportIfSelected = (player, force) => {
+            const selected = selectActivePlayer();
+            if (selected === player) emit(player, force);
+          };
+
+          const attach = player => {
+            if (!(player instanceof HTMLMediaElement) || players.has(player)) return;
+            players.add(player);
+            const state = stateFor(player);
+            player.addEventListener('playing', () => {
+              state.hasPlayed = true;
+              scheduleSelection();
+            });
+            player.addEventListener('loadedmetadata', scheduleSelection);
+            player.addEventListener('durationchange', scheduleSelection);
+            player.addEventListener('timeupdate', () => reportIfSelected(player, false));
+            player.addEventListener('pause', () => {
+              if (activePlayer === player) emit(player, true);
+              scheduleSelection();
+            });
+            player.addEventListener('ended', () => {
+              if (activePlayer === player) emit(player, true);
+              scheduleSelection();
+            });
+            if (!player.paused && !player.ended) {
+              state.hasPlayed = true;
+            }
+            scheduleSelection();
+          };
+
+          const scan = root => {
+            if (root instanceof HTMLMediaElement) attach(root);
+            root.querySelectorAll?.('video, audio').forEach(attach);
+          };
+
+          scan(document);
+          new MutationObserver(records => {
+            records.forEach(record => record.addedNodes.forEach(node => {
+              if (node instanceof Element) scan(node);
+            }));
+          }).observe(document.documentElement, { childList: true, subtree: true });
+
+          window.addEventListener('resize', scheduleSelection);
+          window.addEventListener('scroll', scheduleSelection, true);
+          window.addEventListener('pagehide', () => {
+            const selected = selectActivePlayer();
+            if (selected) emit(selected, true);
+          });
+          globalThis.__asterionFlush = () => {
+            const selected = selectActivePlayer();
+            if (selected) emit(selected, true);
+          };
+        })();
+        """
     }
 }
 

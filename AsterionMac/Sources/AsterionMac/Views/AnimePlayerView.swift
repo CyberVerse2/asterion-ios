@@ -2,6 +2,7 @@ import SwiftUI
 
 struct AnimePlayerView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @EnvironmentObject private var model: AppModel
     let route: AnimePlayerRoute
 
     @StateObject private var store = AnimePlayerStore()
@@ -9,6 +10,11 @@ struct AnimePlayerView: View {
     @State private var selectedEpisodePage = 0
     @State private var episodeSearch = ""
     @State private var episodeSearchError: String?
+    @State private var activePlayback: MediaPlaybackDescriptor?
+    @State private var preparingPlayback: MediaPlaybackDescriptor?
+    @State private var activePlaybackSessionID: String?
+    @State private var playbackResumePosition: Double = 0
+    @State private var playbackPreparationID = UUID()
 
     private let longEpisodeThreshold = 40
 
@@ -48,13 +54,20 @@ struct AnimePlayerView: View {
         .toolbar(removing: .title)
         .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         .task(id: route) {
+            activePlayback = nil
+            preparingPlayback = nil
+            activePlaybackSessionID = nil
+            playbackResumePosition = 0
+            playbackPreparationID = UUID()
             await store.load(route: route)
+            preparePlayback()
         }
         .onChange(of: store.episodes) { _, _ in
             revealSelectedEpisode()
         }
         .onChange(of: store.selectedEpisodeID) { _, _ in
             revealSelectedEpisode()
+            preparePlayback()
         }
     }
 
@@ -432,13 +445,44 @@ struct AnimePlayerView: View {
                 }
                 .foregroundStyle(.white)
                 .padding()
-            } else if let option = store.selectedPlaybackOption {
+            } else if preparingPlayback != nil {
+                ProgressView("Syncing your place…")
+                    .tint(.white)
+                    .foregroundStyle(.white)
+            } else if let option = store.selectedPlaybackOption,
+                      let playback = activePlayback,
+                      let sessionID = activePlaybackSessionID {
                 switch option.kind {
                 case .direct:
-                    MediaDirectPlayer(url: option.url, subtitleTracks: option.subtitleTracks)
+                    MediaDirectPlayer(
+                        url: option.url,
+                        subtitleTracks: option.subtitleTracks,
+                        initialPosition: playbackResumePosition,
+                        onProgress: { sample in
+                            Task {
+                                await model.recordMediaPlaybackSample(
+                                    playback,
+                                    sample: sample,
+                                    sessionID: sessionID
+                                )
+                            }
+                        }
+                    )
                         .id(option.id)
                 case .embed:
-                    MediaWebPlayer(url: option.url)
+                    MediaWebPlayer(
+                        url: option.url,
+                        initialPosition: playbackResumePosition,
+                        onProgress: { sample in
+                            Task {
+                                await model.recordMediaPlaybackSample(
+                                    playback,
+                                    sample: sample,
+                                    sessionID: sessionID
+                                )
+                            }
+                        }
+                    )
                         .id(option.id)
                 }
             } else {
@@ -452,5 +496,37 @@ struct AnimePlayerView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.black)
+    }
+
+    private func preparePlayback() {
+        guard let show = store.show, let episode = store.selectedEpisode else { return }
+        let playback = MediaPlaybackDescriptor(
+            item: MediaItemDescriptor(
+                mediaType: .anime,
+                contentID: show.slug,
+                title: show.displayTitle,
+                subtitle: show.season ?? show.type,
+                imageURL: show.imageURL
+            ),
+            unitID: episode.id,
+            unitTitle: "Episode \(episode.number)",
+            seasonNumber: nil,
+            episodeNumber: episode.number
+        )
+        guard activePlayback != playback, preparingPlayback != playback else { return }
+        let preparationID = UUID()
+        playbackPreparationID = preparationID
+        preparingPlayback = playback
+        activePlayback = nil
+        activePlaybackSessionID = nil
+        Task { @MainActor in
+            let resumePosition = await model.preparedResumePosition(for: playback)
+            guard playbackPreparationID == preparationID,
+                  preparingPlayback == playback else { return }
+            playbackResumePosition = resumePosition
+            activePlayback = playback
+            activePlaybackSessionID = UUID().uuidString
+            preparingPlayback = nil
+        }
     }
 }

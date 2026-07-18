@@ -2,6 +2,7 @@ import SwiftUI
 
 struct FootballDetailView: View {
     @Environment(\.openWindow) private var openWindow
+    @EnvironmentObject private var model: AppModel
     @ObservedObject var store: FootballStore
 
     var body: some View {
@@ -84,19 +85,65 @@ struct FootballDetailView: View {
     }
 
     private func watchAction(_ match: FootballMatch) -> some View {
-        Button {
-            openWindow(value: FootballPlayerRoute(match: match))
-        } label: {
-            Label(match.isLive ? "Watch live" : "Match not live", systemImage: "play.fill")
-                .frame(maxWidth: .infinity)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Button {
+                    openWindow(value: FootballPlayerRoute(match: match))
+                } label: {
+                    Label(match.isLive ? "Watch live" : "Match not live", systemImage: "play.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.glassProminent)
+                .buttonBorderShape(.roundedRectangle(radius: 10))
+                .controlSize(.large)
+                .tint(.asterionAccent)
+                .keyboardShortcut(.return, modifiers: .command)
+                .disabled(!match.isLive || match.sources.isEmpty)
+                .help(match.isLive ? "Open in Asterion Live" : "This match is not live yet")
+
+                mediaBookmarkButton(match)
+            }
+
+            if let error = model.mediaBookmarkError {
+                Label(error, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(Color.asterionAccent)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
-        .buttonStyle(.glassProminent)
-        .buttonBorderShape(.roundedRectangle(radius: 10))
+    }
+
+    private func mediaBookmarkButton(_ match: FootballMatch) -> some View {
+        let item = MediaItemDescriptor(
+            mediaType: .football,
+            contentID: match.id,
+            title: match.displayTitle,
+            subtitle: "\(match.category.capitalized) · \(match.kickoff.formatted(date: .abbreviated, time: .shortened))",
+            imageURL: match.posterURL
+        )
+        let isSaved = model.isMediaBookmarked(item.key)
+        let isUpdating = model.isUpdatingMediaBookmark(item.key)
+
+        return Button {
+            guard model.isSignedIn else {
+                openWindow(id: "authentication")
+                return
+            }
+            Task { await model.toggleMediaBookmark(item) }
+        } label: {
+            if isUpdating {
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(width: 72)
+            } else {
+                Label(isSaved ? "Saved" : "Save", systemImage: isSaved ? "bookmark.fill" : "bookmark")
+                    .frame(width: 72)
+            }
+        }
+        .buttonStyle(.bordered)
         .controlSize(.large)
-        .tint(.asterionAccent)
-        .keyboardShortcut(.return, modifiers: .command)
-        .disabled(!match.isLive || match.sources.isEmpty)
-        .help(match.isLive ? "Open in Asterion Live" : "This match is not live yet")
+        .disabled(isUpdating)
+        .help(isSaved ? "Remove saved match" : "Save this match to your account")
     }
 
     private func metadataLine(icon: String, value: String) -> some View {

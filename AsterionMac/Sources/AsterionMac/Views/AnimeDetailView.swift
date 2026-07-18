@@ -2,6 +2,7 @@ import SwiftUI
 
 struct AnimeDetailView: View {
     @Environment(\.openWindow) private var openWindow
+    @EnvironmentObject private var model: AppModel
     @ObservedObject var store: AnimeStore
 
     @State private var scrollPosition: String?
@@ -143,21 +144,67 @@ struct AnimeDetailView: View {
     }
 
     private func watchAction(_ show: AnimeShow) -> some View {
-        Button {
-            guard let episode = preferredEpisode else { return }
-            openPlayer(show: show, episode: episode)
-        } label: {
-            Label(watchButtonTitle, systemImage: "play.fill")
-                .lineLimit(1)
-                .frame(maxWidth: .infinity)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Button {
+                    guard let episode = preferredEpisode else { return }
+                    openPlayer(show: show, episode: episode)
+                } label: {
+                    Label(watchButtonTitle, systemImage: "play.fill")
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.glassProminent)
+                .buttonBorderShape(.roundedRectangle(radius: 10))
+                .controlSize(.large)
+                .tint(.asterionAccent)
+                .keyboardShortcut(.return, modifiers: .command)
+                .disabled(store.episodes.isEmpty)
+                .help("Open in Anime Player")
+
+                mediaBookmarkButton(show)
+            }
+
+            if let error = model.mediaBookmarkError {
+                Label(error, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(Color.asterionAccent)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
-        .buttonStyle(.glassProminent)
-        .buttonBorderShape(.roundedRectangle(radius: 10))
+    }
+
+    private func mediaBookmarkButton(_ show: AnimeShow) -> some View {
+        let item = MediaItemDescriptor(
+            mediaType: .anime,
+            contentID: show.slug,
+            title: show.displayTitle,
+            subtitle: show.season ?? show.type,
+            imageURL: show.imageURL
+        )
+        let isSaved = model.isMediaBookmarked(item.key)
+        let isUpdating = model.isUpdatingMediaBookmark(item.key)
+
+        return Button {
+            guard model.isSignedIn else {
+                openWindow(id: "authentication")
+                return
+            }
+            Task { await model.toggleMediaBookmark(item) }
+        } label: {
+            if isUpdating {
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(width: 72)
+            } else {
+                Label(isSaved ? "Saved" : "Save", systemImage: isSaved ? "bookmark.fill" : "bookmark")
+                    .frame(width: 72)
+            }
+        }
+        .buttonStyle(.bordered)
         .controlSize(.large)
-        .tint(.asterionAccent)
-        .keyboardShortcut(.return, modifiers: .command)
-        .disabled(store.episodes.isEmpty)
-        .help("Open in Anime Player")
+        .disabled(isUpdating)
+        .help(isSaved ? "Remove from saved anime" : "Save anime to your account")
     }
 
     @ViewBuilder

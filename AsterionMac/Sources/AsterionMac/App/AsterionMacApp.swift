@@ -72,6 +72,7 @@ struct AsterionApp: App {
         WindowGroup("Anime Player", for: AnimePlayerRoute.self) { $route in
             if let route {
                 AnimePlayerView(route: route)
+                    .environmentObject(model)
             }
         }
         .defaultSize(width: 1_080, height: 700)
@@ -82,6 +83,7 @@ struct AsterionApp: App {
         WindowGroup("Asterion Player", for: MoviePlayerRoute.self) { $route in
             if let route {
                 MoviePlayerView(route: route)
+                    .environmentObject(model)
             }
         }
         .defaultSize(width: 1_080, height: 700)

@@ -248,6 +248,123 @@ actor APIClient {
         return envelope.data
     }
 
+    func fetchMediaAccount() async throws -> MediaAccountSnapshot {
+        let envelope: DataEnvelope<MediaAccountSnapshot> = try await request(path: "/me/media")
+        return envelope.data
+    }
+
+    func saveMediaBookmark(
+        _ item: MediaItemDescriptor,
+        clientEventAt: Date
+    ) async throws -> MediaBookmarkMutationResult {
+        struct Body: Encodable, Sendable {
+            let mediaType: MediaAccountType
+            let contentId: String
+            let title: String
+            let subtitle: String?
+            let imageUrl: String?
+            let clientEventAt: String
+        }
+        let envelope: DataEnvelope<MediaBookmarkMutationResult?> = try await request(
+            path: "/me/media/bookmarks",
+            method: "PUT",
+            body: Body(
+                mediaType: item.mediaType,
+                contentId: item.contentID,
+                title: item.title,
+                subtitle: item.subtitle,
+                imageUrl: item.imageURL?.absoluteString,
+                clientEventAt: Self.iso8601String(clientEventAt)
+            )
+        )
+        guard let result = envelope.data,
+              !result.isSaved || result.bookmark != nil else { throw APIError.invalidResponse }
+        return result
+    }
+
+    func deleteMediaBookmark(
+        _ item: MediaItemDescriptor,
+        clientEventAt: Date
+    ) async throws -> MediaBookmarkMutationResult {
+        struct Body: Encodable, Sendable {
+            let mediaType: MediaAccountType
+            let contentId: String
+            let title: String
+            let subtitle: String?
+            let imageUrl: String?
+            let clientEventAt: String
+        }
+        let envelope: DataEnvelope<MediaBookmarkMutationResult?> = try await request(
+            path: "/me/media/bookmarks",
+            method: "DELETE",
+            body: Body(
+                mediaType: item.mediaType,
+                contentId: item.contentID,
+                title: item.title,
+                subtitle: item.subtitle,
+                imageUrl: item.imageURL?.absoluteString,
+                clientEventAt: Self.iso8601String(clientEventAt)
+            )
+        )
+        guard let result = envelope.data,
+              !result.isSaved || result.bookmark != nil else { throw APIError.invalidResponse }
+        return result
+    }
+
+    func saveMediaProgress(
+        _ playback: MediaPlaybackDescriptor,
+        positionSeconds: Double,
+        durationSeconds: Double,
+        completed: Bool?,
+        started: Bool,
+        sessionID: String,
+        clientEventAt: Date
+    ) async throws -> MediaProgressSaveResult {
+        struct Body: Encodable, Sendable {
+            let mediaType: MediaAccountType
+            let contentId: String
+            let title: String
+            let imageUrl: String?
+            let unitId: String
+            let unitTitle: String?
+            let seasonNumber: Int?
+            let episodeNumber: Int?
+            let positionSeconds: Double
+            let durationSeconds: Double
+            let completed: Bool?
+            let started: Bool
+            let sessionId: String
+            let clientEventAt: String
+        }
+        let envelope: DataEnvelope<MediaProgressSaveResult> = try await request(
+            path: "/me/media/progress",
+            method: "PUT",
+            body: Body(
+                mediaType: playback.item.mediaType,
+                contentId: playback.item.contentID,
+                title: playback.item.title,
+                imageUrl: playback.item.imageURL?.absoluteString,
+                unitId: playback.unitID,
+                unitTitle: playback.unitTitle,
+                seasonNumber: playback.seasonNumber,
+                episodeNumber: playback.episodeNumber,
+                positionSeconds: max(0, positionSeconds),
+                durationSeconds: max(0, durationSeconds),
+                completed: completed,
+                started: started,
+                sessionId: sessionID,
+                clientEventAt: Self.iso8601String(clientEventAt)
+            )
+        )
+        return envelope.data
+    }
+
+    private static func iso8601String(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: date)
+    }
+
     private func request<Response: Decodable & Sendable>(
         path: String,
         query: [URLQueryItem] = [],

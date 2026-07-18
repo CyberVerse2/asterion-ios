@@ -2,11 +2,17 @@ import SwiftUI
 
 struct MoviePlayerView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @EnvironmentObject private var model: AppModel
     let route: MoviePlayerRoute
 
     @StateObject private var store = MoviePlayerStore()
     @State private var showsEpisodeList = false
     @State private var selectedSeason: Int?
+    @State private var activePlayback: MediaPlaybackDescriptor?
+    @State private var preparingPlayback: MediaPlaybackDescriptor?
+    @State private var activePlaybackSessionID: String?
+    @State private var playbackResumePosition: Double = 0
+    @State private var playbackPreparationID = UUID()
 
     var body: some View {
         Group {
@@ -46,10 +52,17 @@ struct MoviePlayerView: View {
         .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         .task(id: route) {
             showsEpisodeList = false
+            activePlayback = nil
+            preparingPlayback = nil
+            activePlaybackSessionID = nil
+            playbackResumePosition = 0
+            playbackPreparationID = UUID()
             await store.load(route: route)
+            preparePlayback()
         }
         .onChange(of: store.selectedEpisode) { _, episode in
             if let episode { selectedSeason = episode.season }
+            preparePlayback()
         }
     }
 
@@ -222,12 +235,44 @@ struct MoviePlayerView: View {
                 }
                 .foregroundStyle(.white)
                 .padding()
-            } else if let option = store.selectedPlaybackOption {
+            } else if preparingPlayback != nil {
+                ProgressView("Syncing your place…")
+                    .tint(.white)
+                    .foregroundStyle(.white)
+            } else if let option = store.selectedPlaybackOption,
+                      let playback = activePlayback,
+                      let sessionID = activePlaybackSessionID {
                 switch option.kind {
                 case .direct:
-                    MediaDirectPlayer(url: option.url).id(option.id)
+                    MediaDirectPlayer(
+                        url: option.url,
+                        initialPosition: playbackResumePosition,
+                        onProgress: { sample in
+                            Task {
+                                await model.recordMediaPlaybackSample(
+                                    playback,
+                                    sample: sample,
+                                    sessionID: sessionID
+                                )
+                            }
+                        }
+                    )
+                    .id(option.id)
                 case .web:
-                    MediaWebPlayer(url: option.url).id(option.id)
+                    MediaWebPlayer(
+                        url: option.url,
+                        initialPosition: playbackResumePosition,
+                        onProgress: { sample in
+                            Task {
+                                await model.recordMediaPlaybackSample(
+                                    playback,
+                                    sample: sample,
+                                    sessionID: sessionID
+                                )
+                            }
+                        }
+                    )
+                    .id(option.id)
                 }
             } else {
                 ContentUnavailableView(
@@ -257,5 +302,38 @@ struct MoviePlayerView: View {
         let season = selectedSeason ?? store.selectedEpisode?.season ?? availableSeasons.first
         guard let season else { return [] }
         return store.episodes.filter { $0.season == season }
+    }
+
+    private func preparePlayback() {
+        guard let show = store.show else { return }
+        let episode = store.selectedEpisode
+        let playback = MediaPlaybackDescriptor(
+            item: MediaItemDescriptor(
+                mediaType: .movie,
+                contentID: show.slug,
+                title: show.displayTitle,
+                subtitle: show.isSeries ? "TV Series" : "Movie",
+                imageURL: show.imageURL
+            ),
+            unitID: episode?.id ?? show.slug,
+            unitTitle: episode?.title,
+            seasonNumber: episode?.season,
+            episodeNumber: episode?.number
+        )
+        guard activePlayback != playback, preparingPlayback != playback else { return }
+        let preparationID = UUID()
+        playbackPreparationID = preparationID
+        preparingPlayback = playback
+        activePlayback = nil
+        activePlaybackSessionID = nil
+        Task { @MainActor in
+            let resumePosition = await model.preparedResumePosition(for: playback)
+            guard playbackPreparationID == preparationID,
+                  preparingPlayback == playback else { return }
+            playbackResumePosition = resumePosition
+            activePlayback = playback
+            activePlaybackSessionID = UUID().uuidString
+            preparingPlayback = nil
+        }
     }
 }

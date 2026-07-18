@@ -1,6 +1,14 @@
 import ClerkKit
 import Foundation
 
+private struct MediaOutboxRejectedError: LocalizedError {
+    let messages: [String]
+
+    var errorDescription: String? {
+        messages.joined(separator: " ")
+    }
+}
+
 @MainActor
 final class AppModel: ObservableObject {
     private static let offlineDownloadConcurrency = 6
@@ -14,6 +22,11 @@ final class AppModel: ObservableObject {
         case librarySync
         case progressSave
         case libraryMutation
+        case mediaSync
+        case localMediaActivity
+        case rejectedMediaActivity
+        case mediaBookmarkMutation
+        case mediaProgressSave
         case signOut
     }
 
@@ -43,12 +56,20 @@ final class AppModel: ObservableObject {
     @Published private(set) var chapterListStateByNovelID: [String: ChapterListLoadState] = [:]
     @Published private(set) var catalogError: String?
     @Published private(set) var accountError: String?
+    @Published private(set) var mediaBookmarksByKey: [MediaAccountKey: MediaBookmark] = [:]
+    @Published private(set) var mediaProgressByKey: [MediaAccountKey: MediaPlaybackProgress] = [:]
+    @Published private(set) var mediaHistory: [MediaHistoryEntry] = []
+    @Published private(set) var mediaStats = MediaAccountStats.empty
+    @Published private(set) var updatingMediaBookmarkKeys: Set<MediaAccountKey> = []
+    @Published private(set) var mediaBookmarkError: String?
 
     let api = APIClient()
     private let offlineLibrary = OfflineLibraryStore()
     private let readingProgressStore = ReadingProgressStore()
+    private let mediaActivityStore = MediaActivityStore()
     private let networkStatus = NetworkStatusMonitor()
     private lazy var progressUploadQueue = ReadingProgressUploadQueue(api: api)
+    private lazy var mediaProgressUploadQueue = MediaProgressUploadQueue(api: api)
 
     private var chapterByID: [String: Chapter] = [:]
     private var remoteNovelIDs: Set<String> = []
@@ -59,14 +80,29 @@ final class AppModel: ObservableObject {
     private var shouldResynchronizeSession = false
     private var authEventsTask: Task<Void, Never>?
     private var networkEventsTask: Task<Void, Never>?
+    private var mediaOutboxTask: Task<Void, Never>?
+    private var startedMediaSessionIDs: Set<String> = []
+    private var mediaHydratedOwnerID: String?
+    private var mediaHydrationWaiters: [CheckedContinuation<Void, Never>] = []
 
     deinit {
         authEventsTask?.cancel()
         networkEventsTask?.cancel()
+        mediaOutboxTask?.cancel()
         networkStatus.cancel()
     }
 
     var isSignedIn: Bool { signedInUser != nil }
+
+    var mediaBookmarks: [MediaBookmark] {
+        mediaBookmarksByKey.values.sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    var continueWatching: [MediaPlaybackProgress] {
+        mediaProgressByKey.values
+            .filter { !$0.completed }
+            .sorted { $0.updatedAt > $1.updatedAt }
+    }
 
     var offlineDownloads: [OfflineDownload] {
         offlineDownloadByNovelID.values.sorted { lhs, rhs in
@@ -390,6 +426,197 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func isMediaBookmarked(_ key: MediaAccountKey) -> Bool {
+        mediaBookmarksByKey[key] != nil
+    }
+
+    func isUpdatingMediaBookmark(_ key: MediaAccountKey) -> Bool {
+        updatingMediaBookmarkKeys.contains(key)
+    }
+
+    func toggleMediaBookmark(_ item: MediaItemDescriptor) async {
+        guard let ownerID = signedInUser?.id else {
+            let message = "Sign in to save \(item.mediaType.title.lowercased()) to your account."
+            mediaBookmarkError = message
+            setAccountError(.mediaBookmarkMutation, message)
+            return
+        }
+        guard updatingMediaBookmarkKeys.insert(item.key).inserted else { return }
+        defer { updatingMediaBookmarkKeys.remove(item.key) }
+
+        let mutation: LocalMediaBookmarkMutation
+        do {
+            mutation = try await mediaActivityStore.recordBookmark(
+                ownerID: ownerID,
+                item: item,
+                isSaved: mediaBookmarksByKey[item.key] == nil,
+                clientEventAt: Date()
+            )
+            try await loadLocalMediaActivity(ownerID: ownerID)
+            setAccountError(.localMediaActivity, nil)
+        } catch {
+            let message = "The bookmark could not be saved on this Mac: \(error.localizedDescription)"
+            mediaBookmarkError = message
+            setAccountError(.localMediaActivity, message)
+            return
+        }
+
+        do {
+            try await uploadMediaBookmarkMutation(mutation)
+            guard signedInUser?.id == ownerID else { return }
+            try await loadLocalMediaActivity(ownerID: ownerID)
+            mediaBookmarkError = nil
+            setAccountError(.mediaBookmarkMutation, nil)
+        } catch {
+            if isPermanentMediaSyncError(error) {
+                let recordedRejection = (try? await mediaActivityStore.rejectBookmarkMutation(
+                    ownerID: ownerID,
+                    mutation: mutation,
+                    message: error.localizedDescription,
+                    rejectedAt: Date()
+                )) ?? false
+                try? await loadLocalMediaActivity(ownerID: ownerID)
+                if recordedRejection {
+                    let message = "\(item.title) could not sync: \(error.localizedDescription)"
+                    mediaBookmarkError = message
+                    setAccountError(.mediaBookmarkMutation, message)
+                } else {
+                    mediaBookmarkError = nil
+                    setAccountError(.mediaBookmarkMutation, nil)
+                }
+                return
+            }
+            let message = "The bookmark is saved on this Mac and will sync automatically: \(error.localizedDescription)"
+            mediaBookmarkError = message
+            setAccountError(.mediaBookmarkMutation, message)
+            scheduleMediaOutboxFlush(ownerID: ownerID)
+        }
+    }
+
+    func resumePosition(for playback: MediaPlaybackDescriptor) -> Double {
+        guard let progress = mediaProgressByKey[playback.item.key],
+              progress.unitId == playback.unitID,
+              !progress.completed else { return 0 }
+        return max(0, progress.positionSeconds)
+    }
+
+    func preparedResumePosition(for playback: MediaPlaybackDescriptor) async -> Double {
+        guard let ownerID = signedInUser?.id else { return 0 }
+        await waitForMediaHydration(ownerID: ownerID)
+        guard signedInUser?.id == ownerID else { return 0 }
+        return resumePosition(for: playback)
+    }
+
+    func recordMediaPlaybackSample(
+        _ playback: MediaPlaybackDescriptor,
+        sample: MediaPlaybackSample,
+        sessionID: String
+    ) async {
+        guard sample.positionSeconds.isFinite,
+              sample.durationSeconds.isFinite,
+              sample.positionSeconds > 0 else { return }
+        guard let ownerID = signedInUser?.id else { return }
+        await waitForMediaHydration(ownerID: ownerID)
+        guard signedInUser?.id == ownerID else { return }
+        let started = !startedMediaSessionIDs.contains(sessionID)
+        await saveMediaPlayback(
+            playback,
+            positionSeconds: sample.positionSeconds,
+            durationSeconds: sample.durationSeconds,
+            completed: sample.completed,
+            started: started,
+            sessionID: sessionID,
+            clientEventAt: sample.observedAt
+        )
+    }
+
+    private func saveMediaPlayback(
+        _ playback: MediaPlaybackDescriptor,
+        positionSeconds: Double,
+        durationSeconds: Double,
+        completed: Bool? = nil,
+        started: Bool = false,
+        sessionID: String,
+        clientEventAt: Date
+    ) async {
+        guard let ownerID = signedInUser?.id else { return }
+        let event: LocalMediaPlaybackEvent
+        do {
+            event = try await mediaActivityStore.record(
+                ownerID: ownerID,
+                playback: playback,
+                positionSeconds: positionSeconds,
+                durationSeconds: durationSeconds,
+                completed: completed,
+                started: started,
+                sessionID: sessionID,
+                clientEventAt: clientEventAt
+            )
+            try await loadLocalMediaActivity(ownerID: ownerID)
+            if started { startedMediaSessionIDs.insert(sessionID) }
+            setAccountError(.localMediaActivity, nil)
+        } catch {
+            setAccountError(
+                .localMediaActivity,
+                "Watch progress could not be saved on this Mac: \(error.localizedDescription)"
+            )
+            return
+        }
+
+        do {
+            let result = try await mediaProgressUploadQueue.submit(
+                MediaProgressUploadQueue.Request(
+                    ownerID: ownerID,
+                    playback: event.playback,
+                    positionSeconds: event.positionSeconds,
+                    durationSeconds: event.durationSeconds,
+                    completed: event.completed,
+                    started: event.started,
+                    sessionID: event.sessionID,
+                    clientEventAt: event.clientEventAt
+                )
+            )
+            guard signedInUser?.id == ownerID else { return }
+            try await mediaActivityStore.acknowledge(ownerID: ownerID, eventID: event.id)
+            try await mediaActivityStore.mergeRemote(
+                ownerID: ownerID,
+                progress: result.progress.map { [$0] } ?? [],
+                history: result.history.map { [$0] } ?? [],
+                stats: nil
+            )
+            try await loadLocalMediaActivity(ownerID: ownerID)
+            setAccountError(.mediaProgressSave, nil)
+        } catch MediaProgressUploadQueueError.superseded {
+            return
+        } catch is CancellationError {
+            return
+        } catch {
+            if isPermanentMediaSyncError(error) {
+                let recordedRejection = (try? await mediaActivityStore.rejectPlaybackEvent(
+                    ownerID: ownerID,
+                    event: event,
+                    message: error.localizedDescription,
+                    rejectedAt: Date()
+                )) ?? false
+                try? await loadLocalMediaActivity(ownerID: ownerID)
+                if recordedRejection {
+                    setAccountError(
+                        .mediaProgressSave,
+                        "\(playback.item.title) could not sync: \(error.localizedDescription)"
+                    )
+                } else {
+                    setAccountError(.mediaProgressSave, nil)
+                }
+                return
+            }
+            setAccountError(
+                .mediaProgressSave,
+                "Watch progress is saved on this Mac and will sync automatically: \(error.localizedDescription)"
+            )
+            scheduleMediaOutboxFlush(ownerID: ownerID)
+        }
+    }
+
     func fetchProgress(novelID: String) async throws -> ReadingProgress? {
         let ownerID = progressOwnerID
         if let local = try await readingProgressStore.progress(ownerID: ownerID, novelID: novelID) {
@@ -514,8 +741,19 @@ final class AppModel: ObservableObject {
 
         guard let clerkUser = Clerk.shared.user else {
             await progressUploadQueue.cancelAll()
+            await mediaProgressUploadQueue.cancelAll()
+            mediaOutboxTask?.cancel()
+            mediaOutboxTask = nil
+            startedMediaSessionIDs = []
+            finishMediaHydration(ownerID: nil)
             signedInUser = nil
             libraryNovelIDs = []
+            mediaBookmarksByKey = [:]
+            mediaProgressByKey = [:]
+            mediaHistory = []
+            mediaStats = .empty
+            updatingMediaBookmarkKeys = []
+            mediaBookmarkError = nil
             await api.setToken(nil)
             clearRemoteAccountErrors()
             do {
@@ -537,7 +775,21 @@ final class AppModel: ObservableObject {
             .joined(separator: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let name = fullName.isEmpty ? (email ?? "Asterion Reader") : fullName
+        let changesOwner = signedInUser?.id != clerkUser.id
         await progressUploadQueue.cancelAll(exceptOwnerID: clerkUser.id)
+        await mediaProgressUploadQueue.cancelAll(exceptOwnerID: clerkUser.id)
+        if changesOwner {
+            mediaOutboxTask?.cancel()
+            mediaOutboxTask = nil
+            startedMediaSessionIDs = []
+            finishMediaHydration(ownerID: nil)
+            mediaBookmarksByKey = [:]
+            mediaProgressByKey = [:]
+            mediaHistory = []
+            mediaStats = .empty
+            updatingMediaBookmarkKeys = []
+            mediaBookmarkError = nil
+        }
         signedInUser = SignedInUser(
             id: clerkUser.id,
             name: name,
@@ -556,6 +808,16 @@ final class AppModel: ObservableObject {
         }
 
         do {
+            try await loadLocalMediaActivity(ownerID: clerkUser.id)
+            setAccountError(.localMediaActivity, nil)
+        } catch {
+            setAccountError(
+                .localMediaActivity,
+                "Local watch progress could not be loaded: \(error.localizedDescription)"
+            )
+        }
+
+        do {
             let token = try await Clerk.shared.auth.getToken()
             await api.setToken(token)
             setAccountError(.authentication, nil)
@@ -564,6 +826,7 @@ final class AppModel: ObservableObject {
                 .authentication,
                 "The account session could not be authenticated: \(error.localizedDescription)"
             )
+            finishMediaHydration(ownerID: clerkUser.id)
             return
         }
 
@@ -574,7 +837,8 @@ final class AppModel: ObservableObject {
             avatarURL: clerkUser.imageUrl
         )
         async let librarySync: Void = synchronizeLibraryForSession()
-        _ = await (progressSync, profileSync, librarySync)
+        async let mediaSync: Void = synchronizeMediaAccountForSession(ownerID: clerkUser.id)
+        _ = await (progressSync, profileSync, librarySync, mediaSync)
     }
 
     private var progressOwnerID: String {
@@ -631,6 +895,222 @@ final class AppModel: ObservableObject {
                 "The saved library could not be loaded: \(error.localizedDescription)"
             )
         }
+    }
+
+    private func synchronizeMediaAccountForSession(ownerID: String) async {
+        defer { finishMediaHydration(ownerID: ownerID) }
+        var failures: [String] = []
+
+        do {
+            try await flushMediaOutbox(ownerID: ownerID)
+        } catch let error as MediaOutboxRejectedError {
+            failures.append(error.localizedDescription)
+        } catch {
+            failures.append("Pending watch activity could not be uploaded: \(error.localizedDescription)")
+            scheduleMediaOutboxFlush(ownerID: ownerID)
+        }
+
+        do {
+            let server = try await api.fetchMediaAccount()
+            try await mediaActivityStore.mergeRemote(
+                ownerID: ownerID,
+                bookmarks: server.bookmarks,
+                progress: server.progress,
+                history: server.history,
+                stats: server.stats
+            )
+        } catch {
+            failures.append("Account media could not be downloaded: \(error.localizedDescription)")
+        }
+
+        do {
+            try await loadLocalMediaActivity(ownerID: ownerID)
+        } catch {
+            failures.append("The media copy on this Mac could not be loaded: \(error.localizedDescription)")
+        }
+
+        if failures.isEmpty {
+            setAccountError(.mediaSync, nil)
+        } else {
+            setAccountError(
+                .mediaSync,
+                "Watch activity is using the copy on this Mac until sync succeeds. "
+                    + failures.joined(separator: " ")
+            )
+        }
+    }
+
+    private func loadLocalMediaActivity(ownerID: String) async throws {
+        let snapshot = try await mediaActivityStore.snapshot(ownerID: ownerID)
+        mediaBookmarksByKey = Dictionary(
+            uniqueKeysWithValues: snapshot.bookmarks.map { ($0.key, $0) }
+        )
+        mediaProgressByKey = Dictionary(
+            uniqueKeysWithValues: snapshot.progress.map { ($0.key, $0) }
+        )
+        mediaHistory = Array(snapshot.history.prefix(100))
+        mediaStats = snapshot.stats
+        let rejectedMessage = snapshot.rejectedItems.isEmpty
+            ? nil
+            : snapshot.rejectedItems
+                .map { "\($0.title): \($0.message)" }
+                .joined(separator: "\n")
+        setAccountError(.rejectedMediaActivity, rejectedMessage)
+    }
+
+    private func uploadMediaBookmarkMutation(
+        _ mutation: LocalMediaBookmarkMutation
+    ) async throws {
+        guard signedInUser?.id == mutation.ownerID else { throw CancellationError() }
+        let result: MediaBookmarkMutationResult
+        if mutation.isSaved {
+            result = try await api.saveMediaBookmark(
+                mutation.item,
+                clientEventAt: mutation.clientEventAt
+            )
+        } else {
+            result = try await api.deleteMediaBookmark(
+                mutation.item,
+                clientEventAt: mutation.clientEventAt
+            )
+        }
+        try await mediaActivityStore.resolveBookmarkMutation(
+            ownerID: mutation.ownerID,
+            mutationID: mutation.id,
+            key: mutation.item.key,
+            result: result
+        )
+    }
+
+    private func flushMediaOutbox(ownerID: String) async throws {
+        guard signedInUser?.id == ownerID else { throw CancellationError() }
+        var rejectedMessages: [String] = []
+
+        let bookmarkMutations = try await mediaActivityStore.pendingBookmarkMutations(
+            ownerID: ownerID
+        )
+        for mutation in bookmarkMutations {
+            try Task.checkCancellation()
+            do {
+                try await uploadMediaBookmarkMutation(mutation)
+            } catch where isPermanentMediaSyncError(error) {
+                let recordedRejection = try await mediaActivityStore.rejectBookmarkMutation(
+                    ownerID: ownerID,
+                    mutation: mutation,
+                    message: error.localizedDescription,
+                    rejectedAt: Date()
+                )
+                if recordedRejection {
+                    rejectedMessages.append("\(mutation.item.title): \(error.localizedDescription)")
+                }
+            }
+        }
+
+        let pendingEvents = try await mediaActivityStore.pendingEvents(ownerID: ownerID)
+        for event in pendingEvents {
+            try Task.checkCancellation()
+            guard signedInUser?.id == ownerID else { throw CancellationError() }
+            do {
+                let result = try await mediaProgressUploadQueue.submit(
+                    MediaProgressUploadQueue.Request(
+                        ownerID: ownerID,
+                        playback: event.playback,
+                        positionSeconds: event.positionSeconds,
+                        durationSeconds: event.durationSeconds,
+                        completed: event.completed,
+                        started: event.started,
+                        sessionID: event.sessionID,
+                        clientEventAt: event.clientEventAt
+                    )
+                )
+                try await mediaActivityStore.acknowledge(ownerID: ownerID, eventID: event.id)
+                try await mediaActivityStore.mergeRemote(
+                    ownerID: ownerID,
+                    progress: result.progress.map { [$0] } ?? [],
+                    history: result.history.map { [$0] } ?? [],
+                    stats: nil
+                )
+            } catch where isPermanentMediaSyncError(error) {
+                let recordedRejection = try await mediaActivityStore.rejectPlaybackEvent(
+                    ownerID: ownerID,
+                    event: event,
+                    message: error.localizedDescription,
+                    rejectedAt: Date()
+                )
+                if recordedRejection {
+                    rejectedMessages.append("\(event.playback.item.title): \(error.localizedDescription)")
+                }
+            }
+        }
+
+        if !rejectedMessages.isEmpty {
+            throw MediaOutboxRejectedError(messages: rejectedMessages)
+        }
+    }
+
+    private func scheduleMediaOutboxFlush(ownerID: String) {
+        guard signedInUser?.id == ownerID, mediaOutboxTask == nil else { return }
+        mediaOutboxTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.mediaOutboxTask = nil }
+            var retryDelay = Duration.seconds(2)
+
+            while !Task.isCancelled, self.signedInUser?.id == ownerID {
+                do {
+                    try await self.flushMediaOutbox(ownerID: ownerID)
+                    try await self.loadLocalMediaActivity(ownerID: ownerID)
+                    self.mediaBookmarkError = nil
+                    self.setAccountError(.mediaBookmarkMutation, nil)
+                    self.setAccountError(.mediaProgressSave, nil)
+                    self.setAccountError(.mediaSync, nil)
+                    return
+                } catch let error as MediaOutboxRejectedError {
+                    try? await self.loadLocalMediaActivity(ownerID: ownerID)
+                    self.setAccountError(.mediaSync, error.localizedDescription)
+                    return
+                } catch is CancellationError {
+                    return
+                } catch {
+                    self.setAccountError(
+                        .mediaSync,
+                        "Saved media activity will retry automatically: \(error.localizedDescription)"
+                    )
+                }
+
+                do {
+                    try await Task.sleep(for: retryDelay)
+                } catch {
+                    return
+                }
+                retryDelay = min(retryDelay * 2, .seconds(300))
+            }
+        }
+    }
+
+    private func finishMediaHydration(ownerID: String?) {
+        mediaHydratedOwnerID = ownerID
+        let waiters = mediaHydrationWaiters
+        mediaHydrationWaiters = []
+        waiters.forEach { $0.resume() }
+    }
+
+    private func waitForMediaHydration(ownerID: String) async {
+        guard mediaHydratedOwnerID != ownerID,
+              signedInUser?.id == ownerID else { return }
+        await withCheckedContinuation { continuation in
+            guard mediaHydratedOwnerID != ownerID,
+                  signedInUser?.id == ownerID else {
+                continuation.resume()
+                return
+            }
+            mediaHydrationWaiters.append(continuation)
+        }
+    }
+
+    private func isPermanentMediaSyncError(_ error: Error) -> Bool {
+        guard case APIError.http(let statusCode, _) = error else { return false }
+        return (400..<500).contains(statusCode)
+            && ![401, 408, 425, 429].contains(statusCode)
     }
 
     private func synchronizeReadingProgress(ownerID: String) async throws {
@@ -753,6 +1233,11 @@ final class AppModel: ObservableObject {
             .librarySync,
             .progressSave,
             .libraryMutation,
+            .mediaSync,
+            .localMediaActivity,
+            .rejectedMediaActivity,
+            .mediaBookmarkMutation,
+            .mediaProgressSave,
         ] {
             accountErrors.removeValue(forKey: source)
         }
