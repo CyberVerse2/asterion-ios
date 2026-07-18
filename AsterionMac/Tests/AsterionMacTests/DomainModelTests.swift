@@ -75,6 +75,19 @@ struct DomainModelTests {
         #expect(decoded.initialEpisodeID == "7123:220")
     }
 
+    @Test func longAnimeEpisodeListsSplitIntoSearchableHundredEpisodeRanges() throws {
+        let episodes = (1...220).map {
+            AnimeEpisode(id: "7123:\($0)", animeID: "7123", number: $0)
+        }
+
+        let ranges = AnimeEpisodeRange.pages(for: episodes)
+
+        #expect(ranges.map(\.label) == ["001–100", "101–200", "201–220"])
+        #expect(ranges[1].episodes.count == 100)
+        #expect(ranges[2].contains(episodeID: "7123:220"))
+        #expect(!ranges[0].contains(episodeID: "7123:220"))
+    }
+
     @Test func novelDecodesBackendFieldsAndNormalizesRank() throws {
         let data = Data(
             ##"{"_id":"42","title":"The Maze","author":"Ada","rank":"#17","imageUrl":"https://example.com/cover.jpg"}"##.utf8

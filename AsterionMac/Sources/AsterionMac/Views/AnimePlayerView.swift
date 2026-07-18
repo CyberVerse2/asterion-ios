@@ -7,6 +7,11 @@ struct AnimePlayerView: View {
 
     @StateObject private var store = AnimePlayerStore()
     @State private var showsEpisodeList = false
+    @State private var selectedEpisodePage = 0
+    @State private var episodeSearch = ""
+    @State private var episodeSearchError: String?
+
+    private let longEpisodeThreshold = 40
 
     var body: some View {
         Group {
@@ -25,7 +30,7 @@ struct AnimePlayerView: View {
                 HStack(spacing: 0) {
                     if showsEpisodeList {
                         episodeSidebar(show)
-                            .frame(width: 250)
+                            .frame(width: usesEpisodeGrid ? 410 : 250)
                             .transition(.move(edge: .leading).combined(with: .opacity))
                         Divider()
                     }
@@ -43,6 +48,12 @@ struct AnimePlayerView: View {
         .navigationTitle(route.title)
         .task(id: route) {
             await store.load(route: route)
+        }
+        .onChange(of: store.episodes) { _, _ in
+            revealSelectedEpisode()
+        }
+        .onChange(of: store.selectedEpisodeID) { _, _ in
+            revealSelectedEpisode()
         }
     }
 
@@ -82,48 +93,232 @@ struct AnimePlayerView: View {
             if store.episodes.isEmpty {
                 ContentUnavailableView("No episodes", systemImage: "film.stack")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if usesEpisodeGrid {
+                longEpisodeGrid
             } else {
-                List(store.episodes) { episode in
-                    Button {
-                        Task { await store.play(episode) }
-                    } label: {
-                        HStack(spacing: 10) {
-                            Text(String(episode.number))
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(.white.opacity(0.38))
-                                .frame(width: 30, alignment: .trailing)
-
-                            Text("Episode \(episode.number)")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundStyle(.white.opacity(0.86))
-
-                            Spacer()
-
-                            if store.isLoadingStream, store.selectedEpisodeID == episode.id {
-                                ProgressView()
-                                    .controlSize(.small)
-                            } else if store.selectedEpisodeID == episode.id {
-                                Image(systemName: "play.fill")
-                                    .font(.caption)
-                                    .foregroundStyle(Color.asterionAccent)
-                            }
-                        }
-                        .padding(.vertical, 5)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .listRowBackground(
-                        store.selectedEpisodeID == episode.id
-                            ? Color.asterionAccent.opacity(0.16)
-                            : Color.clear
-                    )
-                    .accessibilityLabel("Play episode \(episode.number)")
-                }
-                .listStyle(.sidebar)
-                .scrollContentBackground(.hidden)
+                shortEpisodeList
             }
         }
         .background(Color.black.opacity(0.92))
+    }
+
+    private var shortEpisodeList: some View {
+        List(store.episodes) { episode in
+            Button {
+                Task { await store.play(episode) }
+            } label: {
+                HStack(spacing: 10) {
+                    Text(String(episode.number))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.white.opacity(0.38))
+                        .frame(width: 30, alignment: .trailing)
+
+                    Text("Episode \(episode.number)")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.86))
+
+                    Spacer()
+
+                    if store.isLoadingStream, store.selectedEpisodeID == episode.id {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else if store.selectedEpisodeID == episode.id {
+                        Image(systemName: "play.fill")
+                            .font(.caption)
+                            .foregroundStyle(Color.asterionAccent)
+                    }
+                }
+                .padding(.vertical, 5)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .listRowBackground(
+                store.selectedEpisodeID == episode.id
+                    ? Color.asterionAccent.opacity(0.16)
+                    : Color.clear
+            )
+            .accessibilityLabel("Play episode \(episode.number)")
+        }
+        .listStyle(.sidebar)
+        .scrollContentBackground(.hidden)
+    }
+
+    private var longEpisodeGrid: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 7) {
+                Menu {
+                    ForEach(Array(episodeRanges.enumerated()), id: \.element.id) { index, range in
+                        Button(range.label) {
+                            selectedEpisodePage = index
+                            episodeSearchError = nil
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        Text(currentEpisodeRange?.label ?? "Episodes")
+                            .font(.system(size: 12, weight: .semibold).monospacedDigit())
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 8, weight: .bold))
+                    }
+                    .foregroundStyle(.white.opacity(0.78))
+                    .padding(.horizontal, 10)
+                    .frame(height: 30)
+                    .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 5))
+                }
+                .menuStyle(.borderlessButton)
+
+                Button { selectedEpisodePage -= 1 } label: {
+                    Image(systemName: "chevron.left")
+                }
+                .disabled(selectedEpisodePage == 0)
+                .help("Previous 100 episodes")
+
+                Button { selectedEpisodePage += 1 } label: {
+                    Image(systemName: "chevron.right")
+                }
+                .disabled(selectedEpisodePage >= episodeRanges.count - 1)
+                .help("Next 100 episodes")
+
+                Spacer(minLength: 4)
+
+                TextField("Find number", text: $episodeSearch)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12, weight: .medium).monospacedDigit())
+                    .foregroundStyle(.white.opacity(0.84))
+                    .padding(.horizontal, 9)
+                    .frame(width: 105, height: 30)
+                    .background(.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 5))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 5)
+                            .stroke(.white.opacity(0.13), lineWidth: 1)
+                    }
+                    .onSubmit(findEpisode)
+                    .accessibilityLabel("Find episode number")
+            }
+            .buttonStyle(.borderless)
+            .controlSize(.small)
+
+            if let episodeSearchError {
+                Text(episodeSearchError)
+                    .font(.caption2)
+                    .foregroundStyle(Color.asterionAccent)
+            }
+
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVGrid(
+                        columns: Array(repeating: GridItem(.flexible(), spacing: 7), count: 6),
+                        spacing: 7
+                    ) {
+                        ForEach(currentEpisodeRange?.episodes ?? []) { episode in
+                            episodeGridButton(episode)
+                                .id(episode.id)
+                        }
+                    }
+                    .padding(.bottom, 12)
+                }
+                .onAppear {
+                    scrollEpisodeGrid(proxy, animated: false)
+                }
+                .onChange(of: selectedEpisodePage) { _, _ in
+                    scrollEpisodeGrid(proxy, animated: true)
+                }
+                .onChange(of: store.selectedEpisodeID) { _, _ in
+                    scrollEpisodeGrid(proxy, animated: true)
+                }
+            }
+        }
+        .padding(.horizontal, 15)
+        .padding(.top, 4)
+    }
+
+    private func episodeGridButton(_ episode: AnimeEpisode) -> some View {
+        let isSelected = store.selectedEpisodeID == episode.id
+        let isLoading = store.isLoadingStream && isSelected
+
+        return Button {
+            episodeSearchError = nil
+            Task { await store.play(episode) }
+        } label: {
+            ZStack {
+                Text(String(episode.number))
+                    .font(.system(size: 13, weight: .semibold).monospacedDigit())
+                    .opacity(isLoading ? 0 : 1)
+                if isLoading {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .tint(.white)
+                }
+            }
+            .foregroundStyle(isSelected ? .white : .white.opacity(0.82))
+            .frame(maxWidth: .infinity)
+            .frame(height: 38)
+            .background(
+                isSelected ? Color.asterionAccent : Color.white.opacity(0.10),
+                in: RoundedRectangle(cornerRadius: 5)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 5)
+                    .stroke(isSelected ? Color.asterionAccent.opacity(0.95) : .white.opacity(0.035))
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(store.isLoadingStream && !isSelected)
+        .accessibilityLabel("Play episode \(episode.number)")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private var usesEpisodeGrid: Bool {
+        store.episodes.count > longEpisodeThreshold
+    }
+
+    private var episodeRanges: [AnimeEpisodeRange] {
+        AnimeEpisodeRange.pages(for: store.episodes)
+    }
+
+    private var currentEpisodeRange: AnimeEpisodeRange? {
+        guard episodeRanges.indices.contains(selectedEpisodePage) else { return episodeRanges.first }
+        return episodeRanges[selectedEpisodePage]
+    }
+
+    private func revealSelectedEpisode() {
+        guard let index = episodeRanges.firstIndex(where: { $0.contains(episodeID: store.selectedEpisodeID) }) else {
+            selectedEpisodePage = 0
+            return
+        }
+        selectedEpisodePage = index
+    }
+
+    private func scrollEpisodeGrid(_ proxy: ScrollViewProxy, animated: Bool) {
+        let destination = currentEpisodeRange?.contains(episodeID: store.selectedEpisodeID) == true
+            ? store.selectedEpisodeID
+            : currentEpisodeRange?.episodes.first?.id
+        guard let destination else { return }
+
+        DispatchQueue.main.async {
+            if animated {
+                withAnimation(AsterionMotion.sidebar) {
+                    proxy.scrollTo(destination, anchor: .center)
+                }
+            } else {
+                proxy.scrollTo(destination, anchor: .center)
+            }
+        }
+    }
+
+    private func findEpisode() {
+        let trimmedSearch = episodeSearch.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let number = Int(trimmedSearch),
+              let episode = store.episodes.first(where: { $0.number == number }) else {
+            episodeSearchError = "Episode not found"
+            return
+        }
+
+        episodeSearchError = nil
+        if let index = episodeRanges.firstIndex(where: { $0.contains(episodeID: episode.id) }) {
+            selectedEpisodePage = index
+        }
+        Task { await store.play(episode) }
     }
 
     private var playerPane: some View {

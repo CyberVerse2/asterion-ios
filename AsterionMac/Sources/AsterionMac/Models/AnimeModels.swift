@@ -143,6 +143,36 @@ struct AnimeEpisode: Identifiable, Codable, Hashable, Sendable {
     }
 }
 
+struct AnimeEpisodeRange: Identifiable, Equatable, Sendable {
+    static let pageSize = 100
+
+    let episodes: [AnimeEpisode]
+
+    var id: String {
+        guard let first = episodes.first, let last = episodes.last else { return "empty" }
+        return "\(first.id)-\(last.id)"
+    }
+
+    var label: String {
+        guard let first = episodes.first, let last = episodes.last else { return "Episodes" }
+        return String(format: "%03d–%03d", first.number, last.number)
+    }
+
+    func contains(episodeID: AnimeEpisode.ID?) -> Bool {
+        guard let episodeID else { return false }
+        return episodes.contains { $0.id == episodeID }
+    }
+
+    static func pages(for episodes: [AnimeEpisode], pageSize: Int = pageSize) -> [AnimeEpisodeRange] {
+        precondition(pageSize > 0)
+
+        return stride(from: 0, to: episodes.count, by: pageSize).map { startIndex in
+            let endIndex = min(startIndex + pageSize, episodes.count)
+            return AnimeEpisodeRange(episodes: Array(episodes[startIndex..<endIndex]))
+        }
+    }
+}
+
 struct AnimeStreamSource: Codable, Hashable, Sendable {
     let server: String
     let embedURL: URL

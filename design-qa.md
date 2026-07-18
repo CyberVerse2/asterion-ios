@@ -106,20 +106,27 @@ The service supplies portrait posters rather than landscape backdrops. The featu
 ### Anime Player window
 
 - Player screenshot: `docs/design/anime-player-final.jpeg`
+- Long-episode screenshot: `docs/design/anime-player-long-episodes-final.jpeg`
+- Long-episode source comparison: `docs/design/anime-player-long-episodes-comparison.png`
 - Viewport: 1080 × 700 points
-- State: live direct stream, final available episode selected
+- State: live direct stream, Naruto: Shippuden episode 86 selected from 500 episodes
 
 Watching now opens a separate task window, matching the Novel reader’s behavior. The catalog remains available behind the player instead of expanding and displacing the detail page.
 
-The video is the dominant surface. A low-contrast 44-point control strip exposes only the episode position, episode-list toggle, previous/next actions, and source menu. The 250-point episode sidebar is closed by default; when opened, it uses compact rows and a restrained selected state without repeated cover art, oversized headings, or decorative surfaces.
+The video is the dominant surface. A low-contrast 44-point control strip exposes only the episode position, episode-list toggle, previous/next actions, and source menu. The episode sidebar is closed by default. Short shows use the original compact 250-point list; shows with more than 40 episodes open a 410-point number grid based on the supplied reference.
+
+The focused source comparison confirms the long-show navigator preserves the reference’s strongest behaviors: 100-episode ranges, backward/forward range controls, dense number tiles, exact-number lookup, and a clear current-episode state. The implementation keeps the grid inside a restrained player drawer so it does not compete with the video, uses Asterion’s oxblood selection instead of importing the reference site’s blue, and scrolls the chosen episode into view.
 
 Interaction checks:
 
 - The requested episode begins automatically from Discover, the detail Watch action, or an episode row.
 - The complete available episode list opens from the top-left toggle and remains selectable in the player.
+- Long shows divide episodes into 100-item ranges; the menu and arrow controls move between those ranges.
+- Entering an exact episode number changes to the correct range, starts that episode, and keeps its selected tile visible.
 - Previous is enabled when an earlier episode exists; Next disables at the final episode.
 - Direct playback, alternate source selection, native video controls, and fullscreen remain available.
 - The episode sidebar starts hidden and can be reopened with one button.
 - Window-route state survives SwiftUI scene encoding; the route round-trip is covered by the macOS test suite.
+- A 500-episode live show and the 001–100 → episode 86 search path were checked in the signed app. The range model is covered by the macOS test suite.
 
 final result: passed
