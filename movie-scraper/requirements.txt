@@ -3,3 +3,6 @@ gunicorn==26.0.0
 requests==2.32.3
 beautifulsoup4==4.13.4
 lxml==6.0.2
+cloudscraper==1.2.71
+psycopg2-binary==2.9.12
+redis==8.0.1

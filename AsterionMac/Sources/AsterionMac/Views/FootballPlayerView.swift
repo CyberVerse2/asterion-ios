@@ -6,6 +6,7 @@ struct FootballPlayerView: View {
 
     @StateObject private var store = FootballPlayerStore()
     @State private var showsSources = false
+    @State private var keepsWindowOnTop = false
 
     var body: some View {
         HStack(spacing: 0) {
@@ -24,6 +25,7 @@ struct FootballPlayerView: View {
         .navigationTitle(route.match.displayTitle)
         .toolbar(removing: .title)
         .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+        .mediaWindowPinning(isPinned: keepsWindowOnTop)
         .animation(reduceMotion ? nil : AsterionMotion.sidebar, value: showsSources)
         .task(id: route) {
             showsSources = false
@@ -70,6 +72,8 @@ struct FootballPlayerView: View {
                 .gesture(WindowDragGesture())
                 .allowsWindowActivationEvents(true)
                 .accessibilityHidden(true)
+
+            MediaWindowPinButton(isPinned: $keepsWindowOnTop)
 
             if let selected = store.selectedStream {
                 Text(selected.displayName)

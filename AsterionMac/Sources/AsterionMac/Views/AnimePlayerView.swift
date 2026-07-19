@@ -16,6 +16,7 @@ struct AnimePlayerView: View {
     @State private var activePlaybackSessionID: String?
     @State private var playbackResumePosition: Double = 0
     @State private var playbackPreparationID = UUID()
+    @State private var keepsWindowOnTop = false
 
     private let longEpisodeThreshold = 40
 
@@ -54,6 +55,7 @@ struct AnimePlayerView: View {
         .navigationTitle(route.title)
         .toolbar(removing: .title)
         .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+        .mediaWindowPinning(isPinned: keepsWindowOnTop)
         .task(id: route) {
             activePlayback = nil
             preparingPlayback = nil
@@ -384,6 +386,8 @@ struct AnimePlayerView: View {
                 .gesture(WindowDragGesture())
                 .allowsWindowActivationEvents(true)
                 .accessibilityHidden(true)
+
+            MediaWindowPinButton(isPinned: $keepsWindowOnTop)
 
             Button {
                 Task { await store.playPrevious() }

@@ -470,30 +470,49 @@ struct MovieDetailView: View {
     }
 
     private func preferredEpisode(for show: MovieShow) -> MovieEpisode? {
-        if let progress = activeProgress(for: show),
-           let episode = store.episodes.first(where: { $0.id == progress.unitId }) {
-            return episode
-        }
-        return store.episodes.first
+        guard show.isSeries, let target = watchTarget(for: show) else { return nil }
+        return store.episodes.first { $0.id == target.unitID }
     }
 
     private func watchButtonTitle(_ show: MovieShow) -> String {
-        if let progress = activeProgress(for: show) {
-            let percentage = Int(progress.percentage.rounded())
-            if show.isSeries {
-                if let episode = store.episodes.first(where: { $0.id == progress.unitId }) {
-                    return percentage > 0
-                        ? "Continue S\(episode.season) E\(episode.number) · \(percentage)%"
-                        : "Continue S\(episode.season) E\(episode.number)"
-                }
-            } else {
-                return percentage > 0 ? "Continue movie · \(percentage)%" : "Continue movie"
+        guard let target = watchTarget(for: show) else {
+            return show.isSeries ? "No episodes available" : "Watch movie"
+        }
+        if !show.isSeries {
+            return switch target.action {
+            case .start, .next: "Watch movie"
+            case let .resume(percentage):
+                Int(percentage.rounded()) > 0
+                    ? "Continue movie · \(Int(percentage.rounded()))%"
+                    : "Continue movie"
+            case .rewatch: "Watch movie again"
             }
         }
+        guard let episode = store.episodes.first(where: { $0.id == target.unitID }) else {
+            return "No episodes available"
+        }
+        return switch target.action {
+        case .start: "Watch S\(episode.season) E\(episode.number)"
+        case let .resume(percentage):
+            Int(percentage.rounded()) > 0
+                ? "Continue S\(episode.season) E\(episode.number) · \(Int(percentage.rounded()))%"
+                : "Continue S\(episode.season) E\(episode.number)"
+        case .next: "Watch next · S\(episode.season) E\(episode.number)"
+        case .rewatch: "Watch S\(episode.season) E\(episode.number) again"
+        }
+    }
 
-        guard show.isSeries else { return "Watch movie" }
-        guard let episode = preferredEpisode(for: show) else { return "No episodes available" }
-        return "Watch S\(episode.season) E\(episode.number)"
+    private func watchTarget(for show: MovieShow) -> MediaWatchTarget? {
+        let orderedUnitIDs = show.isSeries
+            ? store.episodes.sorted {
+                ($0.season, $0.number) < ($1.season, $1.number)
+            }.map(\.id)
+            : [show.slug]
+        return model.mediaWatchTarget(
+            mediaType: .movie,
+            contentID: show.slug,
+            orderedUnitIDs: orderedUnitIDs
+        )
     }
 
     private func activeProgress(for show: MovieShow) -> MediaPlaybackProgress? {

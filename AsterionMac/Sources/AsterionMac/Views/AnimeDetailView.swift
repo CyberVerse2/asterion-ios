@@ -452,28 +452,39 @@ struct AnimeDetailView: View {
     }
 
     private func preferredEpisode(for show: AnimeShow) -> AnimeEpisode? {
-        if let progress = activeProgress(for: show),
-           let episode = store.episodes.first(where: { $0.id == progress.unitId }) {
-            return episode
-        }
-        return store.episodes.min { $0.number < $1.number }
+        guard let target = watchTarget(for: show) else { return nil }
+        return store.episodes.first { $0.id == target.unitID }
     }
 
     private func watchButtonTitle(for show: AnimeShow) -> String {
-        guard let episode = preferredEpisode(for: show) else { return "No episodes available" }
-        if let progress = activeProgress(for: show), progress.unitId == episode.id {
-            let percentage = Int(progress.percentage.rounded())
-            return percentage > 0
-                ? "Continue episode \(episode.number) · \(percentage)%"
-                : "Continue episode \(episode.number)"
+        guard let target = watchTarget(for: show),
+              let episode = store.episodes.first(where: { $0.id == target.unitID }) else {
+            return "No episodes available"
         }
-        return "Watch episode \(episode.number)"
+        switch target.action {
+        case .start:
+            return "Watch episode \(episode.number)"
+        case let .resume(percentage):
+            let roundedPercentage = Int(percentage.rounded())
+            return roundedPercentage > 0
+                ? "Continue episode \(episode.number) · \(roundedPercentage)%"
+                : "Continue episode \(episode.number)"
+        case .next:
+            return "Watch next · Episode \(episode.number)"
+        case .rewatch:
+            return "Watch episode \(episode.number) again"
+        }
     }
 
-    private func activeProgress(for show: AnimeShow) -> MediaPlaybackProgress? {
-        model.continueWatching.first {
-            $0.mediaType == .anime && $0.contentId == show.slug
-        }
+    private func watchTarget(for show: AnimeShow) -> MediaWatchTarget? {
+        let orderedEpisodeIDs = store.episodes
+            .sorted { $0.number < $1.number }
+            .map(\.id)
+        return model.mediaWatchTarget(
+            mediaType: .anime,
+            contentID: show.slug,
+            orderedUnitIDs: orderedEpisodeIDs
+        )
     }
 
     private var episodeCountLabel: String? {
