@@ -170,15 +170,16 @@ def api_show(slug):
     if imdb_id and imdb_id.startswith("tt"):
         stream_data = db.cache_get(f"streams:{imdb_id}")
         if not stream_data:
-            stream_data = [{"server_id": 1, "label": "2Embed (JW+Subs)",
-                           "quality": "1080P", "embed_url": f"https://www.2embed.cc/embed/{imdb_id}"}]
+            stream_data = []
             try:
                 hls = scraper.get_hls_sources(imdb_id)
                 for i, s in enumerate(hls):
-                    stream_data.append({"server_id": i + 2, "label": s.label,
+                    stream_data.append({"server_id": i + 1, "label": s.label,
                                        "quality": s.quality, "embed_url": s.embed_url})
             except Exception:
                 pass
+            stream_data.append({"server_id": len(stream_data) + 1, "label": "2Embed (JW+Subs)",
+                               "quality": "1080P", "embed_url": f"https://www.2embed.cc/embed/{imdb_id}"})
             db.cache_set(f"streams:{imdb_id}", stream_data, db.REDIS_STREAMS_TTL)
         streams = stream_data
 
