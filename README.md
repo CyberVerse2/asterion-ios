@@ -5,7 +5,7 @@
   <p>A native Apple app for reading novels and enjoying anime, movies, television, and live football.</p>
   <p>
     <a href="https://github.com/CyberVerse2/asterion-ios/releases/latest/download/Asterion.dmg">
-      <img src="docs/design/download-macos.svg" alt="Download Asterion for macOS" width="360">
+      <img src="docs/design/download-macos.svg" alt="Download Asterion for macOS" width="280">
     </a>
   </p>
 </div>
