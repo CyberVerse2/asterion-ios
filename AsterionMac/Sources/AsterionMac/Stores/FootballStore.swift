@@ -39,11 +39,6 @@ final class FootballStore: ObservableObject {
             return
         }
 
-        if !force, loadedSection == section, !allMatches.isEmpty {
-            applySearch()
-            return
-        }
-
         if loadedSection != section {
             loadedSection = section
             allMatches = []

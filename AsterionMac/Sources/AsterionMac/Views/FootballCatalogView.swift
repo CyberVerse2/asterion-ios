@@ -73,10 +73,10 @@ struct FootballCatalogView: View {
         .background(.background)
         .navigationTitle(section.title)
         .task(id: section) {
-            await store.load(section: section)
+            await store.refresh(section: section)
             while !Task.isCancelled {
                 do {
-                    try await Task.sleep(for: .seconds(60))
+                    try await Task.sleep(for: refreshInterval)
                 } catch {
                     return
                 }
@@ -85,6 +85,14 @@ struct FootballCatalogView: View {
         }
         .onAppear { store.updateSearch(normalizedQuery) }
         .onChange(of: normalizedQuery) { _, value in store.updateSearch(value) }
+    }
+
+    private var refreshInterval: Duration {
+        switch section {
+        case .live: .seconds(15)
+        case .popular: .seconds(30)
+        case .schedule: .seconds(60)
+        }
     }
 
     private var catalogHeader: some View {
