@@ -5,6 +5,7 @@ Soap2Day browser — Flask API backed by Postgres + Redis.
 import logging
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import wraps
 from urllib.parse import urljoin, urlparse
 
@@ -181,64 +182,44 @@ def api_show(slug):
             db.cache_set(f"streams:{imdb_id}", stream_data, db.REDIS_STREAMS_TTL)
         streams = stream_data
 
+    # Build result from DB or from freshly-fetched metadata
+    title = slug.replace("-", " ").title()
     if from_db:
-        # TV show: fetch seasons and episodes
-        seasons = []
-        if from_db.get("type") == "tv":
-            from psycopg2.extras import RealDictCursor
-            pg = db.get_pg()
-            with pg.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute(
-                    "SELECT s.season_number, s.title, s.episode_count, "
-                    "json_agg(json_build_object('number', e.episode_number, 'title', e.title, 'slug', e.slug) "
-                    "ORDER BY e.episode_number) as episodes "
-                    "FROM seasons s LEFT JOIN episodes e ON s.id = e.season_id "
-                    "WHERE s.imdb_id = %s GROUP BY s.id, s.season_number, s.title, s.episode_count "
-                    "ORDER BY s.season_number",
-                    (from_db["imdb_id"],),
-                )
-                for row in cur.fetchall():
-                    seasons.append({
-                        "number": row["season_number"],
-                        "title": row["title"],
-                        "episode_count": row["episode_count"],
-                        "episodes": row["episodes"] or [],
-                    })
+        title = from_db.get("title") or title
 
-        result = {
-            "id": from_db.get("imdb_id"),
-            "title": from_db.get("title"),
-            "slug": slug,
-            "type": from_db.get("type", "movie"),
-            "image_url": from_db.get("poster_url"),
-            "description": from_db.get("overview"),
-            "imdb_rating": str(from_db.get("imdb_rating", "")) if from_db.get("imdb_rating") else None,
-            "tmdb_rating": str(from_db.get("tmdb_rating", "")) if from_db.get("tmdb_rating") else None,
-            "rotten_tomatoes": from_db.get("rotten_tomatoes"),
-            "metacritic": from_db.get("metacritic"),
-            "genres": [g["name"] for g in from_db.get("genres", [])],
-            "director": from_db.get("director"),
-            "actors": [c["name"] for c in from_db.get("cast", [])],
-            "duration": from_db.get("runtime"),
-            "release_year": from_db.get("release_year"),
-            "release_date": from_db.get("release_date"),
-            "seasons": seasons,
-            "streams": _stream_list_for_api(streams),
-        }
-        if metadata:
-            if not result["description"]:
-                result["description"] = metadata.get("overview")
-            if not result["director"]:
-                result["director"] = metadata.get("director")
-            if not result["actors"]:
-                result["actors"] = metadata.get("cast", [])
-            if metadata.get("vote_average") and not result["imdb_rating"]:
-                result["imdb_rating"] = str(round(metadata["vote_average"], 1))
-            if not result["image_url"]:
-                result["image_url"] = metadata.get("poster")
-        return result
+    if metadata:
+        title = metadata.get("title") or title
+        if not title or title == slug.replace("-", " ").title():
+            title = metadata.get("title", title)
 
-    return {"error": "Not found"}, 404
+    result = {
+        "title": title,
+        "slug": slug,
+        "type": (from_db or {}).get("type", "movie"),
+        "image_url": (from_db or {}).get("poster_url") or (metadata or {}).get("poster"),
+        "description": (from_db or {}).get("overview") or (metadata or {}).get("overview"),
+        "imdb_rating": str((from_db or {}).get("imdb_rating", "")) or str((metadata or {}).get("vote_average", "")),
+        "tmdb_rating": str((from_db or {}).get("tmdb_rating", "")) or str((metadata or {}).get("vote_average", "")),
+        "rotten_tomatoes": (from_db or {}).get("rotten_tomatoes"),
+        "metacritic": (from_db or {}).get("metacritic"),
+        "genres": [g["name"] for g in (from_db or {}).get("genres", [])] or [g if isinstance(g, str) else g.get("name", "") for g in (metadata or {}).get("genres", [])],
+        "director": (from_db or {}).get("director") or (metadata or {}).get("director"),
+        "actors": [c["name"] for c in (from_db or {}).get("cast", [])] or (metadata or {}).get("cast", []),
+        "duration": str((from_db or {}).get("runtime", "")) or None,
+        "release_year": (from_db or {}).get("release_year") or (metadata or {}).get("year"),
+        "release_date": (from_db or {}).get("release_date") or (metadata or {}).get("release_date"),
+        "country": (from_db or {}).get("country"),
+        "seasons": [],
+        "streams": _stream_list_for_api(streams),
+    }
+
+    # Strip "soap2day" from generated title
+    import re as _re
+    result["title"] = _re.sub(r'\s*[-–]\s*soap2day\s*$', '', result["title"], flags=_re.IGNORECASE)
+    result["title"] = _re.sub(r'\s*soap2day\s*$', '', result["title"], flags=_re.IGNORECASE)
+    result["title"] = result["title"].strip()
+
+    return result
 
 
 @app.route("/api/show/<slug>/episodes")
