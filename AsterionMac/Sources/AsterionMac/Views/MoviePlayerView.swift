@@ -14,6 +14,7 @@ struct MoviePlayerView: View {
     @State private var activePlaybackSessionID: String?
     @State private var playbackResumePosition: Double = 0
     @State private var playbackPreparationID = UUID()
+    @State private var keepsWindowOnTop = false
 
     var body: some View {
         Group {
@@ -51,6 +52,7 @@ struct MoviePlayerView: View {
         .navigationTitle(route.title)
         .toolbar(removing: .title)
         .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+        .mediaWindowPinning(isPinned: keepsWindowOnTop)
         .task(id: route) {
             showsEpisodeList = false
             activePlayback = nil
@@ -182,6 +184,8 @@ struct MoviePlayerView: View {
                 .gesture(WindowDragGesture())
                 .allowsWindowActivationEvents(true)
                 .accessibilityHidden(true)
+
+            MediaWindowPinButton(isPinned: $keepsWindowOnTop)
 
             if show.isSeries {
                 Button { Task { await store.playPrevious() } } label: {
