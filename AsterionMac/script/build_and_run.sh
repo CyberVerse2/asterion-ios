@@ -29,6 +29,13 @@ if [[ "$MODE" == "--package" || "$MODE" == "package" ]]; then
   RELEASE_PACKAGE_MODE=true
 fi
 
+PACKAGE_MODE=false
+if [[ "$RELEASE_PACKAGE_MODE" == true
+  || "$MODE" == "--package-development"
+  || "$MODE" == "package-development" ]]; then
+  PACKAGE_MODE=true
+fi
+
 BUILD_CONFIGURATION="debug"
 if [[ "$RELEASE_PACKAGE_MODE" == true ]]; then
   BUILD_CONFIGURATION="release"
@@ -62,8 +69,10 @@ if [[ -z "$CODE_SIGN_IDENTITY" ]]; then
   exit 1
 fi
 
-pkill -x "$APP_NAME" >/dev/null 2>&1 || true
-pkill -x "AsterionMac" >/dev/null 2>&1 || true
+if [[ "$PACKAGE_MODE" == false ]]; then
+  pkill -x "$APP_NAME" >/dev/null 2>&1 || true
+  pkill -x "AsterionMac" >/dev/null 2>&1 || true
+fi
 
 cd "$ROOT_DIR"
 swift build -c "$BUILD_CONFIGURATION"

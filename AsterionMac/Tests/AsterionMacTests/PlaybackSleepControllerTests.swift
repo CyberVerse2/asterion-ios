@@ -43,6 +43,27 @@ struct PlaybackSleepControllerTests {
         #expect(probe.endCount == 1)
     }
 
+    @Test func nativePlaybackPreventsSleepWhilePlayingOrBuffering() {
+        #expect(
+            PlaybackSleepController.shouldPreventSleep(
+                playbackRate: 1,
+                isPlaybackPaused: false
+            )
+        )
+        #expect(
+            PlaybackSleepController.shouldPreventSleep(
+                playbackRate: 0,
+                isPlaybackPaused: false
+            )
+        )
+        #expect(
+            !PlaybackSleepController.shouldPreventSleep(
+                playbackRate: 0,
+                isPlaybackPaused: true
+            )
+        )
+    }
+
     @Test func webPlayersReportPlaybackLifecycleToTheNativeController() throws {
         let videoURL = try #require(URL(string: "https://media.example/master.m3u8"))
         let captionedDocument = CaptionedMediaDocument.html(

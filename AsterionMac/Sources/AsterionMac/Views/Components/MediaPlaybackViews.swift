@@ -163,6 +163,7 @@ private final class DirectMediaPlaybackController: ObservableObject {
     private let sleepController = PlaybackSleepController()
     private var periodicObserver: Any?
     private var timeControlObserver: NSKeyValueObservation?
+    private var playbackRateObserver: NSKeyValueObservation?
     private var playbackEndObserver: NSObjectProtocol?
     private var onProgress: (@MainActor @Sendable (MediaPlaybackSample) -> Void)?
     private var onEnded: (@MainActor @Sendable () -> Void)?
@@ -171,6 +172,7 @@ private final class DirectMediaPlaybackController: ObservableObject {
     private var hasConfirmedPlayback = false
     private var hasEnteredPlayingState = false
     private var hasSentPlaybackEnd = false
+    private var wasNativePlaybackActive = false
 
     init(url: URL, localSubtitleTracks: [AnimeSubtitleTrack]) {
         player = AVPlayer(url: url)
@@ -200,6 +202,7 @@ private final class DirectMediaPlaybackController: ObservableObject {
         hasConfirmedPlayback = false
         hasEnteredPlayingState = false
         hasSentPlaybackEnd = false
+        wasNativePlaybackActive = false
         lastReportedPosition = -Double.infinity
         if initialPosition > 0, player.currentTime().seconds < 1 {
             player.seek(
@@ -220,6 +223,7 @@ private final class DirectMediaPlaybackController: ObservableObject {
         }
         installPlaybackObserversIfNeeded()
         player.play()
+        updateNativePlaybackState()
     }
 
     func stop() {
@@ -232,6 +236,7 @@ private final class DirectMediaPlaybackController: ObservableObject {
             self.periodicObserver = nil
         }
         player.pause()
+        wasNativePlaybackActive = false
         sleepController.stopAll()
         activeCaption = nil
         onProgress = nil
@@ -242,30 +247,21 @@ private final class DirectMediaPlaybackController: ObservableObject {
         if timeControlObserver == nil {
             timeControlObserver = player.observe(
                 \.timeControlStatus,
-                options: [.old, .new]
-            ) { [weak self] _, change in
-                let enteredPlaying = change.newValue == .playing
-                let becamePaused = change.newValue == .paused
-                    && change.oldValue != .paused
-                let pausedAfterPlaying = change.oldValue == .playing
-
+                options: [.initial, .old, .new]
+            ) { [weak self] _, _ in
                 Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    if enteredPlaying || pausedAfterPlaying {
-                        self.hasEnteredPlayingState = true
-                    }
-                    if enteredPlaying {
-                        self.sleepController.setPlaying(true, sourceID: "native-player")
-                    } else if becamePaused {
-                        self.sleepController.setPlaying(false, sourceID: "native-player")
-                    }
-                    if becamePaused, self.hasEnteredPlayingState {
-                        self.report(
-                            time: self.player.currentTime(),
-                            force: true,
-                            allowStoppedPlaybackConfirmation: true
-                        )
-                    }
+                    self?.updateNativePlaybackState()
+                }
+            }
+        }
+
+        if playbackRateObserver == nil {
+            playbackRateObserver = player.observe(
+                \.rate,
+                options: [.initial, .new]
+            ) { [weak self] _, _ in
+                Task { @MainActor [weak self] in
+                    self?.updateNativePlaybackState()
                 }
             }
         }
@@ -278,6 +274,7 @@ private final class DirectMediaPlaybackController: ObservableObject {
             ) { [weak self] _ in
                 Task { @MainActor [weak self] in
                     guard let self else { return }
+                    self.wasNativePlaybackActive = false
                     self.sleepController.setPlaying(false, sourceID: "native-player")
                     self.report(
                         time: self.player.currentTime(),
@@ -296,9 +293,31 @@ private final class DirectMediaPlaybackController: ObservableObject {
     private func removePlaybackObservers() {
         timeControlObserver?.invalidate()
         timeControlObserver = nil
+        playbackRateObserver?.invalidate()
+        playbackRateObserver = nil
         if let playbackEndObserver {
             NotificationCenter.default.removeObserver(playbackEndObserver)
             self.playbackEndObserver = nil
+        }
+    }
+
+    private func updateNativePlaybackState() {
+        let shouldPreventSleep = PlaybackSleepController.shouldPreventSleep(
+            playbackRate: player.rate,
+            isPlaybackPaused: player.timeControlStatus == .paused
+        )
+        let becameInactive = !shouldPreventSleep && wasNativePlaybackActive
+        wasNativePlaybackActive = shouldPreventSleep
+        if shouldPreventSleep {
+            hasEnteredPlayingState = true
+        }
+        sleepController.setPlaying(shouldPreventSleep, sourceID: "native-player")
+        if becameInactive, hasEnteredPlayingState {
+            report(
+                time: player.currentTime(),
+                force: true,
+                allowStoppedPlaybackConfirmation: true
+            )
         }
     }
 

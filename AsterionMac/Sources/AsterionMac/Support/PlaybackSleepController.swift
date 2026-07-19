@@ -54,6 +54,13 @@ final class PlaybackSleepController {
         updateActivity()
     }
 
+    static func shouldPreventSleep(
+        playbackRate: Float,
+        isPlaybackPaused: Bool
+    ) -> Bool {
+        playbackRate > 0 || !isPlaybackPaused
+    }
+
     private func updateActivity() {
         if activeSources.isEmpty {
             guard let activity else { return }
