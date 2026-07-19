@@ -5,7 +5,7 @@
   <p>A native Apple app for reading novels and enjoying anime, movies, television, and live football.</p>
 </div>
 
-![Asterion novel discovery on macOS](docs/design/implementation-final-discover.png)
+![Asterion movie discovery on macOS](docs/design/asterion-movies-discover.png)
 
 ## The experience
 
