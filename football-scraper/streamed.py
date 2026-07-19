@@ -13,6 +13,7 @@ import requests
 STREAMED_ORIGIN = "https://streamed.pk"
 STREAMED_API = f"{STREAMED_ORIGIN}/api"
 MATCH_CACHE_TTL_SECONDS = 60
+LIVE_MATCH_CACHE_TTL_SECONDS = 10
 REQUEST_TIMEOUT_SECONDS = 20
 
 
@@ -121,9 +122,14 @@ def _get_json(path: str) -> Any:
 
 
 def _match_feed(path: str) -> list[dict[str, Any]]:
+    cache_ttl = (
+        LIVE_MATCH_CACHE_TTL_SECONDS
+        if path == "/matches/live"
+        else MATCH_CACHE_TTL_SECONDS
+    )
     with _cache_lock:
         cached = _match_cache.get(path)
-        if cached and time.monotonic() - cached[0] < MATCH_CACHE_TTL_SECONDS:
+        if cached and time.monotonic() - cached[0] < cache_ttl:
             return cached[1]
 
     payload = _get_json(path)

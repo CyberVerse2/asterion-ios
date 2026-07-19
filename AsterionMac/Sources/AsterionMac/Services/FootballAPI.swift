@@ -66,7 +66,7 @@ actor FootballAPI {
         }
         let envelope: Envelope<[FootballMatch]> = try await request(
             path: path,
-            cacheLifetime: 20
+            cacheLifetime: 0
         )
         return envelope.data
     }
