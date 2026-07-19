@@ -157,7 +157,7 @@ def search_movies(query: str, page: int = 1, per_page: int = 30) -> dict:
 def get_genres() -> list[dict]:
     pg = get_pg()
     with pg.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute("SELECT slug, name FROM genres ORDER BY name")
+        cur.execute("SELECT slug, name as title FROM genres ORDER BY name")
         return [dict(r) for r in cur.fetchall()]
 
 

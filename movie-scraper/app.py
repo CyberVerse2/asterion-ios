@@ -137,23 +137,21 @@ def api_show(slug):
     metadata = None
     streams = []
 
-    # Resolve real IMDB ID if stored one is just a card-level numeric ID
-    if imdb_id and not imdb_id.startswith("tt"):
+    # Resolve IMDB ID: scrape detail page if not in DB or if stored ID is numeric
+    if not imdb_id or not imdb_id.startswith("tt"):
         try:
             html = scraper._get(f"{scraper.BASE}/{slug}/")
             real_imdb = scraper._extract_imdb_id(html)
             if real_imdb:
+                imdb_id = real_imdb
+                # Persist in DB for future lookups
                 pg = db.get_pg()
                 with pg.cursor() as cur:
-                    cur.execute("UPDATE movies SET imdb_id = %s WHERE slug = %s", (real_imdb, slug))
-                imdb_id = real_imdb
-                pg2 = db.get_pg()
-                with pg2.cursor(cursor_factory=RealDictCursor) as cur:
-                    cur.execute("SELECT * FROM movies WHERE slug = %s", (slug,))
-                    row = cur.fetchone()
-                    if row:
-                        from_db = dict(row)
-                        from_db["genres"] = (db.get_movie_by_slug(slug) or {}).get("genres", [])
+                    cur.execute(
+                        "INSERT INTO movies (imdb_id, title, slug, type, source_domain) "
+                        "VALUES (%s, %s, %s, %s, %s) ON CONFLICT (slug) DO UPDATE SET imdb_id = EXCLUDED.imdb_id",
+                        (imdb_id, slug.replace("-", " ").title(), slug, "movie", scraper.BASE),
+                    )
         except Exception:
             pass
 
