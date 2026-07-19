@@ -1,4 +1,5 @@
 import AVKit
+import Combine
 import SwiftUI
 import WebKit
 
@@ -10,6 +11,7 @@ struct MediaDirectPlayer: View {
     let onEnded: @MainActor @Sendable () -> Void
 
     @StateObject private var controller: DirectMediaPlaybackController
+    @State private var captionCharacterScale = CaptionSizing.systemRelativeCharacterSize
 
     init(
         url: URL,
@@ -39,26 +41,37 @@ struct MediaDirectPlayer: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                     if let caption = controller.activeCaption {
-                        VStack {
-                            Spacer()
-                            Text(caption)
-                                .font(.system(size: 20, weight: .semibold))
-                                .multilineTextAlignment(.center)
-                                .foregroundStyle(.white)
-                                .shadow(color: .black, radius: 2, x: 0, y: 1)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 7)
-                                .background(.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 7))
-                                .padding(.horizontal, 36)
-                                .padding(.bottom, 32)
+                        GeometryReader { geometry in
+                            VStack {
+                                Spacer()
+                                Text(caption)
+                                    .font(
+                                        .system(
+                                            size: CaptionSizing.fontSize(
+                                                containerSize: geometry.size,
+                                                relativeCharacterSize: captionCharacterScale
+                                            ),
+                                            weight: .semibold
+                                        )
+                                    )
+                                    .multilineTextAlignment(.center)
+                                    .foregroundStyle(.white)
+                                    .shadow(color: .black, radius: 2, x: 0, y: 1)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 7)
+                                    .background(.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 7))
+                                    .padding(.horizontal, 36)
+                                    .padding(.bottom, 32)
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                         }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .allowsHitTesting(false)
                         .accessibilityLabel("Subtitles: \(caption)")
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .onAppear {
+                    captionCharacterScale = CaptionSizing.systemRelativeCharacterSize
                     controller.start(
                         initialPosition: initialPosition,
                         onProgress: onProgress,
@@ -66,6 +79,13 @@ struct MediaDirectPlayer: View {
                     )
                 }
                 .onDisappear { controller.stop() }
+                .onReceive(
+                    NotificationCenter.default.publisher(
+                        for: CaptionSizing.settingsDidChangeNotification
+                    )
+                ) { _ in
+                    captionCharacterScale = CaptionSizing.systemRelativeCharacterSize
+                }
                 .overlay(alignment: .top) {
                     if let captionError = controller.captionError {
                         Label(captionError, systemImage: "captions.bubble.fill")
