@@ -117,6 +117,21 @@ final class AppModel: ObservableObject {
             .sorted { $0.updatedAt > $1.updatedAt }
     }
 
+    func mediaWatchTarget(
+        mediaType: MediaAccountType,
+        contentID: String,
+        orderedUnitIDs: [String]
+    ) -> MediaWatchTarget? {
+        let key = MediaAccountKey(mediaType: mediaType, contentID: contentID)
+        return MediaWatchTargetResolver.resolve(
+            orderedUnitIDs: orderedUnitIDs,
+            progress: mediaProgressByKey[key],
+            history: mediaHistory.filter {
+                $0.mediaType == mediaType && $0.contentId == contentID
+            }
+        )
+    }
+
     var offlineDownloads: [OfflineDownload] {
         offlineDownloadByNovelID.values.sorted { lhs, rhs in
             if lhs.isDownloading != rhs.isDownloading {
