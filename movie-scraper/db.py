@@ -39,7 +39,7 @@ def get_redis() -> redis.Redis:
 # --- Redis cache helpers ---
 
 REDIS_METADATA_TTL = 30 * 24 * 3600  # 30 days
-REDIS_STREAMS_TTL = 10 * 3600  # 10 hours
+REDIS_STREAMS_TTL = 2 * 3600  # 2 hours (tokens refresh frequently)
 
 
 def cache_get(key: str) -> Optional[dict]:
