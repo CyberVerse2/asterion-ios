@@ -3,6 +3,11 @@
   <h1>Asterion</h1>
   <p><strong>Stories that transcend time.</strong></p>
   <p>A native Apple app for reading novels and enjoying anime, movies, television, and live football.</p>
+  <p>
+    <a href="https://github.com/CyberVerse2/asterion-ios/releases/latest/download/Asterion.dmg">
+      <img src="https://img.shields.io/badge/Download_for_macOS-Asterion.dmg-C60C30?style=for-the-badge&amp;logo=apple&amp;logoColor=white" alt="Download Asterion for macOS">
+    </a>
+  </p>
 </div>
 
 ![Asterion movie discovery on macOS](docs/design/asterion-movies-discover.png)
