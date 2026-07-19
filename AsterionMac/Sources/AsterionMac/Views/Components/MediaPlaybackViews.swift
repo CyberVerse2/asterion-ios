@@ -140,6 +140,7 @@ private final class DirectMediaPlaybackController: ObservableObject {
     @Published private(set) var captionError: String?
 
     private let subtitleCues: [WebVTTCue]
+    private let sleepController = PlaybackSleepController()
     private var periodicObserver: Any?
     private var timeControlObserver: NSKeyValueObservation?
     private var playbackEndObserver: NSObjectProtocol?
@@ -211,6 +212,7 @@ private final class DirectMediaPlaybackController: ObservableObject {
             self.periodicObserver = nil
         }
         player.pause()
+        sleepController.stopAll()
         activeCaption = nil
         onProgress = nil
         onEnded = nil
@@ -232,6 +234,11 @@ private final class DirectMediaPlaybackController: ObservableObject {
                     if enteredPlaying || pausedAfterPlaying {
                         self.hasEnteredPlayingState = true
                     }
+                    if enteredPlaying {
+                        self.sleepController.setPlaying(true, sourceID: "native-player")
+                    } else if becamePaused {
+                        self.sleepController.setPlaying(false, sourceID: "native-player")
+                    }
                     if becamePaused, self.hasEnteredPlayingState {
                         self.report(
                             time: self.player.currentTime(),
@@ -251,6 +258,7 @@ private final class DirectMediaPlaybackController: ObservableObject {
             ) { [weak self] _ in
                 Task { @MainActor [weak self] in
                     guard let self else { return }
+                    self.sleepController.setPlaying(false, sourceID: "native-player")
                     self.report(
                         time: self.player.currentTime(),
                         force: true,
@@ -468,6 +476,7 @@ private struct CaptionedMediaWebView: NSViewRepresentable {
     static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
         webView.stopLoading()
         coordinator.flushLastProgress()
+        coordinator.stopPlaybackActivity()
         webView.evaluateJavaScript("window.__asterionFlush?.();") { [weak webView] _, _ in
             guard let webView else { return }
             webView.configuration.userContentController.removeScriptMessageHandler(
@@ -483,6 +492,7 @@ private struct CaptionedMediaWebView: NSViewRepresentable {
             tracks: subtitleTracks,
             initialPosition: initialPosition
         )
+        coordinator.stopPlaybackActivity()
         coordinator.loadedSignature = signature
         let html = CaptionedMediaDocument.html(
             url: url,
@@ -499,6 +509,7 @@ private struct CaptionedMediaWebView: NSViewRepresentable {
         private let onProgress: @MainActor @Sendable (MediaPlaybackSample) -> Void
         private let onEnded: @MainActor @Sendable () -> Void
         private let onError: @MainActor (String) -> Void
+        private let sleepController = PlaybackSleepController()
         private var lastSample: MediaPlaybackSample?
 
         init(
@@ -523,8 +534,12 @@ private struct CaptionedMediaWebView: NSViewRepresentable {
             guard let payload = message.body as? [String: Any],
                   let type = payload["type"] as? String else { return }
             if type == "error", let error = payload["message"] as? String {
+                stopPlaybackActivity()
                 Task { @MainActor in onError(error) }
+            } else if type == "playback", let isPlaying = payload["isPlaying"] as? Bool {
+                sleepController.setPlaying(isPlaying, sourceID: "captioned-player")
             } else if type == "ended" {
+                stopPlaybackActivity()
                 Task { @MainActor in onEnded() }
             } else if type == "progress",
                       let position = (payload["position"] as? NSNumber)?.doubleValue,
@@ -546,6 +561,10 @@ private struct CaptionedMediaWebView: NSViewRepresentable {
         func flushLastProgress() {
             guard let lastSample else { return }
             Task { @MainActor in onProgress(lastSample) }
+        }
+
+        func stopPlaybackActivity() {
+            sleepController.stopAll()
         }
     }
 }
@@ -619,18 +638,31 @@ enum CaptionedMediaDocument {
                 player.currentTime = initialPosition;
               }
             });
-            player.addEventListener('playing', () => { hasPlayed = true; });
+            player.addEventListener('playing', () => {
+              hasPlayed = true;
+              post({ type: 'playback', isPlaying: true });
+            });
             player.addEventListener('timeupdate', () => reportProgress(false));
-            player.addEventListener('pause', () => reportProgress(true));
+            player.addEventListener('pause', () => {
+              post({ type: 'playback', isPlaying: false });
+              reportProgress(true);
+            });
             player.addEventListener('ended', () => {
+              post({ type: 'playback', isPlaying: false });
               reportProgress(true);
               post({ type: 'ended' });
             });
-            player.addEventListener('error', () => reportError('The video source could not be played.'));
+            player.addEventListener('error', () => {
+              post({ type: 'playback', isPlaying: false });
+              reportError('The video source could not be played.');
+            });
             document.querySelectorAll('track').forEach(track => {
               track.addEventListener('error', () => reportError(`The ${track.dataset.label} subtitle track could not be loaded.`));
             });
-            window.__asterionFlush = () => reportProgress(true);
+            window.__asterionFlush = () => {
+              post({ type: 'playback', isPlaying: false });
+              reportProgress(true);
+            };
             player.play().catch(() => {});
           </script>
         </body>
@@ -708,6 +740,7 @@ private struct RestrictedMediaWebView: NSViewRepresentable {
 
     static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
         coordinator.flushLastProgress()
+        coordinator.stopPlaybackActivity()
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
         webView.evaluateJavaScript(
@@ -734,6 +767,7 @@ private struct RestrictedMediaWebView: NSViewRepresentable {
         private let onProgress: @MainActor @Sendable (MediaPlaybackSample) -> Void
         private let onEnded: @MainActor @Sendable () -> Void
         private let onError: @MainActor (String) -> Void
+        private let sleepController = PlaybackSleepController()
         private var lastSample: MediaPlaybackSample?
 
         init(
@@ -750,6 +784,7 @@ private struct RestrictedMediaWebView: NSViewRepresentable {
         }
 
         func load(_ url: URL, in webView: WKWebView) {
+            stopPlaybackActivity()
             initialURL = url
             navigationState.reset(initialURL: url)
 
@@ -819,6 +854,7 @@ private struct RestrictedMediaWebView: NSViewRepresentable {
         }
 
         func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+            stopPlaybackActivity()
             report("The video player stopped unexpectedly.")
         }
 
@@ -843,6 +879,12 @@ private struct RestrictedMediaWebView: NSViewRepresentable {
                 Task { @MainActor in onEnded() }
                 return
             }
+            if type == "playback",
+               let sourceID = payload["sourceID"] as? String,
+               let isPlaying = payload["isPlaying"] as? Bool {
+                sleepController.setPlaying(isPlaying, sourceID: sourceID)
+                return
+            }
             guard type == "progress",
                   let position = (payload["position"] as? NSNumber)?.doubleValue,
                   let duration = (payload["duration"] as? NSNumber)?.doubleValue,
@@ -865,7 +907,12 @@ private struct RestrictedMediaWebView: NSViewRepresentable {
             Task { @MainActor in onProgress(lastSample) }
         }
 
+        func stopPlaybackActivity() {
+            sleepController.stopAll()
+        }
+
         private func report(_ message: String) {
+            stopPlaybackActivity()
             Task { @MainActor in onError(message) }
         }
     }
@@ -880,7 +927,10 @@ enum EmbeddedMediaProgressScript {
           const initialPosition = \(max(0, initialPosition));
           const players = new Set();
           const playerState = new WeakMap();
+          const sourceID = globalThis.crypto?.randomUUID?.()
+            ?? `player-${Date.now()}-${Math.random().toString(36).slice(2)}`;
           let activePlayer = null;
+          let reportedPlaybackActive = false;
           let selectionQueued = false;
 
           const post = payload => {
@@ -900,6 +950,12 @@ enum EmbeddedMediaProgressScript {
               playerState.set(player, state);
             }
             return state;
+          };
+
+          const reportPlaybackActivity = isPlaying => {
+            if (reportedPlaybackActive === isPlaying) return;
+            reportedPlaybackActive = isPlaying;
+            post({ type: 'playback', sourceID, isPlaying });
           };
 
           const visiblePlayingArea = player => {
@@ -985,6 +1041,7 @@ enum EmbeddedMediaProgressScript {
               if (activePlayer) emit(activePlayer, true);
               activePlayer = selected;
             }
+            reportPlaybackActivity(activePlayer !== null);
             if (activePlayer) applyResume(activePlayer);
             return activePlayer;
           };
@@ -1048,10 +1105,12 @@ enum EmbeddedMediaProgressScript {
           window.addEventListener('pagehide', () => {
             const selected = selectActivePlayer();
             if (selected) emit(selected, true);
+            reportPlaybackActivity(false);
           });
           globalThis.__asterionFlush = () => {
             const selected = selectActivePlayer();
             if (selected) emit(selected, true);
+            reportPlaybackActivity(false);
           };
         })();
         """
