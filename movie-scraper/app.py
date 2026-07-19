@@ -1,43 +1,37 @@
 """
-Soap2Day browser — Flask API with built-in frontend.
-Install: pip install -r requirements.txt
-Run:     python app.py
-Open:    http://localhost:8080
+Soap2Day browser — Flask API backed by Postgres + Redis.
 """
 
 import logging
 import os
 import re
 from functools import wraps
-from urllib.parse import urlparse, urljoin
+from urllib.parse import urljoin, urlparse
 
 import flask
 import requests as req_lib
-import soap2day
+
+import db
+import soap2day as scraper
+
+from psycopg2.extras import RealDictCursor
 
 app = flask.Flask(__name__)
 
-ALLOWED_EMBED_HOSTS = frozenset({
-    "vidapi.xyz", "videasy.net", "vidking.net", "moviesapi.to",
-    "share.cdnm.ink", "multiembed.mov", "vidfast.pro",
-    "vsembed.su", "embedmaster.link", "nontongo.win",
-})
-
-
 # ---------------------------------------------------------------------------
-# API endpoints
+# Config
 # ---------------------------------------------------------------------------
-
+# API helpers
+# ---------------------------------------------------------------------------
 
 def _json_or_error(fn):
     @wraps(fn)
     def wrapper(*args, **kwargs):
         try:
-            result = fn(*args, **kwargs)
-            return flask.jsonify(result)
+            return flask.jsonify(fn(*args, **kwargs))
         except Exception:
-            app.logger.exception("Soap2Day scraper request failed")
-            return flask.jsonify({"error": "The source request failed."}), 502
+            app.logger.exception("API request failed")
+            return flask.jsonify({"error": "The request failed."}), 502
     return wrapper
 
 
@@ -45,13 +39,60 @@ def _json_or_error(fn):
 def add_security_headers(response):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "no-referrer"
-    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
     return response
 
+
+# ---------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------
 
 @app.route("/api/health")
 def api_health():
     return {"status": "ok"}
+
+
+@app.route("/api/movies")
+@_json_or_error
+def api_movies():
+    page = int(flask.request.args.get("page", "1"))
+    key = f"discovery:movies:page:{page}"
+    return _cached_or_scrape(key, lambda: _paginated_result(scraper.movies(page), page, 464))
+
+
+@app.route("/api/tv")
+@_json_or_error
+def api_tv():
+    page = int(flask.request.args.get("page", "1"))
+    key = f"discovery:tv:page:{page}"
+    return _cached_or_scrape(key, lambda: _paginated_result(scraper.tv_shows(page), page, 100))
+
+
+@app.route("/api/trending/movies")
+@_json_or_error
+def api_trending_movies():
+    return _cached_or_scrape("discovery:trending:movies",
+                            lambda: _search_result_list(scraper.trending_movies()))
+
+
+@app.route("/api/trending/tv")
+@_json_or_error
+def api_trending_tv():
+    return _cached_or_scrape("discovery:trending:tv",
+                            lambda: _search_result_list(scraper.trending_tv()))
+
+
+@app.route("/api/popular/movies")
+@_json_or_error
+def api_popular_movies():
+    return _cached_or_scrape("discovery:popular:movies",
+                            lambda: _search_result_list(scraper.popular_movies()))
+
+
+@app.route("/api/popular/tv")
+@_json_or_error
+def api_popular_tv():
+    return _cached_or_scrape("discovery:popular:tv",
+                            lambda: _search_result_list(scraper.popular_tv()))
 
 
 @app.route("/api/search")
@@ -59,100 +100,160 @@ def api_health():
 def api_search():
     q = flask.request.args.get("q", "").strip()
     if not q:
-        return []
-    return _search_result_list(soap2day.search(q))
-
-
-@app.route("/api/genres")
-@_json_or_error
-def api_genres():
-    return [genre.__dict__ for genre in soap2day.genres()]
-
-
-@app.route("/api/movies")
-@_json_or_error
-def api_movies():
-    page = int(flask.request.args.get("page", "1"))
-    return _paginated_result(soap2day.movies(page), page, 464)
-
-
-@app.route("/api/tv")
-@_json_or_error
-def api_tv():
-    page = int(flask.request.args.get("page", "1"))
-    return _paginated_result(soap2day.tv_shows(page), page, 100)
-
-
-@app.route("/api/trending/movies")
-@_json_or_error
-def api_trending_movies():
-    return _search_result_list(soap2day.trending_movies())
-
-
-@app.route("/api/trending/tv")
-@_json_or_error
-def api_trending_tv():
-    return _search_result_list(soap2day.trending_tv())
-
-
-@app.route("/api/popular/movies")
-@_json_or_error
-def api_popular_movies():
-    return _search_result_list(soap2day.popular_movies())
-
-
-@app.route("/api/popular/tv")
-@_json_or_error
-def api_popular_tv():
-    return _search_result_list(soap2day.popular_tv())
-
-
-@app.route("/api/genre/<genre_slug>")
-@_json_or_error
-def api_genre(genre_slug):
-    page = int(flask.request.args.get("page", "1"))
-    return _search_result_list(soap2day.by_genre(genre_slug, page))
-
-
-@app.route("/api/year/<year>")
-@_json_or_error
-def api_year(year):
-    page = int(flask.request.args.get("page", "1"))
-    return _search_result_list(soap2day.by_release_year(year, page))
+        return {"results": [], "total": 0}
+    key = f"discovery:search:{q.lower()}"
+    return _cached_or_scrape(key, lambda: {"results": _search_result_list(scraper.search(q))})
 
 
 @app.route("/api/episodes")
 @_json_or_error
 def api_episodes():
     page = int(flask.request.args.get("page", "1"))
-    return _search_result_list(soap2day.episodes_listing(page))
+    key = f"discovery:episodes:page:{page}"
+    return _cached_or_scrape(key, lambda: _search_result_list(scraper.episodes_listing(page)))
 
 
-@app.route("/api/show/<path:slug>")
+@app.route("/api/genre/<genre_slug>")
+@_json_or_error
+def api_genre(genre_slug):
+    page = int(flask.request.args.get("page", "1"))
+    key = f"discovery:genre:{genre_slug}:page:{page}"
+    return _cached_or_scrape(key, lambda: _search_result_list(scraper.by_genre(genre_slug, page)))
+
+
+@app.route("/api/year/<year>")
+@_json_or_error
+def api_year(year):
+    page = int(flask.request.args.get("page", "1"))
+    key = f"discovery:year:{year}:page:{page}"
+    return _cached_or_scrape(key, lambda: _search_result_list(scraper.by_release_year(year, page)))
+
+
+@app.route("/api/show/<slug>")
 @_json_or_error
 def api_show(slug):
-    detail = soap2day.show_detail(slug)
-    if not detail:
-        return {"error": "Not found"}, 404
-    result = detail.__dict__.copy()
-    result["streams"] = _stream_list_for_api(detail.streams)
-    return result
+    from_db = db.get_movie_by_slug(slug)
+    imdb_id = from_db["imdb_id"] if from_db else None
+    metadata = None
+    streams = []
+
+    # Resolve real IMDB ID if stored one is just a card-level numeric ID
+    if imdb_id and not imdb_id.startswith("tt"):
+        try:
+            html = scraper._get(f"{scraper.BASE}/{slug}/")
+            real_imdb = scraper._extract_imdb_id(html)
+            if real_imdb:
+                pg = db.get_pg()
+                with pg.cursor() as cur:
+                    cur.execute("UPDATE movies SET imdb_id = %s WHERE slug = %s", (real_imdb, slug))
+                imdb_id = real_imdb
+                pg2 = db.get_pg()
+                with pg2.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute("SELECT * FROM movies WHERE slug = %s", (slug,))
+                    row = cur.fetchone()
+                    if row:
+                        from_db = dict(row)
+                        from_db["genres"] = (db.get_movie_by_slug(slug) or {}).get("genres", [])
+        except Exception:
+            pass
+
+    # Fetch metadata + streams using real IMDB ID
+    if imdb_id and imdb_id.startswith("tt"):
+        metadata = db.cache_get(f"metadata:{imdb_id}")
+        if not metadata:
+            enriched = scraper._enrich_from_2embed(imdb_id)
+            if enriched:
+                metadata = enriched
+                db.cache_set(f"metadata:{imdb_id}", enriched, db.REDIS_METADATA_TTL)
+                # Also update DB with 2embed data in background
+                _update_db_from_2embed(imdb_id, slug, enriched)
+
+    if imdb_id and imdb_id.startswith("tt"):
+        stream_data = db.cache_get(f"streams:{imdb_id}")
+        if not stream_data:
+            stream_data = [{"server_id": 1, "label": "2Embed (JW+Subs)",
+                           "quality": "1080P", "embed_url": f"https://www.2embed.cc/embed/{imdb_id}"}]
+            try:
+                hls = scraper.get_hls_sources(imdb_id)
+                for i, s in enumerate(hls):
+                    stream_data.append({"server_id": i + 2, "label": s.label,
+                                       "quality": s.quality, "embed_url": s.embed_url})
+            except Exception:
+                pass
+            db.cache_set(f"streams:{imdb_id}", stream_data, db.REDIS_STREAMS_TTL)
+        streams = stream_data
+
+    if from_db:
+        # TV show: fetch seasons and episodes
+        seasons = []
+        if from_db.get("type") == "tv":
+            from psycopg2.extras import RealDictCursor
+            pg = db.get_pg()
+            with pg.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    "SELECT s.season_number, s.title, s.episode_count, "
+                    "json_agg(json_build_object('number', e.episode_number, 'title', e.title, 'slug', e.slug) "
+                    "ORDER BY e.episode_number) as episodes "
+                    "FROM seasons s LEFT JOIN episodes e ON s.id = e.season_id "
+                    "WHERE s.imdb_id = %s GROUP BY s.id, s.season_number, s.title, s.episode_count "
+                    "ORDER BY s.season_number",
+                    (from_db["imdb_id"],),
+                )
+                for row in cur.fetchall():
+                    seasons.append({
+                        "number": row["season_number"],
+                        "title": row["title"],
+                        "episode_count": row["episode_count"],
+                        "episodes": row["episodes"] or [],
+                    })
+
+        result = {
+            "id": from_db.get("imdb_id"),
+            "title": from_db.get("title"),
+            "slug": slug,
+            "type": from_db.get("type", "movie"),
+            "image_url": from_db.get("poster_url"),
+            "description": from_db.get("overview"),
+            "imdb_rating": str(from_db.get("imdb_rating", "")) if from_db.get("imdb_rating") else None,
+            "tmdb_rating": str(from_db.get("tmdb_rating", "")) if from_db.get("tmdb_rating") else None,
+            "rotten_tomatoes": from_db.get("rotten_tomatoes"),
+            "metacritic": from_db.get("metacritic"),
+            "genres": [g["name"] for g in from_db.get("genres", [])],
+            "director": from_db.get("director"),
+            "actors": [c["name"] for c in from_db.get("cast", [])],
+            "duration": from_db.get("runtime"),
+            "release_year": from_db.get("release_year"),
+            "release_date": from_db.get("release_date"),
+            "seasons": seasons,
+            "streams": _stream_list_for_api(streams),
+        }
+        if metadata:
+            if not result["description"]:
+                result["description"] = metadata.get("overview")
+            if not result["director"]:
+                result["director"] = metadata.get("director")
+            if not result["actors"]:
+                result["actors"] = metadata.get("cast", [])
+            if metadata.get("vote_average") and not result["imdb_rating"]:
+                result["imdb_rating"] = str(round(metadata["vote_average"], 1))
+            if not result["image_url"]:
+                result["image_url"] = metadata.get("poster")
+        return result
+
+    return {"error": "Not found"}, 404
 
 
-@app.route("/api/show/<path:slug>/episodes")
+@app.route("/api/show/<slug>/episodes")
 @_json_or_error
 def api_show_episodes(slug):
-    eps = soap2day.series_episodes(slug)
+    eps = scraper.series_episodes(slug)
     return [e.__dict__ for e in eps]
 
 
-@app.route("/proxy/embed")
-def proxy_embed():
-    """Proxy an embed iframe for display."""
-    target = flask.request.args.get("url", "")
-    if not target:
-        return "No URL provided", 400
-    return flask.redirect(target)
+@app.route("/api/genres")
+@_json_or_error
+def api_genres():
+    return db.get_genres()
 
 
 @app.route("/proxy/hls")
@@ -178,13 +279,12 @@ def proxy_hls():
 
     if is_m3u8:
         body = resp.text
-        # Rewrite relative .m3u8/.ts/.aac URLs through proxy
         base = target.rsplit("/", 1)[0]
         proxy_base = flask.request.url_root.rstrip("/") + "/proxy/hls?url="
         body = re.sub(
             r'^([^#\s][^\s]*\.(?:m3u8|ts|aac|mp4))',
             lambda m: proxy_base + urljoin(base + "/", m.group(1)),
-            body, flags=re.MULTILINE
+            body, flags=re.MULTILINE,
         )
         rv = flask.Response(body, content_type=content_type)
         rv.headers["Access-Control-Allow-Origin"] = "*"
@@ -205,35 +305,66 @@ def proxy_hls():
 
 
 # ---------------------------------------------------------------------------
-# Helper serialization
+# Helpers
 # ---------------------------------------------------------------------------
 
+def _update_db_from_2embed(imdb_id: str, slug: str, metadata: dict):
+    """Update the DB row with 2embed metadata (non-blocking)."""
+    try:
+        pg = db.get_pg()
+        with pg.cursor() as cur:
+            cur.execute(
+                """UPDATE movies SET overview = %s, director = %s,
+                   poster_url = COALESCE(movies.poster_url, %s),
+                   tmdb_rating = %s, release_date = %s
+                   WHERE imdb_id = %s""",
+                (metadata.get("overview"), metadata.get("director"),
+                 metadata.get("poster"), metadata.get("vote_average"),
+                 metadata.get("release_date"), imdb_id),
+            )
+        # Update genres
+        genres = metadata.get("genres", [])
+        if genres:
+            with pg.cursor() as cur:
+                for g in genres:
+                    name = g if isinstance(g, str) else g.get("name", "")
+                    if name:
+                        slug = name.lower().replace(" ", "-")
+                        cur.execute("INSERT INTO genres (slug, name) VALUES (%s, %s) ON CONFLICT DO NOTHING", (slug, name))
+                        cur.execute("INSERT INTO movie_genres (imdb_id, genre_slug) VALUES (%s, %s) ON CONFLICT DO NOTHING", (imdb_id, slug))
+    except Exception:
+        pass
 
-def _search_result_list(results: list[soap2day.SearchResult]) -> list[dict]:
+
+def _cached_or_scrape(key: str, fetcher):
+    """Redis-backed lazy cache: scrape on miss, cache for 30 days."""
+    cached = db.cache_get(key)
+    if cached:
+        return cached
+    result = fetcher()
+    db.cache_set(key, result, 30 * 24 * 3600)
+    return result
+
+
+def _search_result_list(results) -> list[dict]:
     return [r.__dict__ for r in results]
 
 
-def _paginated_result(results: list[soap2day.SearchResult], page: int, total: int) -> dict:
-    return {
-        "page": page,
-        "total_pages": total,
-        "results": [r.__dict__ for r in results],
-    }
+def _paginated_result(results, page: int, total: int) -> dict:
+    return {"page": page, "total_pages": total, "results": [r.__dict__ for r in results]}
 
 
-def _stream_list_for_api(streams: list[soap2day.StreamServer]) -> list[dict]:
+def _stream_list_for_api(streams) -> list[dict]:
     result = []
     for s in streams:
-        d = s.__dict__.copy()
+        if isinstance(s, dict):
+            d = s.copy()
+        else:
+            d = s.__dict__.copy()
         url = d.get("embed_url", "")
         is_hls = (
-            ".m3u8" in url or
-            "1x2.space" in url or
-            "greenplanetstore" in url or
-            "workers.dev" in url or
-            "tik." in url or
-            "vip." in url or
-            url.endswith(".txt")
+            ".m3u8" in url or "1x2.space" in url or "greenplanetstore" in url
+            or "workers.dev" in url or url.endswith(".txt")
         )
         d["is_hls"] = is_hls
         if is_hls:
@@ -253,16 +384,10 @@ INDEX = r"""<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Soap2Day Browser</title>
 <style>
-:root {
-  --bg: #0a0a10; --surface: #141420; --border: #26263a;
-  --text: #e0e0ec; --muted: #7a7a90; --accent: #7c3aed;
-  --accent-dim: #7c3aed22; --green: #22c55e; --orange: #f59e0b;
-  --radius: 10px;
-}
+:root{--bg:#0a0a10;--surface:#141420;--border:#26263a;--text:#e0e0ec;--muted:#7a7a90;--accent:#7c3aed;--accent-dim:#7c3aed22;--green:#22c55e;--orange:#f59e0b;--radius:10px}
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,sans-serif;background:var(--bg);color:var(--text);height:100vh;overflow:hidden;display:flex}
 a{color:var(--accent);text-decoration:none}
-
 #sidebar{width:360px;min-width:320px;display:flex;flex-direction:column;border-right:1px solid var(--border);background:var(--surface)}
 #tabs{display:flex;border-bottom:1px solid var(--border)}
 #tabs button{flex:1;background:none;border:none;color:var(--muted);padding:10px;cursor:pointer;font-size:13px;font-weight:600;transition:.15s}
@@ -279,16 +404,20 @@ a{color:var(--accent);text-decoration:none}
 .card-info .sub{font-size:11px;color:var(--muted);margin-top:2px}
 .card .rating{font-size:11px;font-weight:700;color:var(--green);margin-top:2px}
 .card .rating.mid{color:var(--orange)}
-
 #main{flex:1;display:flex;flex-direction:column;overflow:hidden}
-#player-wrap{background:#000;flex-shrink:0;display:none;position:relative}
+#player-wrap{background:#000;flex-shrink:0;display:none}
 #player-wrap.visible{display:block}
 #player-wrap iframe{width:100%;height:440px;border:0;display:block}
-#player-tabs{display:flex;gap:4px;padding:6px 14px;background:var(--surface);border-bottom:1px solid var(--border);overflow-x:auto;display:none}
-#player-bar.visible #player-tabs{display:flex}
+#player-wrap video{width:100%;height:440px;display:block;outline:none}
+#subtitle-bar{display:none;padding:4px 14px;background:var(--surface);border-bottom:1px solid var(--border);font-size:12px;color:var(--muted);gap:6px;align-items:center;flex-wrap:wrap}
+#subtitle-bar select{background:var(--bg);border:1px solid var(--border);color:var(--text);padding:2px 6px;border-radius:4px;font-size:11px}
+#subtitle-extlink{color:var(--accent);font-size:11px;margin-left:auto;display:none}
+#player-bar{background:var(--surface);border-bottom:1px solid var(--border);display:none}
+#player-bar.visible{display:block}
+#player-tabs{display:flex;gap:4px;padding:6px 14px;overflow-x:auto}
 #player-tabs button{background:var(--bg);border:1px solid var(--border);color:var(--muted);padding:4px 12px;border-radius:6px;font-size:12px;cursor:pointer;white-space:nowrap;transition:.15s}
 #player-tabs button:hover,#player-tabs button.active{border-color:var(--accent);color:var(--text)}
-#player-extlink{display:block;padding:6px 14px;font-size:12px;color:var(--accent);text-align:center;border-bottom:1px solid var(--border);background:var(--surface)}
+#player-extlink{display:block;padding:6px 14px;font-size:12px;color:var(--accent);text-align:center;border-top:1px solid var(--border)}
 #player-extlink:hover{text-decoration:underline}
 #detail{flex:1;overflow-y:auto;padding:20px 28px}
 #detail .hero{display:flex;gap:20px;margin-bottom:16px}
@@ -304,72 +433,62 @@ a{color:var(--accent);text-decoration:none}
 .chip{font-size:11px;padding:3px 8px;border-radius:4px;background:var(--accent-dim);color:var(--accent)}
 .placeholder{display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:14px;text-align:center}
 .loading{color:var(--muted);padding:20px;text-align:center}
-.episodes{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:6px}
-.ep-btn{background:var(--surface);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:6px;font-size:12px;cursor:pointer;text-align:left;transition:.15s}
-.ep-btn:hover{border-color:var(--accent);background:var(--accent-dim)}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 </head>
 <body>
-
 <div id="sidebar">
   <div id="tabs">
     <button data-tab="movies" class="active">Movies</button>
     <button data-tab="tv">TV Shows</button>
-    <button data-tab="trending">Trending</button>
+    <button data-tab="popular">Popular</button>
+    <button data-tab="genres">Genres</button>
   </div>
   <div id="search-bar">
     <input id="search-input" type="text" placeholder="Search movies & TV..." autocomplete="off">
   </div>
+  <div id="genre-picker" style="display:none;padding:8px 14px;border-bottom:1px solid var(--border);overflow-x:auto;white-space:nowrap;gap:4px">
+  </div>
   <div id="results"><div class="loading">Loading movies...</div></div>
 </div>
-
 <div id="main">
   <div id="player-wrap">
     <iframe id="player-frame" allowfullscreen allow="autoplay; encrypted-media; picture-in-picture"></iframe>
-    <video id="player-video" controls playsinline crossorigin="anonymous" style="display:none;width:100%;height:440px"></video>
+    <video id="player-video" controls playsinline crossorigin="anonymous" style="display:none"></video>
   </div>
-  <div id="subtitle-bar" style="display:none;padding:4px 14px;background:var(--surface);border-bottom:1px solid var(--border);font-size:12px;color:var(--muted);gap:6px;align-items:center;flex-wrap:wrap">
-    <span>Subtitles:</span>
-    <select id="subtitle-select" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:2px 6px;border-radius:4px;font-size:11px"></select>
-    <a id="subtitle-extlink" href="#" target="_blank" rel="noopener" style="color:var(--accent);font-size:11px;margin-left:auto;display:none">Open with subtitles →</a>
+  <div id="subtitle-bar">
+    <span>Subtitles:</span><select id="subtitle-select"></select>
+    <a id="subtitle-extlink" href="#" target="_blank" rel="noopener">Open with subtitles →</a>
   </div>
   <div id="player-bar">
     <div id="player-tabs"></div>
-    <a id="player-extlink" href="#" target="_blank" rel="noopener" style="display:none">Open in new tab (adblock works)</a>
+    <a id="player-extlink" href="#" target="_blank" rel="noopener">Open in new tab</a>
   </div>
-  <div id="detail">
-    <div class="placeholder">Select a title from the left to view details</div>
-  </div>
+  <div id="detail"><div class="placeholder">Select a title</div></div>
 </div>
-
 <script>
 const $=s=>document.querySelector(s);const $$=s=>document.querySelectorAll(s);
-let currentShow=null,currentStreams=[],activeServer=0,currentEmbedUrls=[];
-let currentTab='movies',currentPage=1,totalPages=1,hlsInstance=null;
+let currentShow=null,currentStreams=[],activeServer=0,currentTab='movies';
+let currentPage=1,totalPages=1,hlsInstance=null;
 async function api(path){const r=await fetch(path);return r.json()}
-
 function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 
 function renderCards(items,container,append){
   if(!append)container.innerHTML='';
   if(!items.length&&!append){container.innerHTML='<div class="loading">No results</div>';return}
   var html=items.map(item=>`
-    <div class="card" data-url="${esc(item.url||'')}" data-title="${esc(item.title)}">
-      <img src="${item.image_url||''}" loading="lazy" onerror="this.style.display='none'">
+    <div class="card" data-slug="${esc(item.slug||'')}" data-title="${esc(item.title)}">
+      <img src="${item.image_url||item.poster_url||''}" loading="lazy" onerror="this.style.display='none'">
       <div class="card-info">
         <div class="title">${esc(item.title)}</div>
-        ${item.runtime?`<div class="sub">${esc(item.runtime)} ${item.quality||''}</div>`:''}
+        ${item.runtime?`<div class="sub">${item.runtime}min</div>`:''}
         ${item.imdb_rating?`<div class="rating ${parseFloat(item.imdb_rating)<7?'mid':''}">IMDb ${item.imdb_rating}</div>`:''}
       </div>
     </div>`).join('');
   container.insertAdjacentHTML('beforeend',html);
   container.querySelectorAll('.card:not([data-bound])').forEach(card=>{
     card.dataset.bound='1';
-    card.addEventListener('click',()=>{
-      const slug=card.dataset.url.replace(/^https?:\/\/[^/]+\//,'').replace(/\/$/,'');
-      loadShow(slug);
-    });
+    card.addEventListener('click',()=>{loadShow(card.dataset.slug);});
   });
 }
 
@@ -381,6 +500,8 @@ async function loadShow(slug){
   $('#player-wrap').classList.remove('visible');
   $('#player-bar').classList.remove('visible');$('#player-tabs').innerHTML='';
   $('#player-extlink').style.display='none';$('#player-extlink').href='#';
+  $('#subtitle-bar').style.display='none';$('#subtitle-select').innerHTML='';
+  $('#subtitle-extlink').style.display='none';
   try{
     const show=await api('/api/show/'+slug);
     if(show.error){$('#detail').innerHTML='<div class="placeholder">Not found</div>';return}
@@ -393,26 +514,23 @@ async function loadShow(slug){
 function renderDetail(show){
   const ratings=`
     ${show.imdb_rating?`<div class="r"><div class="val" style="color:${parseFloat(show.imdb_rating)>=7?'var(--green)':'var(--orange)'}">${show.imdb_rating}</div><div class="lbl">IMDb</div></div>`:''}
-    ${show.tmdb_rating?`<div class="r"><div class="val" style="color:var(--orange)">${show.tmdb_rating}</div><div class="lbl">TMDb</div></div>`:''}
+    ${show.tmdb_rating?`<div class="r"><div class="val">${show.tmdb_rating}</div><div class="lbl">TMDb</div></div>`:''}
     ${show.rotten_tomatoes?`<div class="r"><div class="val" style="color:var(--green)">${show.rotten_tomatoes}%</div><div class="lbl">RT</div></div>`:''}
-    ${show.metacritic?`<div class="r"><div class="val" style="color:var(--orange)">${show.metacritic}</div><div class="lbl">Meta</div></div>`:''}
   `;
   const chips=[...(show.genres||[])].map(g=>`<span class="chip">${esc(g)}</span>`).join('');
-  const meta=`${show.duration||''} &middot; ${show.release_year||''} ${show.country?'&middot; '+esc(show.country):''}`;
+  const meta=`${show.duration||''} &middot; ${show.release_year||''}`;
   $('#detail').innerHTML=`
     <div class="hero">
       <img src="${show.image_url||''}" onerror="this.style.display='none'">
-      <div>
-        <h2>${esc(show.title)}</h2>
+      <div><h2>${esc(show.title)}</h2>
         ${show.director?`<div class="meta">Directed by ${esc(show.director)}</div>`:''}
         <div class="meta">${meta}</div>
-        ${show.actors.length?`<div class="meta">Starring: ${show.actors.slice(0,5).map(esc).join(', ')}</div>`:''}
+        ${show.actors&&show.actors.length?`<div class="meta">Starring: ${show.actors.slice(0,5).map(esc).join(', ')}</div>`:''}
         ${show.description?`<div class="desc">${esc(show.description)}</div>`:''}
       </div>
     </div>
     <div class="ratings">${ratings}</div>
-    <div class="chips">${chips}</div>
-  `;
+    <div class="chips">${chips}</div>`;
   renderServerTabs();
 }
 
@@ -424,21 +542,11 @@ function renderServerTabs(){
   $('#player-bar').classList.add('visible');
   $('#player-tabs').querySelectorAll('button').forEach(btn=>{
     btn.addEventListener('click',()=>{
-      if(btn.dataset.hls==='true'){
-        activeServer=parseInt(btn.dataset.idx);
-        $('#player-tabs').querySelectorAll('button').forEach((b,i)=>b.classList.toggle('active',i===activeServer));
-        playServer(parseInt(btn.dataset.idx));
-      }else{
-        activeServer=parseInt(btn.dataset.idx);
-        $('#player-tabs').querySelectorAll('button').forEach((b,i)=>b.classList.toggle('active',i===activeServer));
-        playServer(parseInt(btn.dataset.idx));
-      }
+      activeServer=parseInt(btn.dataset.idx);
+      $('#player-tabs').querySelectorAll('button').forEach((b,i)=>b.classList.toggle('active',i===activeServer));
+      playServer(parseInt(btn.dataset.idx));
     });
-    btn.addEventListener('contextmenu',(e)=>{
-      e.preventDefault();
-      var url=btn.dataset.url;
-      if(url)window.open(url,'_blank');
-    });
+    btn.addEventListener('contextmenu',e=>{e.preventDefault();var u=btn.dataset.url;if(u)window.open(u,'_blank');});
   });
   $('#player-extlink').style.display='block';
   $('#player-extlink').href=currentStreams[0].embed_url||'#';
@@ -453,71 +561,101 @@ function playServer(idx){
   $('#player-extlink').style.display='block';
   $('#subtitle-bar').style.display='none';$('#subtitle-select').innerHTML='';
   $('#subtitle-extlink').style.display='none';
-
   if(s.is_hls){
     $('#player-frame').style.display='none';$('#player-frame').src='';
     var v=$('#player-video');v.style.display='block';
     $('#player-wrap').classList.add('visible');
-    // Show 2embed link for subtitles
-    var subSrc=currentStreams.find(function(x){return x.label&&x.label.indexOf('2Embed')>=0});
+    var subSrc=currentStreams.find(x=>x.label&&x.label.indexOf('2Embed')>=0);
     if(subSrc){$('#subtitle-extlink').href=subSrc.embed_url;$('#subtitle-extlink').style.display='inline'}
     if(window.Hls&&Hls.isSupported()){
       if(hlsInstance)hlsInstance.destroy();
       hlsInstance=new Hls({enableWorker:false});
       hlsInstance.loadSource(s.proxy_url||s.embed_url);
       hlsInstance.attachMedia(v);
-      hlsInstance.on(Hls.Events.MANIFEST_PARSED,function(){
-        var tracks=hlsInstance.subtitleTracks;
-        if(tracks.length>0){
+      hlsInstance.on(Hls.Events.MANIFEST_PARSED,()=>{
+        var t=hlsInstance.subtitleTracks;
+        if(t.length>0){
           $('#subtitle-bar').style.display='flex';
-          tracks.forEach(function(t,i){
-            var opt=document.createElement('option');
-            opt.value=i;opt.textContent=t.name||t.lang||'Track '+(i+1);
-            $('#subtitle-select').appendChild(opt);
+          t.forEach((tr,i)=>{
+            var o=document.createElement('option');
+            o.value=i;o.textContent=tr.name||tr.lang||'Track '+(i+1);
+            $('#subtitle-select').appendChild(o);
           });
-          $('#subtitle-select').onchange=function(){
-            hlsInstance.subtitleTrack=parseInt(this.value);
-          };
+          $('#subtitle-select').onchange=function(){hlsInstance.subtitleTrack=parseInt(this.value);};
         }
       });
-    }else if(v.canPlayType('application/vnd.apple.mpegurl')){
-      v.src=s.proxy_url||s.embed_url;
-    }
+    }else if(v.canPlayType('application/vnd.apple.mpegurl')){v.src=s.proxy_url||s.embed_url;}
   }else{
     if(hlsInstance){hlsInstance.destroy();hlsInstance=null;}
     $('#player-video').style.display='none';$('#player-video').src='';
-    $('#player-frame').style.display='block';
-    $('#player-frame').src=s.embed_url;
+    $('#player-frame').style.display='block';$('#player-frame').src=s.embed_url;
     $('#player-wrap').classList.add('visible');
-    // If not already a subtitle-capable embed, show link
-    if(s.label.indexOf('2Embed')<0&&s.label.indexOf('VidCore')<0&&s.label.indexOf('VidNest')<0){
-      var subSrc=currentStreams.find(function(x){return x.label&&x.label.indexOf('2Embed')>=0});
-      if(subSrc){$('#subtitle-extlink').href=subSrc.embed_url;$('#subtitle-extlink').style.display='inline'}
-    }
   }
 }
 
 async function loadTab(tab){
   currentTab=tab;currentPage=1;totalPages=1;
   $('#search-input').value='';
+  $('#genre-picker').style.display='none';$('#genre-picker').innerHTML='';
   $$('#tabs button').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));
   $('#results').innerHTML='<div class="loading">Loading...</div>';
-  if(tab==='trending'){
-    try{
-      const m=await api('/api/trending/movies');
-      const t=await api('/api/trending/tv');
+  try{
+    var url, items;
+    if(tab==='movies')url='/api/movies?page=1';
+    else if(tab==='tv')url='/api/tv?page=1';
+    else if(tab==='popular')url='/api/popular/movies';
+    else if(tab==='genres'){
+      // Load genre list first
+      var genres=await api('/api/genres');
       $('#results').innerHTML='';
-      renderCards([...m,...t],$('#results'),false);
-    }catch(e){}
-  }else{
-    try{
-      const url=tab==='movies'?'/api/movies?page=1':'/api/tv?page=1';
-      const data=await api(url);
-      totalPages=data.total_pages||1;currentPage=1;
-      renderCards(data.results||data,$('#results'),false);
+      $('#genre-picker').style.display='flex';
+      genres.forEach(function(g){
+        var b=document.createElement('button');
+        b.textContent=g.name;
+        b.dataset.slug=g.slug;
+        b.style.cssText='background:var(--bg);border:1px solid var(--border);color:var(--muted);padding:4px 12px;border-radius:6px;font-size:12px;cursor:pointer;white-space:nowrap;flex-shrink:0';
+        b.onclick=function(){loadGenre(g.slug,g.name);};
+        $('#genre-picker').appendChild(b);
+      });
+      return;
+    }
+    if(url){
+      var data=await api(url);
+      items=data.results||data;
+      totalPages=data.total_pages||1;
+      renderCards(items,$('#results'),false);
       if(currentPage<totalPages)addLoadMore();
-    }catch(e){$('#results').innerHTML='<div class="loading">Failed to load</div>'}
-  }
+    }
+  }catch(e){$('#results').innerHTML='<div class="loading">Failed</div>'}
+}
+
+async function loadGenre(slug,name){
+  currentTab='genres';currentPage=1;
+  $('#results').innerHTML='<div class="loading">Loading '+name+'...</div>';
+  try{
+    var data=await api('/api/genre/'+slug);
+    var items=data.results||data;
+    totalPages=data.total_pages||1;
+    renderCards(items,$('#results'),false);
+    if(currentPage<totalPages)addLoadMoreGenre(slug);
+  }catch(e){$('#results').innerHTML='<div class="loading">Failed</div>'}
+}
+
+function addLoadMoreGenre(slug){
+  var btn=document.createElement('button');
+  btn.textContent='Load More';
+  btn.style.cssText='display:block;width:100%;margin:10px 0;padding:10px;background:var(--surface);border:1px solid var(--border);color:var(--accent);border-radius:8px;cursor:pointer;font-size:13px';
+  btn.onclick=async function(){
+    btn.textContent='Loading...';btn.disabled=true;
+    try{
+      var d=await api('/api/genre/'+slug+'?page='+(currentPage+1));
+      currentPage=d.page;totalPages=d.total_pages||totalPages;
+      renderCards(d.results||d,$('#results'),true);
+      if(currentPage<totalPages){btn.textContent='Load More';btn.disabled=false;}
+      else btn.remove();
+    }catch(e){btn.textContent='Retry';btn.disabled=false;}
+  };
+  $('#results').appendChild(btn);
 }
 
 function addLoadMore(){
@@ -527,10 +665,10 @@ function addLoadMore(){
   btn.onclick=async function(){
     btn.textContent='Loading...';btn.disabled=true;
     try{
-      var url=currentTab==='movies'?'/api/movies?page='+(currentPage+1):'/api/tv?page='+(currentPage+1);
-      var data=await api(url);
-      currentPage=data.page;totalPages=data.total_pages||totalPages;
-      renderCards(data.results||data,$('#results'),true);
+      var u=(currentTab==='movies'?'/api/movies?page=':'/api/tv?page=')+(currentPage+1);
+      var d=await api(u);
+      currentPage=d.page;totalPages=d.total_pages||totalPages;
+      renderCards(d.results||d,$('#results'),true);
       if(currentPage<totalPages){btn.textContent='Load More ('+currentPage+'/'+totalPages+')';btn.disabled=false;}
       else btn.remove();
     }catch(e){btn.textContent='Retry';btn.disabled=false;}
@@ -542,9 +680,9 @@ let searchTimer=null;
 $('#search-input').addEventListener('input',()=>{
   clearTimeout(searchTimer);
   searchTimer=setTimeout(async()=>{
-    const q=$('#search-input').value.trim();
+    var q=$('#search-input').value.trim();
     if(q.length<2){loadTab(currentTab);return}
-    try{const items=await api('/api/search?q='+encodeURIComponent(q));renderCards(items,$('#results'),false)}catch(e){}
+    try{var d=await api('/api/search?q='+encodeURIComponent(q));renderCards(d.results||d,$('#results'),false)}catch(e){}
   },400);
 });
 
@@ -567,5 +705,5 @@ def index():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "8080"))
     logging.basicConfig(level=logging.INFO)
-    print(f"🎬 Soap2Day Browser — http://localhost:{port}")
+    print("🎬 Soap2Day Browser → http://localhost:" + str(port))
     app.run(host="0.0.0.0", port=port, debug=False, threaded=True)

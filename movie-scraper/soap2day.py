@@ -13,7 +13,42 @@ from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-BASE = "https://ww25.soap2day.day"
+BASE = "https://uk-soap2day.day"
+# Domain rotation (uk and au don't use Cloudflare Turnstile, ww25 does)
+DOMAINS = [
+    {"url": "https://uk-soap2day.day", "type": "dooplay"},
+    {"url": "https://au-soap2day.day", "type": "dooplay"},
+]
+
+# Rotating residential proxy (prevents IP-based rate limiting)
+PROXY_URL = None  # Set via env var SOAP2DAY_PROXY
+import os as _os
+if _os.environ.get("SOAP2DAY_PROXY"):
+    PROXY_URL = _os.environ["SOAP2DAY_PROXY"]
+
+_current_domain = DOMAINS[0]["url"]
+
+
+def _use_mirror(url: str) -> str:
+    """Rewrite known domains to the current mirror if blocked."""
+    if url.startswith(_current_domain):
+        return url
+    for d in DOMAINS:
+        if url.startswith(d["url"]):
+            return url
+    if "soap2day.day" in url:
+        return url.replace("https://ww25.soap2day.day", _current_domain)
+    return url
+
+
+def _switch_domain():
+    """Rotate to next available domain."""
+    global _current_domain
+    for d in DOMAINS:
+        if d["url"] == _current_domain:
+            idx = DOMAINS.index(d)
+            _current_domain = DOMAINS[(idx + 1) % len(DOMAINS)]["url"]
+            return
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -23,6 +58,10 @@ HEADERS = {
 # Known direct HLS provider endpoints
 XPASS_EMBED = "https://play.xpass.top/e/movie/{imdb_id}"
 XPASS_PLAYLIST_BASE = "https://play.xpass.top"
+
+# TTL cache for listing pages (reduces load on discovery layer)
+_listing_cache: dict = {}
+_LISTING_CACHE_TTL = 300  # 5 minutes
 
 # ---------------------------------------------------------------------------
 # Models
@@ -97,6 +136,21 @@ class ShowDetail:
 
 _session = requests.Session()
 _session.headers.update(HEADERS)
+
+if PROXY_URL:
+    _session.proxies = {"http": PROXY_URL, "https": PROXY_URL}
+
+try:
+    import cloudscraper as _cs
+    _scraper = _cs.create_scraper(
+        browser={"browser": "chrome", "platform": "darwin", "mobile": False},
+        sess=_session,
+    )
+    _scraper.headers.update(HEADERS)
+    _session = _scraper
+except ImportError:
+    pass
+
 _retry_policy = Retry(
     total=2,
     connect=2,
@@ -111,7 +165,16 @@ _session.mount("https://", HTTPAdapter(max_retries=_retry_policy))
 
 
 def _get(url: str) -> str:
+    url = _use_mirror(url)
     resp = _session.get(url, timeout=30)
+    if resp.status_code == 403:
+        # Domain rotation handles Cloudflare - proxy helps with IP rate limits
+        _switch_domain()
+        url = _use_mirror(url)
+        kwargs = {"timeout": 30}
+        if PROXY_URL:
+            kwargs["proxies"] = {"http": PROXY_URL, "https": PROXY_URL}
+        resp = _session.get(url, **kwargs)
     resp.raise_for_status()
     return resp.text
 
@@ -149,6 +212,8 @@ def _parse_cards(html: str) -> list[SearchResult]:
             link.get("title", "") if link else "",
             _text(item.select_one(".mli-info .h2")),
             _text(item.select_one("#hidden_tip .qtip-title")),
+            _text(item.select_one(".card-title")),
+            img.get("title", "") if img else "",
             img.get("alt", "") if img else "",
         ]
         title = next((candidate.strip() for candidate in title_candidates if candidate and candidate.strip()), "")
@@ -216,6 +281,20 @@ def genres() -> list[Genre]:
         seen.add(slug)
         results.append(Genre(slug=slug, title=title))
     return results
+
+
+import time as _time
+
+
+def _cached(key: str, ttl: int, fn):
+    now = _time.time()
+    if key in _listing_cache:
+        ts, val = _listing_cache[key]
+        if now - ts < ttl:
+            return val
+    val = fn()
+    _listing_cache[key] = (now, val)
+    return val
 
 
 def movies(page: int = 1) -> list[SearchResult]:
@@ -429,9 +508,27 @@ def show_detail(slug: str) -> Optional[ShowDetail]:
             internal = _parse_vidapi_internal(first_server.embed_url, len(streams) + 1)
             streams.extend(internal)
 
-    # Enrich: fetch direct HLS/m3u8 sources via xpass.top
+    # Fetch direct HLS/m3u8 sources via xpass.top
     imdb_id = _extract_imdb_id(html)
     tmdb_id = _extract_tmdb_id(html)
+
+    # Enrich metadata from 2embed API (no Cloudflare, full JSON API)
+    if imdb_id:
+        enriched = _enrich_from_2embed(imdb_id)
+        if enriched:
+            if enriched.get("title") and title == slug.replace("-", " ").title():
+                title = enriched["title"]
+            if not description and enriched.get("overview"):
+                description = enriched["overview"]
+            if not imdb_rating and enriched.get("vote_average"):
+                imdb_rating = str(round(enriched["vote_average"], 1))
+            if not director and enriched.get("director"):
+                director = enriched["director"]
+            if not actors and enriched.get("cast"):
+                actors = enriched["cast"][:10]
+            if not image_url and enriched.get("poster"):
+                image_url = enriched["poster"]
+
     if imdb_id:
         hls_sources = get_hls_sources(imdb_id)
         streams[:0] = hls_sources
@@ -512,6 +609,38 @@ def _extract_imdb_id(html: str) -> Optional[str]:
         if m:
             return m.group(1)
     return None
+
+
+_2EMBED_API = "https://api.2embed.cc"
+_2embed_cache: dict[str, dict] = {}
+
+
+def _enrich_from_2embed(imdb_id: str) -> Optional[dict]:
+    """Fetch rich metadata from 2embed API (Cloudflare-free, Apache)."""
+    if imdb_id in _2embed_cache:
+        return _2embed_cache[imdb_id]
+    try:
+        resp = _session.get(f"{_2EMBED_API}/movie?imdb_id={imdb_id}", timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+        result = {
+            "title": data.get("title"),
+            "overview": data.get("overview"),
+            "vote_average": data.get("vote_average"),
+            "poster": data.get("poster"),
+            "director": None,
+            "cast": [],
+        }
+        for c in data.get("crew", []):
+            if c.get("job") == "Director":
+                result["director"] = c.get("name")
+                break
+        for c in data.get("cast", [])[:15]:
+            result["cast"].append(c.get("name", ""))
+        _2embed_cache[imdb_id] = result
+        return result
+    except Exception:
+        return None
 
 
 def _extract_tmdb_id(html: str) -> Optional[str]:
