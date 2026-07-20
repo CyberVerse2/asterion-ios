@@ -57,34 +57,6 @@ struct AnimeDetailView: View {
                 watchAction(show)
                 Divider()
 
-                if let synopsis = show.displayDescription, !synopsis.isEmpty {
-                    detailSection(title: "Synopsis") {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text(showsFullSynopsis ? synopsis : synopsisPreview(synopsis))
-                                .font(.asterionReading(15))
-                                .foregroundStyle(Color.asterionReaderText)
-                                .lineSpacing(5)
-                                .textSelection(.enabled)
-
-                            if synopsisPreview(synopsis) != synopsis {
-                                Button {
-                                    showsFullSynopsis.toggle()
-                                } label: {
-                                    Label(
-                                        showsFullSynopsis ? "Show less" : "Read full synopsis",
-                                        systemImage: showsFullSynopsis ? "chevron.up" : "chevron.down"
-                                    )
-                                    .font(.caption.weight(.semibold))
-                                }
-                                .buttonStyle(.link)
-                                .tint(.asterionAccent)
-                            }
-                        }
-                    }
-
-                    Divider()
-                }
-
                 detailSection(title: "Episodes", trailing: episodeCountLabel) {
                     episodeList(show)
                 }
@@ -110,10 +82,11 @@ struct AnimeDetailView: View {
     private func hero(_ show: AnimeShow) -> some View {
         AsterionDetailHero(
             imageURL: show.imageURL,
-            badge: "ANIME",
             title: show.displayTitle,
             subtitle: byline(for: show),
-            metadata: animeMetadata(for: show)
+            metadata: animeMetadata(for: show),
+            summary: show.displayDescription,
+            showsFullSummary: $showsFullSynopsis
         )
     }
 
@@ -496,18 +469,6 @@ struct AnimeDetailView: View {
         return show.genres.first?
             .replacingOccurrences(of: "-", with: " ")
             .capitalized
-    }
-
-    private func synopsisPreview(_ synopsis: String) -> String {
-        guard synopsis.count > 280 else { return synopsis }
-        let prefix = String(synopsis.prefix(280))
-        if let sentenceEnd = prefix.lastIndex(where: { ".!?".contains($0) }) {
-            return String(prefix[...sentenceEnd])
-        }
-        if let wordBoundary = prefix.lastIndex(where: { $0.isWhitespace }) {
-            return String(prefix[..<wordBoundary]) + "…"
-        }
-        return prefix + "…"
     }
 
     private func detailSection<Content: View>(

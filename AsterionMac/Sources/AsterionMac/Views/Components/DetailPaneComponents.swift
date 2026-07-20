@@ -9,49 +9,32 @@ struct AsterionDetailMetadata: Identifiable {
 
 struct AsterionDetailHero: View {
     let imageURL: URL?
-    let badge: String
     let title: String
     let subtitle: String?
     let metadata: [AsterionDetailMetadata]
+    let summary: String?
+    @Binding var showsFullSummary: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            ZStack(alignment: .topLeading) {
-                AsyncImage(url: imageURL) { phase in
-                    if case .success(let image) = phase {
-                        image.resizable().scaledToFill()
-                    } else {
-                        Color.asterionCard
-                    }
+        HStack(alignment: .top, spacing: 28) {
+            AsyncImage(url: imageURL) { phase in
+                if case .success(let image) = phase {
+                    image.resizable().scaledToFill()
+                } else {
+                    Color.asterionCard
                 }
-                .frame(maxWidth: .infinity)
-                .frame(height: 260)
-                .clipped()
-
-                LinearGradient(
-                    colors: [.black.opacity(0.04), .black.opacity(0.34)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-
-                Text(badge)
-                    .font(.asterionMono(9, weight: .bold))
-                    .tracking(0.9)
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 5)
-                    .background(.ultraThinMaterial, in: Capsule())
-                    .padding(14)
             }
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .frame(width: 180, height: 260)
+            .clipped()
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(.white.opacity(0.12))
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(.white.opacity(0.10))
             }
 
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 14) {
                 Text(title)
-                    .font(.system(size: 28, weight: .semibold))
+                    .font(.system(size: 30, weight: .semibold))
                     .foregroundStyle(Color.asterionText)
                     .lineLimit(2)
                     .minimumScaleFactor(0.82)
@@ -63,12 +46,31 @@ struct AsterionDetailHero: View {
                         .foregroundStyle(Color.asterionMuted)
                         .lineLimit(2)
                 }
-            }
 
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 16) { metadataItems }
-                VStack(alignment: .leading, spacing: 8) { metadataItems }
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 14) { metadataItems }
+                    VStack(alignment: .leading, spacing: 7) { metadataItems }
+                }
+
+                if let summary, !summary.isEmpty {
+                    Text(summary)
+                        .font(.system(size: 14))
+                        .foregroundStyle(Color.asterionText.opacity(0.82))
+                        .lineSpacing(3)
+                        .lineLimit(showsFullSummary ? nil : 4)
+                        .textSelection(.enabled)
+
+                    if summary.count > 240 {
+                        Button(showsFullSummary ? "Show less" : "More") {
+                            showsFullSummary.toggle()
+                        }
+                        .buttonStyle(.link)
+                        .font(.caption.weight(.semibold))
+                        .tint(.asterionAccent)
+                    }
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 

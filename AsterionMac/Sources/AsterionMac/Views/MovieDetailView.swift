@@ -53,26 +53,6 @@ struct MovieDetailView: View {
                 hero(show)
                 watchAction(show)
 
-                if let synopsis = show.description, !synopsis.isEmpty {
-                    Divider()
-                    detailSection(title: "Synopsis") {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text(showsFullSynopsis ? synopsis : synopsisPreview(synopsis))
-                                .font(.asterionReading(15))
-                                .foregroundStyle(Color.asterionReaderText)
-                                .lineSpacing(5)
-                                .textSelection(.enabled)
-                            if synopsisPreview(synopsis) != synopsis {
-                                Button(showsFullSynopsis ? "Show less" : "Read full synopsis") {
-                                    showsFullSynopsis.toggle()
-                                }
-                                .buttonStyle(.link)
-                                .tint(.asterionAccent)
-                            }
-                        }
-                    }
-                }
-
                 if show.isSeries {
                     Divider()
                     detailSection(title: "Episodes", trailing: "\(store.episodes.count) available") {
@@ -114,10 +94,11 @@ struct MovieDetailView: View {
     private func hero(_ show: MovieShow) -> some View {
         AsterionDetailHero(
             imageURL: show.imageURL,
-            badge: show.isSeries ? "SERIES" : "MOVIE",
             title: show.displayTitle,
             subtitle: show.genres.prefix(3).joined(separator: " · "),
-            metadata: movieMetadata(for: show)
+            metadata: movieMetadata(for: show),
+            summary: show.description,
+            showsFullSummary: $showsFullSynopsis
         )
     }
 
@@ -629,14 +610,6 @@ struct MovieDetailView: View {
         }
     }
 
-    private func synopsisPreview(_ synopsis: String) -> String {
-        guard synopsis.count > 300 else { return synopsis }
-        let prefix = String(synopsis.prefix(300))
-        if let boundary = prefix.lastIndex(where: { $0.isWhitespace }) {
-            return String(prefix[..<boundary]) + "…"
-        }
-        return prefix + "…"
-    }
 }
 
 private struct MovieDownloadUnit: Identifiable {

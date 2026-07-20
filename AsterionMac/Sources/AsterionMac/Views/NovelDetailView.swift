@@ -41,34 +41,6 @@ struct NovelDetailView: View {
                 actions
                 Divider()
 
-                if !cleanSummary.isEmpty {
-                    detailSection(title: "Synopsis") {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text(showsFullSynopsis ? cleanSummary : synopsisPreview)
-                                .font(.asterionReading(15))
-                                .foregroundStyle(Color.asterionReaderText)
-                                .lineSpacing(5)
-                                .textSelection(.enabled)
-
-                            if synopsisPreview != cleanSummary {
-                                Button {
-                                    showsFullSynopsis.toggle()
-                                } label: {
-                                    Label(
-                                        showsFullSynopsis ? "Show less" : "Read full synopsis",
-                                        systemImage: showsFullSynopsis ? "chevron.up" : "chevron.down"
-                                    )
-                                    .font(.caption.weight(.semibold))
-                                }
-                                .buttonStyle(.link)
-                                .tint(.asterionAccent)
-                            }
-                        }
-                    }
-                }
-
-                Divider()
-
                 detailSection(title: "Chapters", trailing: chapterCountLabel) {
                     chapterList
                 }
@@ -95,7 +67,6 @@ struct NovelDetailView: View {
     private var hero: some View {
         AsterionDetailHero(
             imageURL: novel.imageURL.flatMap(URL.init(string:)),
-            badge: "NOVEL",
             title: novel.title,
             subtitle: novel.authorDisplayName,
             metadata: [
@@ -109,7 +80,9 @@ struct NovelDetailView: View {
                     icon: "star.fill",
                     value: novel.rating.map { String(format: "%.1f rating", $0) } ?? "Not yet rated"
                 ),
-            ]
+            ],
+            summary: cleanSummary,
+            showsFullSummary: $showsFullSynopsis
         )
     }
 
@@ -312,18 +285,6 @@ struct NovelDetailView: View {
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
         return cleaned
-    }
-
-    private var synopsisPreview: String {
-        guard cleanSummary.count > 280 else { return cleanSummary }
-        let prefix = String(cleanSummary.prefix(280))
-        if let sentenceEnd = prefix.lastIndex(where: { ".!?".contains($0) }) {
-            return String(prefix[...sentenceEnd])
-        }
-        if let wordBoundary = prefix.lastIndex(where: { $0.isWhitespace }) {
-            return String(prefix[..<wordBoundary]) + "…"
-        }
-        return prefix + "…"
     }
 
     private var readButtonTitle: String {
