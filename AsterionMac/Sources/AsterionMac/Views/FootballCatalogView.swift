@@ -46,9 +46,13 @@ struct FootballCatalogView: View {
                         }
                         ForEach(groupedMatches, id: \.date) { group in
                             Section {
-                                VStack(spacing: 10) {
+                                LazyVGrid(
+                                    columns: [GridItem(.adaptive(minimum: 330, maximum: 330), spacing: 18)],
+                                    alignment: .leading,
+                                    spacing: 18
+                                ) {
                                     ForEach(group.matches) { match in
-                                        FootballMatchRow(
+                                        HomeMatchCard(
                                             match: match,
                                             isSelected: store.selectedMatchID == match.id
                                         ) {
@@ -137,80 +141,6 @@ struct FootballCatalogView: View {
         section == .live
             ? "Live fixtures will appear here as soon as play begins."
             : "The football service has no fixtures for this section right now."
-    }
-}
-
-private struct FootballMatchRow: View {
-    let match: FootballMatch
-    let isSelected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 16) {
-                VStack(spacing: 5) {
-                    Text(match.kickoff.formatted(date: .omitted, time: .shortened))
-                        .font(.system(size: 13, weight: .semibold).monospacedDigit())
-                    if match.isLive {
-                        Text("LIVE")
-                            .font(.asterionMono(9, weight: .bold))
-                            .tracking(1)
-                            .foregroundStyle(Color.asterionAccent)
-                    }
-                }
-                .foregroundStyle(Color.asterionMuted)
-                .frame(width: 58)
-
-                VStack(alignment: .leading, spacing: 10) {
-                    teamLine(match.homeTeam, fallback: homeFallback)
-                    teamLine(match.awayTeam, fallback: awayFallback)
-                }
-
-                Spacer(minLength: 8)
-
-                if match.popular {
-                    Image(systemName: "flame.fill")
-                        .foregroundStyle(Color.asterionAccent)
-                        .help("Popular match")
-                }
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(Color.asterionMuted)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 13)
-            .background(
-                isSelected ? Color.asterionAccent.opacity(0.13) : Color.asterionCard,
-                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
-            )
-            .overlay {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(isSelected ? Color.asterionAccent : .white.opacity(0.08), lineWidth: isSelected ? 1.5 : 1)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .asterionHoverLift()
-        .accessibilityLabel(match.displayTitle)
-    }
-
-    private func teamLine(_ team: FootballTeam?, fallback: String) -> some View {
-        HStack(spacing: 10) {
-            FootballBadgeView(team: team, size: 26)
-            Text(team?.name ?? fallback)
-                .font(.asterionDisplay(15, weight: .medium))
-                .foregroundStyle(Color.asterionText)
-                .lineLimit(1)
-        }
-    }
-
-    private var homeFallback: String {
-        match.title.components(separatedBy: " vs ").first ?? match.title
-    }
-
-    private var awayFallback: String {
-        let parts = match.title.components(separatedBy: " vs ")
-        return parts.count > 1 ? parts[1] : "Opponent"
     }
 }
 
