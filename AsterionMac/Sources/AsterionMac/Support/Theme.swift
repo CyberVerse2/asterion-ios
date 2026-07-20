@@ -4,6 +4,7 @@ import SwiftUI
 
 extension Color {
     static let asterionBackground = Color(nsColor: .windowBackgroundColor)
+    static let asterionMediaCanvas = Color(red: 0.165, green: 0.165, blue: 0.185)
     static let asterionSidebar = Color(nsColor: .windowBackgroundColor)
     static let asterionSurface = Color(nsColor: .controlBackgroundColor)
     static let asterionCard = Color(nsColor: .underPageBackgroundColor)

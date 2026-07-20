@@ -9,7 +9,6 @@ struct HomeDashboardView: View {
     @ObservedObject var footballStore: FootballStore
 
     let query: String
-    let contentLeadingInset: CGFloat
     let selectNovel: (Novel) -> Void
     let selectAnime: (AnimeTitle) -> Void
     let selectMovie: (MovieTitle) -> Void
@@ -59,51 +58,16 @@ struct HomeDashboardView: View {
                 searchResults
             }
         }
-        .padding(.leading, contentLeadingInset)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background {
-            homeBackdrop
-                .backgroundExtensionEffect(isEnabled: normalizedQuery.isEmpty)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-        }
+        .background(Color.asterionMediaCanvas)
         .task(id: normalizedQuery) {
             await loadContent()
         }
     }
 
-    @ViewBuilder
-    private var homeBackdrop: some View {
-        if normalizedQuery.isEmpty, let url = resumeItems.first?.imageURL ?? freshItems.first?.imageURL {
-            AsyncImage(url: url) { phase in
-                if case .success(let image) = phase {
-                    image
-                        .resizable()
-                        .scaledToFill()
-                        .blur(radius: 64)
-                        .scaleEffect(1.16)
-                        .opacity(0.24)
-                        .overlay(Color.asterionBackground.opacity(0.82))
-                } else {
-                    Color.asterionBackground
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .clipped()
-        } else {
-            Color.asterionBackground
-        }
-    }
-
     private var dashboard: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 38) {
-                if let first = resumeItems.first {
-                    ResumeSpotlight(item: first) { resume(first) }
-                } else {
-                    welcomeSpotlight
-                }
-
+        ScrollView(.vertical) {
+            LazyVStack(alignment: .leading, spacing: 42) {
                 if !resumeItems.isEmpty {
                     continueShelf
                 }
@@ -128,54 +92,11 @@ struct HomeDashboardView: View {
 
                 serviceNotices
             }
-            .padding(.top, 18)
-            .padding(.bottom, 56)
+            .padding(.top, 32)
+            .padding(.bottom, 64)
             .frame(maxWidth: .infinity, alignment: .top)
         }
         .hidingScrollIndicators()
-    }
-
-    private var welcomeSpotlight: some View {
-        HStack(spacing: 24) {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("MAKE ASTERION YOURS")
-                    .font(.asterionMono(10, weight: .bold))
-                    .tracking(1.5)
-                    .foregroundStyle(Color.asterionAccent)
-                Text("Start a story. Watch something unforgettable.")
-                    .font(.asterionDisplay(27, weight: .semibold))
-                    .foregroundStyle(Color.asterionText)
-                Text("Your latest novel, episode, or movie will be ready to resume here.")
-                    .font(.callout)
-                    .foregroundStyle(Color.asterionMuted)
-                    .lineLimit(2)
-                if let first = freshItems.first {
-                    Button("Explore \(first.kindTitle)") { select(first) }
-                        .buttonStyle(.glassProminent)
-                        .controlSize(.large)
-                        .tint(.asterionAccent)
-                }
-            }
-            Spacer()
-            Image(systemName: "sparkles.rectangle.stack.fill")
-                .font(.system(size: 82, weight: .light))
-                .foregroundStyle(Color.asterionAccent.opacity(0.72))
-                .accessibilityHidden(true)
-        }
-        .padding(28)
-        .frame(maxWidth: .infinity, minHeight: 210, alignment: .leading)
-        .background(
-            LinearGradient(
-                colors: [Color.asterionCard, Color.asterionAccent.opacity(0.13)],
-                startPoint: .leading,
-                endPoint: .trailing
-            ),
-            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(.white.opacity(0.08))
-        }
     }
 
     private var continueShelf: some View {
@@ -215,9 +136,9 @@ struct HomeDashboardView: View {
         HomeSection(title: title) {
             HomeHorizontalShelf(
                 items: items,
-                itemWidth: 190,
+                itemWidth: 168,
                 spacing: 18,
-                height: 276,
+                height: 258,
                 card: { item in
                     HomePosterCard(item: item) { select(item) }
                         .padding(.vertical, 3)
@@ -270,7 +191,7 @@ struct HomeDashboardView: View {
                             subtitle: "Results across novels, anime, movies, and TV shows."
                         ) {
                             LazyVGrid(
-                                columns: [GridItem(.adaptive(minimum: 122, maximum: 150), spacing: 22)],
+                                columns: [GridItem(.adaptive(minimum: 156, maximum: 168), spacing: 22)],
                                 alignment: .leading,
                                 spacing: 26
                             ) {

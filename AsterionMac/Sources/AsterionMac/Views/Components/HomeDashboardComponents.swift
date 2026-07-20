@@ -155,7 +155,7 @@ struct HomeSection<Content: View>: View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
-                    .font(.asterionDisplay(24, weight: .semibold))
+                    .font(.system(size: 19, weight: .semibold))
                     .foregroundStyle(Color.asterionText)
                 if let subtitle, !subtitle.isEmpty {
                     Text(subtitle)
@@ -163,7 +163,7 @@ struct HomeSection<Content: View>: View {
                         .foregroundStyle(Color.asterionMuted)
                 }
             }
-            .padding(.leading, 24)
+            .padding(.leading, 32)
             content()
         }
     }
@@ -186,83 +186,10 @@ struct HomeHorizontalShelf<Item: Identifiable, Card: View>: View {
             }
             .scrollTargetLayout()
         }
-        .contentMargins(.horizontal, 24, for: .scrollContent)
-        .scrollIndicators(.hidden)
+        .contentMargins(.horizontal, 32, for: .scrollContent)
+        .scrollIndicators(.never, axes: .horizontal)
         .scrollTargetBehavior(.viewAligned)
         .frame(height: height)
-    }
-}
-
-struct ResumeSpotlight: View {
-    let item: HomeResumeItem
-    let action: () -> Void
-
-    var body: some View {
-        ZStack {
-            AsyncImage(url: item.imageURL) { phase in
-                if case .success(let image) = phase {
-                    image.resizable().scaledToFill().blur(radius: 28).scaleEffect(1.18)
-                } else {
-                    Color.asterionCard
-                }
-            }
-            .clipped()
-
-            LinearGradient(
-                colors: [.black.opacity(0.92), .black.opacity(0.38)],
-                startPoint: .leading,
-                endPoint: .trailing
-            )
-
-            HStack(spacing: 26) {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("PICK UP WHERE YOU LEFT OFF")
-                        .font(.asterionMono(10, weight: .bold))
-                        .tracking(1.5)
-                        .foregroundStyle(Color.asterionAccent)
-                    Text(item.title)
-                        .font(.asterionDisplay(28, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .lineLimit(2)
-                    Label(item.subtitle, systemImage: item.systemImage)
-                        .font(.callout.weight(.medium))
-                        .foregroundStyle(.white.opacity(0.72))
-
-                    HStack(spacing: 10) {
-                        ProgressView(value: min(100, max(0, item.percentage)), total: 100)
-                            .tint(Color.asterionAccent)
-                            .frame(maxWidth: 360)
-                        Text("\(Int(item.percentage.rounded()))%")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.white.opacity(0.68))
-                    }
-
-                    Button(action: action) {
-                        Label(item.kindTitle == "Novel" ? "Continue reading" : "Continue watching", systemImage: item.systemImage)
-                            .font(.headline)
-                    }
-                    .buttonStyle(.glassProminent)
-                    .controlSize(.large)
-                    .tint(.asterionAccent)
-                    .padding(.top, 4)
-                }
-                .frame(maxWidth: 620, alignment: .leading)
-
-                Spacer(minLength: 20)
-                MediaCoverView(url: item.imageURL, width: 142, height: 202)
-                    .shadow(color: .black.opacity(0.35), radius: 16, y: 8)
-                    .accessibilityHidden(true)
-            }
-            .padding(26)
-        }
-        .frame(maxWidth: .infinity, minHeight: 272, maxHeight: 272)
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(.white.opacity(0.10))
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Resume \(item.title), \(Int(item.percentage.rounded())) percent complete")
     }
 }
 
@@ -343,42 +270,30 @@ struct HomePosterCard: View {
                         Color.asterionCard
                     }
                 }
-                .frame(width: 190, height: 270)
+                .frame(width: 168, height: 252)
                 .clipped()
 
                 LinearGradient(
-                    colors: [.clear, .black.opacity(0.12), .black.opacity(0.92)],
+                    colors: [.clear, .clear, .black.opacity(0.86)],
                     startPoint: .top,
                     endPoint: .bottom
                 )
 
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(item.badge)
-                        .font(.asterionMono(8, weight: .bold))
-                        .tracking(0.8)
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 4)
-                        .background(.ultraThinMaterial, in: Capsule())
-
-                    Text(item.title)
-                        .font(.asterionDisplay(17, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .lineLimit(2)
-                    Text(item.subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.74))
-                        .lineLimit(1)
-                }
-                .padding(14)
+                Text(item.subtitle)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.82))
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 11)
             }
-            .frame(width: 190, height: 270)
-            .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+            .frame(width: 168, height: 252)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 15, style: .continuous)
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .stroke(.white.opacity(0.10))
             }
-            .contentShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
         .buttonStyle(.plain)
         .asterionHoverLift()

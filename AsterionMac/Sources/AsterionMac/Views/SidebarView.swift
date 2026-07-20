@@ -54,11 +54,9 @@ struct SidebarView: View {
         .listStyle(.sidebar)
         .scrollIndicators(.hidden)
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            VStack(spacing: 0) {
-                Divider()
-                accountButton
-                    .padding(8)
-            }
+            accountButton
+                .padding(.horizontal, 8)
+                .padding(.vertical, 10)
         }
     }
 

@@ -84,7 +84,7 @@ struct ContentView: View {
                 selection: destination,
                 searchText: $searchText
             )
-            .navigationSplitViewColumnWidth(min: 190, ideal: 224, max: 260)
+            .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 320)
         } detail: {
             mainContent
         }
@@ -201,7 +201,6 @@ struct ContentView: View {
                 movieStore: movieStore,
                 footballStore: footballStore,
                 query: searchText,
-                contentLeadingInset: 0,
                 selectNovel: selectNovelDetail,
                 selectAnime: selectAnimeDetail,
                 selectMovie: selectMovieDetail,
