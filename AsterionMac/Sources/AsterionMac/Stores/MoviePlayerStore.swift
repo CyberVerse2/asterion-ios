@@ -21,6 +21,8 @@ enum MoviePlaybackPhase: Equatable {
 
 @MainActor
 final class MoviePlayerStore: ObservableObject {
+    private static let preferredSeriesServerLabel = "Server 4"
+
     @Published private(set) var show: MovieShow?
     @Published private(set) var episodes: [MovieEpisode] = []
     @Published private(set) var selectedEpisodeID: MovieEpisode.ID?
@@ -250,9 +252,20 @@ final class MoviePlayerStore: ObservableObject {
         playbackOptions = options
         resetOptionTracking()
         streamError = nil
+        let preferredSeriesIndex = (selectedEpisodeID != nil || show?.isSeries == true)
+            ? sources.firstIndex(where: isPreferredSeriesServer)
+            : nil
         beginServerAttempt(
-            at: options.firstIndex(where: \.isAutomatic) ?? options.startIndex
+            at: preferredSeriesIndex
+                ?? options.firstIndex(where: \.isAutomatic)
+                ?? options.startIndex
         )
+    }
+
+    private func isPreferredSeriesServer(_ source: MovieStreamSource) -> Bool {
+        source.label
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .localizedCaseInsensitiveCompare(Self.preferredSeriesServerLabel) == .orderedSame
     }
 
     private func loadOffline(record: MediaDownloadRecord) -> Bool {
