@@ -212,19 +212,19 @@ def api_show(slug):
         streams = stream_data
 
     # Build result from DB or from freshly-fetched metadata
-    title = slug.replace("-", " ").title()
-    if from_db:
-        title = from_db.get("title") or title
+    media_type = "tv" if "series/" in slug else "movie"
+    title = slug.replace("series/", "").replace("-", " ").title().replace("Soap2Day", "").strip()
 
     if metadata:
-        title = metadata.get("title") or title
-        if not title or title == slug.replace("-", " ").title():
-            title = metadata.get("title", title)
+        if metadata.get("title"):
+            title = metadata["title"]
+        if metadata.get("first_air_date") and not metadata.get("release_date"):
+            pass  # TV shows use first_air_date
 
     result = {
         "title": title,
         "slug": slug,
-        "type": (from_db or {}).get("type", "movie"),
+        "type": (from_db or {}).get("type", media_type),
         "image_url": (from_db or {}).get("poster_url") or (metadata or {}).get("poster"),
         "description": (from_db or {}).get("overview") or (metadata or {}).get("overview"),
         "imdb_rating": str((from_db or {}).get("imdb_rating", "")) or str((metadata or {}).get("vote_average", "")),
