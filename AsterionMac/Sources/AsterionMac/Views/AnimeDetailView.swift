@@ -49,26 +49,27 @@ struct AnimeDetailView: View {
     }
 
     private func detail(_ show: AnimeShow) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 25) {
-                hero(show)
-                    .id("detail-top")
+        ZStack(alignment: .top) {
+            ambientBackdrop(show)
 
-                watchAction(show)
-                Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 34) {
+                    hero(show)
+                        .id("detail-top")
 
-                detailSection(title: "Episodes", trailing: episodeCountLabel) {
-                    episodeList(show)
+                    detailSection(title: "Episodes", trailing: episodeCountLabel) {
+                        episodeShelf(show)
+                    }
                 }
+                .frame(maxWidth: 1_180, alignment: .leading)
+                .padding(.horizontal, 46)
+                .padding(.top, 30)
+                .padding(.bottom, 64)
+                .frame(maxWidth: .infinity, alignment: .top)
             }
-            .frame(maxWidth: 980, alignment: .leading)
-            .padding(.horizontal, 48)
-            .padding(.top, 24)
-            .padding(.bottom, 64)
-            .frame(maxWidth: .infinity, alignment: .top)
+            .hidingScrollIndicators()
+            .scrollPosition(id: $scrollPosition, anchor: .top)
         }
-        .hidingScrollIndicators()
-        .scrollPosition(id: $scrollPosition, anchor: .top)
         .background(Color.asterionMediaCanvas)
         .task(id: show.id) {
             showsFullSynopsis = false
@@ -79,15 +80,111 @@ struct AnimeDetailView: View {
         }
     }
 
+    private func ambientBackdrop(_ show: AnimeShow) -> some View {
+        AsyncImage(url: show.imageURL) { phase in
+            if case .success(let image) = phase {
+                image
+                    .resizable()
+                    .scaledToFill()
+                    .blur(radius: 42)
+                    .saturation(0.82)
+            } else {
+                Color.clear
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 590)
+        .clipped()
+        .opacity(0.42)
+        .overlay(Color.black.opacity(0.34))
+        .mask {
+            LinearGradient(
+                colors: [.black, .black.opacity(0.82), .clear],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
     private func hero(_ show: AnimeShow) -> some View {
-        AsterionDetailHero(
-            imageURL: show.imageURL,
-            title: show.displayTitle,
-            subtitle: byline(for: show),
-            metadata: animeMetadata(for: show),
-            summary: show.displayDescription,
-            showsFullSummary: $showsFullSynopsis
-        )
+        HStack(alignment: .center, spacing: 38) {
+            AsyncImage(url: show.imageURL) { phase in
+                if case .success(let image) = phase {
+                    image.resizable().scaledToFill()
+                } else {
+                    Color.asterionCard
+                }
+            }
+            .frame(width: 258, height: 370)
+            .clipped()
+            .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 17, style: .continuous)
+                    .stroke(.white.opacity(0.13))
+            }
+            .shadow(color: .black.opacity(0.34), radius: 24, y: 14)
+
+            VStack(alignment: .leading, spacing: 17) {
+                Text("ANIME")
+                    .font(.system(size: 11, weight: .bold))
+                    .tracking(1.4)
+                    .foregroundStyle(.blue)
+
+                Text(show.displayTitle)
+                    .font(.system(size: 36, weight: .bold))
+                    .foregroundStyle(Color.asterionText)
+                    .lineLimit(3)
+                    .minimumScaleFactor(0.82)
+                    .textSelection(.enabled)
+
+                if let byline = byline(for: show), !byline.isEmpty {
+                    Text(byline)
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(Color.asterionText.opacity(0.76))
+                        .lineLimit(2)
+                }
+
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 16) { metadataItems(for: show) }
+                    VStack(alignment: .leading, spacing: 8) { metadataItems(for: show) }
+                }
+
+                if let summary = show.displayDescription, !summary.isEmpty {
+                    Text(summary)
+                        .font(.system(size: 15))
+                        .foregroundStyle(Color.asterionText.opacity(0.84))
+                        .lineSpacing(4)
+                        .lineLimit(showsFullSynopsis ? nil : 3)
+                        .frame(maxWidth: 650, alignment: .leading)
+                        .textSelection(.enabled)
+
+                    if summary.count > 240 {
+                        Button(showsFullSynopsis ? "Show less" : "More") {
+                            showsFullSynopsis.toggle()
+                        }
+                        .buttonStyle(.link)
+                        .font(.caption.weight(.semibold))
+                        .tint(.asterionAccent)
+                    }
+                }
+
+                watchAction(show)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(minHeight: 390)
+    }
+
+    @ViewBuilder
+    private func metadataItems(for show: AnimeShow) -> some View {
+        ForEach(animeMetadata(for: show)) { item in
+            Label(item.value, systemImage: item.icon)
+                .font(.callout)
+                .foregroundStyle(Color.asterionText.opacity(0.68))
+                .lineLimit(1)
+        }
     }
 
     private func animeMetadata(for show: AnimeShow) -> [AsterionDetailMetadata] {
@@ -119,10 +216,10 @@ struct AnimeDetailView: View {
                 } label: {
                     Label(watchButtonTitle(for: show), systemImage: "play.fill")
                         .lineLimit(1)
-                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, 12)
                 }
                 .buttonStyle(.glassProminent)
-                .buttonBorderShape(.roundedRectangle(radius: 10))
+                .buttonBorderShape(.roundedRectangle(radius: 12))
                 .controlSize(.large)
                 .tint(.asterionAccent)
                 .keyboardShortcut(.return, modifiers: .command)
@@ -180,58 +277,107 @@ struct AnimeDetailView: View {
         }
         .buttonStyle(.bordered)
         .controlSize(.large)
+        .tint(Color.asterionText)
         .disabled(isUpdating)
         .help(isSaved ? "Remove from saved anime" : "Save anime to your account")
         .accessibilityLabel(isSaved ? "Remove from saved anime" : "Save anime")
     }
 
     @ViewBuilder
-    private func episodeList(_ show: AnimeShow) -> some View {
+    private func episodeShelf(_ show: AnimeShow) -> some View {
         if store.episodes.isEmpty {
             ContentUnavailableView("No episodes", systemImage: "film.stack")
         } else {
-            LazyVStack(spacing: 0) {
-                ForEach(store.episodes) { episode in
-                    HStack(spacing: 10) {
-                        Button {
-                            openPlayer(show: show, episode: episode)
-                        } label: {
-                            HStack(spacing: 14) {
-                                Text(String(episode.number))
-                                    .font(.caption.monospacedDigit())
-                                    .foregroundStyle(Color.asterionMuted)
-                                    .frame(width: 34, alignment: .trailing)
-
-                                Text("Episode \(episode.number)")
-                                    .font(.asterionDisplay(14, weight: .medium))
-                                    .foregroundStyle(Color.asterionText)
-                                    .lineLimit(1)
-
-                                Spacer()
-
-                                Image(systemName: "arrow.up.right.square")
-                                    .font(.caption)
-                                    .foregroundStyle(Color.asterionMuted)
-                            }
-                            .padding(.vertical, 11)
-                            .contentShape(Rectangle())
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal) {
+                    LazyHStack(spacing: 15) {
+                        ForEach(store.episodes) { episode in
+                            episodeCard(show: show, episode: episode)
+                                .id(episode.id)
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Open episode \(episode.number) in Anime Player")
-
-                        animeDownloadButton(show: show, episode: episode, showsLabel: false)
                     }
-
-                    Divider()
+                    .padding(.vertical, 2)
+                    .scrollTargetLayout()
+                }
+                .hidingScrollIndicators()
+                .scrollTargetBehavior(.viewAligned)
+                .task(id: show.id) {
+                    try? await Task.sleep(for: .milliseconds(120))
+                    if let firstEpisodeID = store.episodes.first?.id {
+                        proxy.scrollTo(firstEpisodeID, anchor: .leading)
+                    }
                 }
             }
         }
     }
 
+    private func episodeCard(show: AnimeShow, episode: AnimeEpisode) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                openPlayer(show: show, episode: episode)
+            } label: {
+                ZStack(alignment: .topLeading) {
+                    AsyncImage(url: show.imageURL) { phase in
+                        if case .success(let image) = phase {
+                            image
+                                .resizable()
+                                .scaledToFill()
+                                .scaleEffect(1.08 + CGFloat(episode.number % 3) * 0.05)
+                                .offset(x: CGFloat((episode.number % 3) - 1) * 10)
+                        } else {
+                            Color.asterionCard
+                        }
+                    }
+                    .frame(width: 246, height: 138)
+                    .clipped()
+
+                    Text(String(episode.number))
+                        .font(.caption.monospacedDigit().weight(.semibold))
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 6)
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                        .padding(10)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Open episode \(episode.number) in Anime Player")
+
+            HStack(spacing: 9) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Episode \(episode.number)")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Color.asterionText)
+                    Text(episodeStatus(show: show, episode: episode))
+                        .font(.caption)
+                        .foregroundStyle(Color.asterionMuted)
+                }
+
+                Spacer(minLength: 4)
+                animeDownloadButton(show: show, episode: episode)
+            }
+            .padding(11)
+        }
+        .frame(width: 246)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(.white.opacity(0.09))
+        }
+    }
+
+    private func episodeStatus(show: AnimeShow, episode: AnimeEpisode) -> String {
+        let target = watchTarget(for: show)
+        if target?.unitID == episode.id {
+            return "Up next"
+        }
+        return "Available to watch"
+    }
+
     private func animeDownloadButton(
         show: AnimeShow,
-        episode: AnimeEpisode,
-        showsLabel: Bool
+        episode: AnimeEpisode
     ) -> some View {
         let record = mediaDownloads.record(
             mediaType: .anime,
@@ -247,17 +393,20 @@ struct AnimeDetailView: View {
                 ProgressView(value: record?.progress ?? 0)
                     .progressViewStyle(.circular)
                     .controlSize(.small)
-                    .frame(width: showsLabel ? 84 : 28)
-            } else if showsLabel {
-                Label(label.title, systemImage: label.icon)
-                    .frame(width: 84)
+                    .frame(width: 30, height: 30)
             } else {
                 Image(systemName: label.icon)
-                    .frame(width: 28, height: 28)
+                    .font(.system(size: 13, weight: .semibold))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(Color.asterionText.opacity(0.82))
+                    .frame(width: 30, height: 30)
+                    .background(.ultraThinMaterial, in: Circle())
+                    .overlay {
+                        Circle().stroke(.white.opacity(0.08))
+                    }
             }
         }
-        .buttonStyle(.bordered)
-        .controlSize(showsLabel ? .large : .small)
+        .buttonStyle(.plain)
         .disabled(record?.isActive == true || record?.phase == .completed)
         .help(label.help)
         .accessibilityLabel(label.help)
@@ -279,6 +428,7 @@ struct AnimeDetailView: View {
         }
         .buttonStyle(.bordered)
         .controlSize(.large)
+        .tint(Color.asterionText)
         .disabled(isPreparingDownloadPlan || store.episodes.isEmpty)
         .help("Choose episodes and quality across every season")
         .accessibilityLabel("Choose episodes and quality to download")
@@ -399,16 +549,16 @@ struct AnimeDetailView: View {
 
     private func downloadLabel(
         for record: MediaDownloadRecord?
-    ) -> (title: String, icon: String, help: String) {
+    ) -> (icon: String, help: String) {
         switch record?.phase {
         case .preparing, .downloading:
-            ("Loading", "arrow.down.circle.fill", "Downloading episode")
+            ("arrow.down.circle.fill", "Downloading episode")
         case .completed:
-            ("Offline", "checkmark.circle.fill", "Available offline. Manage it in Downloads")
+            ("checkmark.circle.fill", "Available offline. Manage it in Downloads")
         case .failed:
-            ("Retry", "arrow.clockwise", "Retry episode download")
+            ("arrow.clockwise", "Retry episode download")
         case nil:
-            ("Download", "arrow.down.circle", "Download episode for offline viewing")
+            ("arrow.down.circle", "Download episode for offline viewing")
         }
     }
 
@@ -479,13 +629,13 @@ struct AnimeDetailView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text(title)
-                    .font(.asterionDisplay(20, weight: .semibold))
+                    .font(.system(size: 22, weight: .bold))
                     .foregroundStyle(Color.asterionText)
                 Spacer()
                 if let trailing {
                     Text(trailing)
                         .font(.caption)
-                        .foregroundStyle(Color.asterionAccent)
+                        .foregroundStyle(Color.asterionMuted)
                 }
             }
             content()

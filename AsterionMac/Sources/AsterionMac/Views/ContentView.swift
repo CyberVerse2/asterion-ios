@@ -274,6 +274,7 @@ struct ContentView: View {
             .buttonStyle(.glass)
             .buttonBorderShape(.capsule)
             .controlSize(.small)
+            .tint(Color.asterionText)
             .help("Back to browse")
             .accessibilityLabel("Back to browse")
             .padding(.horizontal, 24)
