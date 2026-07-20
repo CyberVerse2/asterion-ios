@@ -169,83 +169,27 @@ struct HomeSection<Content: View>: View {
     }
 }
 
-struct HomePagedShelf<Item: Identifiable, Card: View>: View {
+struct HomeHorizontalShelf<Item: Identifiable, Card: View>: View {
     let items: [Item]
     let itemWidth: CGFloat
     let spacing: CGFloat
     let height: CGFloat
     @ViewBuilder let card: (Item) -> Card
 
-    @State private var firstVisibleIndex = 0
-
     var body: some View {
-        GeometryReader { geometry in
-            let visibleCount = max(
-                1,
-                Int((geometry.size.width + spacing) / (itemWidth + spacing))
-            )
-            let maximumIndex = max(0, items.count - visibleCount)
-            let currentIndex = min(firstVisibleIndex, maximumIndex)
-
-            ZStack {
-                HStack(alignment: .top, spacing: spacing) {
-                    ForEach(items) { item in
-                        card(item)
-                    }
-                }
-                .frame(height: height, alignment: .top)
-                .offset(x: -CGFloat(currentIndex) * (itemWidth + spacing))
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                if currentIndex > 0 {
-                    shelfButton(systemImage: "chevron.left") {
-                        move(
-                            to: max(0, currentIndex - max(1, visibleCount - 1))
-                        )
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.leading, 10)
-                }
-
-                if currentIndex < maximumIndex {
-                    shelfButton(systemImage: "chevron.right") {
-                        move(
-                            to: min(
-                                maximumIndex,
-                                currentIndex + max(1, visibleCount - 1)
-                            )
-                        )
-                    }
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                    .padding(.trailing, 10)
+        ScrollView(.horizontal) {
+            LazyHStack(alignment: .top, spacing: spacing) {
+                ForEach(items) { item in
+                    card(item)
+                        .frame(width: itemWidth)
                 }
             }
-            .clipped()
-            .onChange(of: items.count) {
-                firstVisibleIndex = min(firstVisibleIndex, maximumIndex)
-            }
+            .scrollTargetLayout()
         }
+        .contentMargins(.horizontal, 24, for: .scrollContent)
+        .scrollIndicators(.hidden)
+        .scrollTargetBehavior(.viewAligned)
         .frame(height: height)
-    }
-
-    private func move(to index: Int) {
-        withAnimation(.snappy(duration: 0.28)) {
-            firstVisibleIndex = index
-        }
-    }
-
-    private func shelfButton(
-        systemImage: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.headline.weight(.semibold))
-                .frame(width: 34, height: 34)
-        }
-        .buttonStyle(.glass)
-        .buttonBorderShape(.circle)
-        .accessibilityLabel(systemImage == "chevron.left" ? "Previous titles" : "More titles")
     }
 }
 

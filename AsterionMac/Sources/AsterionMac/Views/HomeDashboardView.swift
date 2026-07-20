@@ -180,7 +180,7 @@ struct HomeDashboardView: View {
 
     private var continueShelf: some View {
         HomeSection(title: "Continue") {
-            HomePagedShelf(
+            HomeHorizontalShelf(
                 items: resumeItems,
                 itemWidth: 294,
                 spacing: 18,
@@ -195,7 +195,7 @@ struct HomeDashboardView: View {
 
     private var liveShelf: some View {
         HomeSection(title: "Live now") {
-            HomePagedShelf(
+            HomeHorizontalShelf(
                 items: liveMatches,
                 itemWidth: 330,
                 spacing: 14,
@@ -213,7 +213,7 @@ struct HomeDashboardView: View {
         items: [HomeCatalogItem]
     ) -> some View {
         HomeSection(title: title) {
-            HomePagedShelf(
+            HomeHorizontalShelf(
                 items: items,
                 itemWidth: 190,
                 spacing: 18,

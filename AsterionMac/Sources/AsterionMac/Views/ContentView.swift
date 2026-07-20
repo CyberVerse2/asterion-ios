@@ -16,7 +16,6 @@ struct ContentView: View {
     @State private var columnVisibility = NavigationSplitViewVisibility.all
     @State private var searchText = ""
     @State private var detailSelection: AppDetailSelection?
-    @State private var destinationHistory: [AppDestination] = []
 
     private var destination: Binding<AppDestination> {
         Binding(
@@ -24,10 +23,6 @@ struct ContentView: View {
             set: { newValue in
                 let current = AppDestination(rawValue: selectedDestinationRaw) ?? .home
                 guard newValue != current else { return }
-                destinationHistory.append(current)
-                if destinationHistory.count > 40 {
-                    destinationHistory.removeFirst(destinationHistory.count - 40)
-                }
                 selectedDestinationRaw = newValue.rawValue
                 searchText = ""
                 detailSelection = nil
@@ -91,23 +86,7 @@ struct ContentView: View {
             )
             .navigationSplitViewColumnWidth(min: 190, ideal: 224, max: 260)
         } detail: {
-            ZStack(alignment: .topLeading) {
-                mainContent
-                if canNavigateBack {
-                    Button {
-                        navigateBack()
-                    } label: {
-                        Image(systemName: "chevron.backward")
-                            .frame(width: 20, height: 20)
-                    }
-                    .buttonStyle(.glass)
-                    .buttonBorderShape(.circle)
-                    .keyboardShortcut("[", modifiers: .command)
-                    .help("Back")
-                    .accessibilityLabel("Back")
-                    .padding(12)
-                }
-            }
+            mainContent
         }
         .navigationSplitViewStyle(.prominentDetail)
         .toolbar(removing: .title)
@@ -397,36 +376,6 @@ struct ContentView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.background)
-    }
-
-    private var canNavigateBack: Bool {
-        let canCloseDetail: Bool = switch destination.wrappedValue {
-        case .home, .continueActivity, .bookmarks, .history:
-            detailSelection != nil
-        default:
-            false
-        }
-        return canCloseDetail || !destinationHistory.isEmpty
-    }
-
-    private func navigateBack() {
-        switch destination.wrappedValue {
-        case .home, .continueActivity, .bookmarks, .history:
-            if detailSelection != nil {
-                detailSelection = nil
-                return
-            }
-        default:
-            break
-        }
-
-        guard let previous = destinationHistory.popLast() else { return }
-        selectedDestinationRaw = previous.rawValue
-        searchText = ""
-        detailSelection = nil
-        if previous == .novels {
-            ensureNovelSelection()
-        }
     }
 
     private func selectNovelDetail(_ novel: Novel) {
