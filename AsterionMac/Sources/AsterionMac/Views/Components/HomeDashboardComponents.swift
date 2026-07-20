@@ -209,6 +209,7 @@ struct HomeHorizontalShelf<Item: Identifiable, Card: View>: View {
     @State private var scrollPosition: Item.ID?
     @State private var showsNavigationControls = false
     @State private var hideNavigationControlsTask: Task<Void, Never>?
+    @State private var availableWidth: CGFloat = 1_100
 
     let items: [Item]
     let itemWidth: CGFloat
@@ -216,12 +217,22 @@ struct HomeHorizontalShelf<Item: Identifiable, Card: View>: View {
     let height: CGFloat
     @ViewBuilder let card: (Item) -> Card
 
+    private var cardScale: CGFloat {
+        min(1, max(0.80, availableWidth / 1_100))
+    }
+
     var body: some View {
         ScrollView(.horizontal) {
-            LazyHStack(alignment: .top, spacing: spacing) {
+            LazyHStack(alignment: .top, spacing: spacing * cardScale) {
                 ForEach(items) { item in
                     card(item)
                         .frame(width: itemWidth)
+                        .scaleEffect(cardScale, anchor: .topLeading)
+                        .frame(
+                            width: itemWidth * cardScale,
+                            height: height * cardScale,
+                            alignment: .topLeading
+                        )
                 }
             }
             .scrollTargetLayout()
@@ -230,7 +241,12 @@ struct HomeHorizontalShelf<Item: Identifiable, Card: View>: View {
         .scrollIndicators(.never, axes: .horizontal)
         .scrollTargetBehavior(.viewAligned)
         .scrollPosition(id: $scrollPosition, anchor: .leading)
-        .frame(height: height)
+        .frame(height: height * cardScale)
+        .onGeometryChange(for: CGFloat.self) { geometry in
+            geometry.size.width
+        } action: { width in
+            availableWidth = width
+        }
         .overlay {
             HStack {
                 shelfButton(direction: -1, systemImage: "chevron.left")
