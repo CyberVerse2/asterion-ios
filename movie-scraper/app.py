@@ -157,8 +157,9 @@ def api_show(slug):
 
         # Fallback: search 2embed by title extracted from slug
         if not imdb_id or not imdb_id.startswith("tt"):
-            # Clean slug: strip series/ prefix, remove soap2day, replace dashes
-            clean = slug.replace("series/", "").replace("soap2day", "").replace("-", " ").strip()
+            clean = slug.replace("series/", "").replace("soap2day", "")
+            clean = _re.sub(r'-[a-z0-9]{4,8}$', '', clean)  # strip random suffix
+            clean = clean.replace("-", " ").strip()
             try:
                 import requests
                 from urllib.parse import quote_plus
@@ -211,9 +212,13 @@ def api_show(slug):
             db.cache_set(f"streams:{imdb_id}", stream_data, db.REDIS_STREAMS_TTL)
         streams = stream_data
 
-    # Build result from DB or from freshly-fetched metadata
+    # Build result
     media_type = "tv" if "series/" in slug else "movie"
-    title = slug.replace("series/", "").replace("-", " ").title().replace("Soap2Day", "").strip()
+    # Clean slug: strip series/ prefix, remove soap2day, remove random suffix like -adpkc
+    base = _re.sub(r'^series/', '', slug)
+    base = _re.sub(r'-[a-z0-9]{4,8}$', '', base)
+    base = base.replace("-", " ").title().replace("Soap2Day", "").strip()
+    title = base
 
     if metadata:
         if metadata.get("title"):
