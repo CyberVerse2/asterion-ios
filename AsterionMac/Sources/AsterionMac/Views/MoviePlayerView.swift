@@ -222,6 +222,9 @@ struct MoviePlayerView: View {
                                 if hasFailed {
                                     Image(systemName: "exclamationmark.triangle.fill")
                                 }
+                                if option.kind == .web {
+                                    Image(systemName: "globe")
+                                }
                                 if isActive {
                                     Image(systemName: "checkmark")
                                 }
@@ -282,11 +285,13 @@ struct MoviePlayerView: View {
                     },
                     onEnded: autoplayNextEpisode,
                     onLifecycleEvent: { option, attemptID, event in
-                        store.reportPlaybackEvent(
-                            event,
-                            for: option,
-                            attemptID: attemptID
-                        )
+                        Task {
+                            await store.reportPlaybackEvent(
+                                event,
+                                for: option,
+                                attemptID: attemptID
+                            )
+                        }
                     }
                 )
             } else {

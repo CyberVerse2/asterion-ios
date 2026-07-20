@@ -1077,16 +1077,12 @@ private struct RestrictedMediaWebView: NSViewRepresentable {
         private let onError: @MainActor (String) -> Void
         private let sleepController = PlaybackSleepController()
         private var lastSample: MediaPlaybackSample?
-        private var loadTimeoutTask: Task<Void, Never>?
-        private var playbackWatchdogTask: Task<Void, Never>?
         private var awaitsRemoteFrameResponse = false
         private var isActive = false
         private var hasReportedFailure = false
         private var hasReportedReady = false
         private var hasPlaybackIntent = false
         private var isPlaying = false
-        private var playbackIntentStartedAt: Date?
-        private var lastPlaybackHeartbeatAt: Date?
 
         init(
             initialURL: URL,
@@ -1105,7 +1101,6 @@ private struct RestrictedMediaWebView: NSViewRepresentable {
 
         func load(_ url: URL, in webView: WKWebView) {
             stopPlaybackActivity()
-            stopPlaybackWatchdog()
             initialURL = url
             navigationState.reset(initialURL: url)
             isActive = true
@@ -1113,11 +1108,8 @@ private struct RestrictedMediaWebView: NSViewRepresentable {
             hasReportedReady = false
             hasPlaybackIntent = false
             isPlaying = false
-            playbackIntentStartedAt = nil
-            lastPlaybackHeartbeatAt = nil
             awaitsRemoteFrameResponse = url.absoluteString.contains("2embed.cc/embed")
             onLifecycleEvent(.loading)
-            startLoadTimeout()
 
             guard MediaNavigationPolicy.isSecureRemoteURL(url) else {
                 report("This video source does not use a secure web address.")
@@ -1217,7 +1209,6 @@ private struct RestrictedMediaWebView: NSViewRepresentable {
                   let payload = message.body as? [String: Any],
                   let type = payload["type"] as? String else { return }
             if type == "ended" {
-                stopPlaybackWatchdog()
                 Task { @MainActor in onEnded() }
                 return
             }
@@ -1238,10 +1229,6 @@ private struct RestrictedMediaWebView: NSViewRepresentable {
                let isTopLevel = payload["isTopLevel"] as? Bool,
                !awaitsRemoteFrameResponse || !isTopLevel {
                 beginPlaybackIntentIfNeeded()
-                return
-            }
-            if type == "heartbeat" {
-                lastPlaybackHeartbeatAt = Date()
                 return
             }
             if type == "error" {
@@ -1273,7 +1260,6 @@ private struct RestrictedMediaWebView: NSViewRepresentable {
                   position > 0 else { return }
             markSourceReady()
             confirmPlaybackStarted()
-            lastPlaybackHeartbeatAt = Date()
             let sample = MediaPlaybackSample(
                 positionSeconds: position,
                 durationSeconds: duration,
@@ -1295,27 +1281,10 @@ private struct RestrictedMediaWebView: NSViewRepresentable {
 
         func stop() {
             isActive = false
-            loadTimeoutTask?.cancel()
-            loadTimeoutTask = nil
-            stopPlaybackWatchdog()
             stopPlaybackActivity()
         }
 
-        private func startLoadTimeout() {
-            loadTimeoutTask?.cancel()
-            loadTimeoutTask = Task { @MainActor [weak self] in
-                do {
-                    try await Task.sleep(for: .seconds(5))
-                } catch {
-                    return
-                }
-                self?.report("The video source did not respond within 5 seconds.")
-            }
-        }
-
         private func markSourceReady() {
-            loadTimeoutTask?.cancel()
-            loadTimeoutTask = nil
             guard !hasReportedReady else { return }
             hasReportedReady = true
             onLifecycleEvent(.ready)
@@ -1323,24 +1292,16 @@ private struct RestrictedMediaWebView: NSViewRepresentable {
 
         private func beginPlaybackIntentIfNeeded() {
             guard !hasPlaybackIntent, !hasReportedFailure else { return }
-            let now = Date()
             hasPlaybackIntent = true
             isPlaying = false
-            playbackIntentStartedAt = now
-            lastPlaybackHeartbeatAt = now
             onLifecycleEvent(.playRequested)
-            startPlaybackWatchdog()
         }
 
         private func confirmPlaybackStarted() {
             markSourceReady()
             beginPlaybackIntentIfNeeded()
-            guard !isPlaying else {
-                lastPlaybackHeartbeatAt = Date()
-                return
-            }
+            guard !isPlaying else { return }
             isPlaying = true
-            lastPlaybackHeartbeatAt = Date()
             onLifecycleEvent(.playing)
         }
 
@@ -1348,45 +1309,7 @@ private struct RestrictedMediaWebView: NSViewRepresentable {
             guard hasPlaybackIntent || isPlaying else { return }
             hasPlaybackIntent = false
             isPlaying = false
-            playbackIntentStartedAt = nil
-            lastPlaybackHeartbeatAt = nil
-            stopPlaybackWatchdog()
             onLifecycleEvent(.paused)
-        }
-
-        private func startPlaybackWatchdog() {
-            playbackWatchdogTask?.cancel()
-            playbackWatchdogTask = Task { @MainActor [weak self] in
-                while !Task.isCancelled {
-                    do {
-                        try await Task.sleep(for: .seconds(1))
-                    } catch {
-                        return
-                    }
-                    guard let self,
-                          self.isActive,
-                          !self.hasReportedFailure,
-                          self.hasPlaybackIntent,
-                          let intentStartedAt = self.playbackIntentStartedAt else { continue }
-                    let now = Date()
-                    if !self.isPlaying,
-                       now.timeIntervalSince(intentStartedAt) >= 10 {
-                        self.report("Playback did not start within 10 seconds.")
-                        return
-                    }
-                    if self.isPlaying,
-                       let heartbeat = self.lastPlaybackHeartbeatAt,
-                       now.timeIntervalSince(heartbeat) >= 8 {
-                        self.report("Playback stopped advancing for 8 seconds.")
-                        return
-                    }
-                }
-            }
-        }
-
-        private func stopPlaybackWatchdog() {
-            playbackWatchdogTask?.cancel()
-            playbackWatchdogTask = nil
         }
 
         private func isPlaybackResponse(_ navigationResponse: WKNavigationResponse) -> Bool {
@@ -1400,9 +1323,6 @@ private struct RestrictedMediaWebView: NSViewRepresentable {
         private func report(_ message: String) {
             guard isActive, !hasReportedFailure else { return }
             hasReportedFailure = true
-            loadTimeoutTask?.cancel()
-            loadTimeoutTask = nil
-            stopPlaybackWatchdog()
             stopPlaybackActivity()
             onLifecycleEvent(.failed(message))
             Task { @MainActor in onError(message) }
@@ -1594,9 +1514,6 @@ enum EmbeddedMediaProgressScript {
           const reportIfSelected = (player, force) => {
             const selected = selectActivePlayer();
             if (selected === player) {
-              if (!player.paused && !player.ended) {
-                post({ type: 'heartbeat', sourceID });
-              }
               emit(player, force);
             }
           };
