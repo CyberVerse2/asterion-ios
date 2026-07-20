@@ -138,14 +138,13 @@ def api_show(slug):
     metadata = None
     streams = []
 
-    # Resolve IMDB ID: scrape detail page if not in DB or if stored ID is numeric
+    # Resolve IMDB ID: scrape detail page, fall back to 2embed search
     if not imdb_id or not imdb_id.startswith("tt"):
         try:
             html = scraper._get(f"{scraper.BASE}/{slug}/")
             real_imdb = scraper._extract_imdb_id(html)
             if real_imdb:
                 imdb_id = real_imdb
-                # Persist in DB for future lookups
                 pg = db.get_pg()
                 with pg.cursor() as cur:
                     cur.execute(
@@ -155,6 +154,34 @@ def api_show(slug):
                     )
         except Exception:
             pass
+
+        # Fallback: search 2embed by title extracted from slug
+        if not imdb_id or not imdb_id.startswith("tt"):
+            title_from_slug = slug.replace("-", " ").replace("soap2day", "").strip()
+            try:
+                import requests
+                resp = requests.get(
+                    f"https://api.2embed.cc/search?q={title_from_slug}",
+                    headers={"User-Agent": "Mozilla/5.0"}, timeout=10,
+                )
+                results = resp.json()
+                if isinstance(results, dict):
+                    results = results.get("results", [])
+                if results:
+                    imdb_id = results[0].get("imdb_id")
+                if not imdb_id:
+                    # Try TV search
+                    resp2 = requests.get(
+                        f"https://api.2embed.cc/searchtv?q={title_from_slug}",
+                        headers={"User-Agent": "Mozilla/5.0"}, timeout=10,
+                    )
+                    tv_results = resp2.json()
+                    if isinstance(tv_results, dict):
+                        tv_results = tv_results.get("results", [])
+                    if tv_results:
+                        imdb_id = tv_results[0].get("imdb_id")
+            except Exception:
+                pass
 
     # Fetch metadata + streams using real IMDB ID
     if imdb_id and imdb_id.startswith("tt"):
