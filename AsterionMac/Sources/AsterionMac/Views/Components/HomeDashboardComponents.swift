@@ -287,6 +287,10 @@ struct HomePosterCard: View {
 }
 
 struct AsterionFeatureCard<Metadata: View, Actions: View>: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var isHovering = false
+
     let imageURL: URL?
     let fallbackSystemImage: String
     let eyebrow: String
@@ -389,6 +393,19 @@ struct AsterionFeatureCard<Metadata: View, Actions: View>: View {
                 .stroke(.white.opacity(0.12))
         }
         .shadow(color: .black.opacity(0.18), radius: 18, y: 9)
+        .onHover { isHovering = $0 }
+        .task(id: title) {
+            guard next != nil, !reduceMotion else { return }
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: .seconds(8))
+                } catch {
+                    return
+                }
+                guard scenePhase == .active, !isHovering else { continue }
+                next?()
+            }
+        }
     }
 
     private var backdrop: some View {

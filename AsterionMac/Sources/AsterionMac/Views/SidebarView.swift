@@ -72,6 +72,7 @@ struct SidebarView: View {
 
                 TextField(searchPrompt, text: $searchText)
                     .textFieldStyle(.plain)
+                    .font(.system(size: 15, weight: .regular))
                     .focused($searchIsFocused)
                     .focusEffectDisabled()
 
@@ -109,9 +110,27 @@ struct SidebarView: View {
                     searchIsFocused = true
                 }
             } label: {
-                Label("Search", systemImage: "magnifyingglass")
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.secondary)
+                        .frame(width: 16)
+                    Text("Search")
+                        .font(.system(size: 15, weight: .regular))
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                }
+                    .padding(.horizontal, 10)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
+                    .frame(height: 34)
+                    .background {
+                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            .fill(.primary.opacity(0.06))
+                    }
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            .stroke(.white.opacity(0.08), lineWidth: 1)
+                    }
+                    .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
             }
             .buttonStyle(.plain)
             .help("Search Asterion")
@@ -131,7 +150,7 @@ struct SidebarView: View {
                 Text(destination.title)
                 Spacer(minLength: 0)
             }
-            .font(.system(size: 13, weight: .medium))
+            .font(.system(size: 15, weight: .regular))
             .padding(.horizontal, 8)
             .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
             .background {
@@ -158,6 +177,7 @@ struct SidebarView: View {
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 8)
+            .font(.system(size: 15, weight: .regular))
             .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
             .background {
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
