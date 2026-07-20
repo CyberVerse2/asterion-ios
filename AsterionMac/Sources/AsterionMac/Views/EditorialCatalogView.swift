@@ -6,6 +6,7 @@ struct EditorialCatalogView: View {
     let novels: [Novel]
     let isSearching: Bool
     @Binding var selectedNovelID: String
+    let selectNovel: (Novel) -> Void
 
     var body: some View {
         Group {
@@ -79,6 +80,7 @@ struct EditorialCatalogView: View {
                     rank: showsRank && novel.numericRank != .max ? novel.numericRank : nil
                 ) {
                     selectedNovelID = novel.id
+                    selectNovel(novel)
                 }
                 .padding(.vertical, 3)
                 .contextMenu { libraryContextMenu(for: novel) }
@@ -99,6 +101,7 @@ struct EditorialCatalogView: View {
                     isSelected: selectedNovelID == entry.novel.id
                 ) {
                     selectedNovelID = entry.novel.id
+                    selectNovel(entry.novel)
                 }
                 .padding(.vertical, 3)
                 .contextMenu { libraryContextMenu(for: entry.novel) }

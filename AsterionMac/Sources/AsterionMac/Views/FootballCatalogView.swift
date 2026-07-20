@@ -4,6 +4,7 @@ struct FootballCatalogView: View {
     @ObservedObject var store: FootballStore
     let section: FootballSection
     let query: String
+    let selectMatch: (FootballMatch) -> Void
 
     private var normalizedQuery: String {
         query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -56,7 +57,7 @@ struct FootballCatalogView: View {
                                             match: match,
                                             isSelected: store.selectedMatchID == match.id
                                         ) {
-                                            store.select(match)
+                                            selectMatch(match)
                                         }
                                     }
                                 }

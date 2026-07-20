@@ -6,6 +6,7 @@ struct MovieCatalogView: View {
     @ObservedObject var store: MovieStore
     let section: MovieSection
     let query: String
+    let selectTitle: (MovieTitle) -> Void
 
     @State private var featuredIndex = 0
 
@@ -361,7 +362,7 @@ struct MovieCatalogView: View {
                         title: title,
                         isSelected: store.selectedTitleID == title.id
                     ) {
-                        Task { await store.select(title) }
+                        selectTitle(title)
                     }
                     .padding(.vertical, 3)
                     .task {

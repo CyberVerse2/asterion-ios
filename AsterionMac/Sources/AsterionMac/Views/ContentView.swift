@@ -74,10 +74,6 @@ struct ContentView: View {
         )
     }
 
-    private var selectedNovel: Novel? {
-        model.novel(id: selectedNovelID)
-    }
-
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarView(
@@ -97,7 +93,7 @@ struct ContentView: View {
         .focusedSceneValue(\.asterionMovieSection, movieSection)
         .focusedSceneValue(\.asterionFootballSection, footballSection)
         .tint(.asterionAccent)
-        .frame(minWidth: 1_200, minHeight: 700)
+        .frame(minWidth: 1_040, minHeight: 640)
         .onAppear {
             if destination.wrappedValue == .novels, selectedNovelID.isEmpty {
                 selectFirstNovel(in: section.wrappedValue)
@@ -134,58 +130,18 @@ struct ContentView: View {
                 )
             }
 
-            responsiveContent
+            if detailSelection == nil {
+                primaryColumn
+            } else {
+                selectedGlobalDetail
+            }
         }
         .ignoresSafeArea(.container, edges: .top)
     }
 
-    private var responsiveContent: some View {
-        Group {
-            if usesDetailPane {
-                GeometryReader { geometry in
-                    let dividerWidth = 1.0
-                    let availableWidth = max(0, geometry.size.width - dividerWidth)
-                    let minimumCatalogWidth = 540.0
-                    let detailWidth = min(
-                        max(380, availableWidth * 0.36),
-                        max(0, availableWidth - minimumCatalogWidth)
-                    )
-
-                    HStack(spacing: 0) {
-                        primaryColumn
-                            .frame(width: availableWidth - detailWidth)
-
-                        Divider()
-                            .frame(width: dividerWidth)
-
-                        detailColumn
-                            .frame(width: detailWidth)
-                    }
-                    .frame(
-                        width: geometry.size.width,
-                        height: geometry.size.height,
-                        alignment: .leading
-                    )
-                }
-            } else {
-                primaryColumn
-            }
-        }
-    }
-
-    private var usesDetailPane: Bool {
-        switch destination.wrappedValue {
-        case .home, .continueActivity, .bookmarks, .history:
-            detailSelection != nil
-        case .novels, .anime, .movies, .football, .account:
-            true
-        case .downloads:
-            false
-        }
-    }
-
     private var showsCatalogContextBar: Bool {
-        switch destination.wrappedValue {
+        guard detailSelection == nil else { return false }
+        return switch destination.wrappedValue {
         case .novels, .anime, .movies, .football:
             true
         default:
@@ -213,7 +169,8 @@ struct ContentView: View {
                 section: section.wrappedValue,
                 novels: model.novels(for: section.wrappedValue, search: searchText),
                 isSearching: !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                selectedNovelID: $selectedNovelID
+                selectedNovelID: $selectedNovelID,
+                selectNovel: selectNovelDetail
             )
             .id(section.wrappedValue)
 
@@ -221,21 +178,24 @@ struct ContentView: View {
             AnimeCatalogView(
                 store: animeStore,
                 section: animeSection.wrappedValue,
-                query: searchText
+                query: searchText,
+                selectTitle: selectAnimeDetail
             )
 
         case .movies:
             MovieCatalogView(
                 store: movieStore,
                 section: movieSection.wrappedValue,
-                query: searchText
+                query: searchText,
+                selectTitle: selectMovieDetail
             )
 
         case .football:
             FootballCatalogView(
                 store: footballStore,
                 section: footballSection.wrappedValue,
-                query: searchText
+                query: searchText,
+                selectMatch: selectFootballDetail
             )
 
         case .continueActivity:
@@ -267,32 +227,7 @@ struct ContentView: View {
             )
 
         case .account:
-            AccountSummaryView()
-        }
-    }
-
-    @ViewBuilder
-    private var detailColumn: some View {
-        switch destination.wrappedValue {
-        case .home, .continueActivity, .bookmarks, .history:
-            selectedGlobalDetail
-        case .novels:
-            if let selectedNovel {
-                NovelDetailView(novel: selectedNovel)
-                    .id(selectedNovel.id)
-            } else {
-                novelDetailPlaceholder
-            }
-        case .anime:
-            AnimeDetailView(store: animeStore)
-        case .movies:
-            MovieDetailView(store: movieStore)
-        case .football:
-            FootballDetailView(store: footballStore)
-        case .account:
             AccountView()
-        case .downloads:
-            EmptyView()
         }
     }
 
@@ -328,19 +263,21 @@ struct ContentView: View {
                 )
             }
         }
-        .overlay(alignment: .topTrailing) {
+        .safeAreaPadding(.top, 48)
+        .overlay(alignment: .topLeading) {
             Button {
                 detailSelection = nil
             } label: {
-                Image(systemName: "xmark")
-                    .frame(width: 20, height: 20)
+                Label("Back", systemImage: "chevron.left")
+                    .font(.callout.weight(.semibold))
             }
             .buttonStyle(.glass)
-            .buttonBorderShape(.circle)
+            .buttonBorderShape(.capsule)
             .controlSize(.small)
-            .help("Close details")
-            .accessibilityLabel("Close details")
-            .padding(12)
+            .help("Back to browse")
+            .accessibilityLabel("Back to browse")
+            .padding(.horizontal, 24)
+            .padding(.top, 12)
         }
     }
 
@@ -350,30 +287,6 @@ struct ContentView: View {
             systemImage: "sidebar.right",
             description: Text(message)
         )
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.asterionMediaCanvas)
-    }
-
-    private var novelDetailPlaceholder: some View {
-        Group {
-            if model.isLoadingCatalog {
-                ProgressView("Loading the Asterion catalog…")
-            } else if let error = model.catalogError {
-                ContentUnavailableView {
-                    Label("Catalog unavailable", systemImage: "wifi.exclamationmark")
-                } description: {
-                    Text(error)
-                } actions: {
-                    Button("Try Again") { Task { await model.loadCatalog() } }
-                }
-            } else {
-                ContentUnavailableView(
-                    "Select a novel",
-                    systemImage: "book.closed",
-                    description: Text("Choose a title from the catalog.")
-                )
-            }
-        }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.asterionMediaCanvas)
     }

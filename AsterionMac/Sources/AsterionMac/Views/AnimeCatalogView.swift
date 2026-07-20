@@ -6,6 +6,7 @@ struct AnimeCatalogView: View {
     @ObservedObject var store: AnimeStore
     let section: AnimeSection
     let query: String
+    let selectTitle: (AnimeTitle) -> Void
 
     @State private var featuredIndex = 0
 
@@ -210,7 +211,7 @@ struct AnimeCatalogView: View {
                 title: title,
                 isSelected: store.selectedTitleID == title.id
             ) {
-                Task { await store.select(title) }
+                selectTitle(title)
             }
             .padding(.vertical, 3)
             .task {
