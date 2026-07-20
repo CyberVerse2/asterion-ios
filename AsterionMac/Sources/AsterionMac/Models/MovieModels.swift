@@ -130,8 +130,7 @@ struct MoviePlaybackOption: Identifiable, Hashable, Sendable {
     }
 
     static func preferred(from options: [MoviePlaybackOption]) -> MoviePlaybackOption? {
-        options.first { $0.kind == .direct }
-            ?? options.first
+        options.first
     }
 }
 

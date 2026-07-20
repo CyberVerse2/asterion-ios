@@ -374,6 +374,7 @@ def _paginated_result(results, page: int, total: int) -> dict:
 
 
 def _stream_list_for_api(streams) -> list[dict]:
+    seen = set()
     result = []
     for s in streams:
         if isinstance(s, dict):
@@ -381,6 +382,13 @@ def _stream_list_for_api(streams) -> list[dict]:
         else:
             d = s.__dict__.copy()
         url = d.get("embed_url", "")
+        # Deduplicate: normalize URL to catch same source
+        norm = re.sub(r'(https?://[^/]+).*', r'\1', url)
+        norm = norm.replace("www.", "")
+        if norm in seen:
+            continue
+        seen.add(norm)
+
         is_hls = (
             ".m3u8" in url or "1x2.space" in url or "greenplanetstore" in url
             or "workers.dev" in url or url.endswith(".txt")
@@ -389,6 +397,13 @@ def _stream_list_for_api(streams) -> list[dict]:
         if is_hls:
             d["proxy_url"] = f"https://asterion-movies.cyberverse.cloud/proxy/hls?url={url}"
         result.append(d)
+
+    # Sort: 2embed first, then HLS, then rest
+    result.sort(key=lambda s: (
+        0 if "2embed.cc" in s.get("embed_url", "") else
+        1 if s.get("is_hls") else
+        2
+    ))
     return result
 
 
