@@ -831,12 +831,12 @@ private struct RestrictedMediaWebView: NSViewRepresentable {
                 report("This video source does not use a secure web address.")
                 return
             }
-            // 2embed requires loading inside an iframe
+            // 2embed requires loading inside an iframe; trigger autoplay via JS
             if url.absoluteString.contains("2embed.cc/embed") {
                 let html = """
-                <!DOCTYPE html><html><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">
-                <style>body{margin:0;padding:0;background:#000}iframe{width:100%;height:100vh;border:0}</style>
-                </head><body><iframe src=\"\(url.absoluteString)\" allowfullscreen allow=\"autoplay;encrypted-media\"></iframe></body></html>
+                <!DOCTYPE html><html><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1,user-scalable=no\">
+                <style>body{margin:0;padding:0;background:#000;overflow:hidden}iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0;display:block}</style>
+                </head><body><iframe src=\"\(url.absoluteString)\" allow=\"autoplay;encrypted-media;picture-in-picture\" allowfullscreen sandbox=\"allow-scripts allow-same-origin allow-forms allow-popups\"></iframe></body></html>
                 """
                 webView.loadHTMLString(html, baseURL: url)
             } else {
