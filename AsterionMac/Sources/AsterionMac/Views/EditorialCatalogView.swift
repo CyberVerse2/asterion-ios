@@ -23,7 +23,8 @@ struct EditorialCatalogView: View {
                             shelf(
                                 title: "Search Results",
                                 subtitle: "Titles matching your search.",
-                                novels: novels
+                                novels: novels,
+                                usesVerticalGrid: true
                             )
                         } else if section == .discover {
                             featuredCard
@@ -51,7 +52,8 @@ struct EditorialCatalogView: View {
                                     ? "The most-loved stories in Asterion."
                                     : "Your saved stories, ready whenever you are.",
                                 novels: novels,
-                                showsRank: section == .rankings
+                                showsRank: section == .rankings,
+                                usesVerticalGrid: true
                             )
                         }
                     }
@@ -140,27 +142,45 @@ struct EditorialCatalogView: View {
         title: String,
         subtitle: String,
         novels: [Novel],
-        showsRank: Bool = false
+        showsRank: Bool = false,
+        usesVerticalGrid: Bool = false
     ) -> some View {
         HomeSection(title: title, subtitle: subtitle) {
-            HomeHorizontalShelf(
-                items: novels,
-                itemWidth: AsterionCardMetrics.posterWidth,
-                spacing: 18,
-                height: AsterionCardMetrics.posterShelfHeight
-            ) { novel in
-                EditorialBookTile(
-                    novel: novel,
-                    isSelected: selectedNovelID == novel.id,
-                    rank: showsRank && novel.numericRank != .max ? novel.numericRank : nil
+            if usesVerticalGrid {
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: AsterionCardMetrics.posterWidth, maximum: AsterionCardMetrics.posterWidth), spacing: 18)],
+                    alignment: .leading,
+                    spacing: 18
                 ) {
-                    selectedNovelID = novel.id
-                    selectNovel(novel)
+                    ForEach(novels) { novel in
+                        bookTile(novel, showsRank: showsRank)
+                    }
                 }
-                .padding(.vertical, 3)
-                .contextMenu { libraryContextMenu(for: novel) }
+                .padding(.horizontal, 32)
+            } else {
+                HomeHorizontalShelf(
+                    items: novels,
+                    itemWidth: AsterionCardMetrics.posterWidth,
+                    spacing: 18,
+                    height: AsterionCardMetrics.posterShelfHeight
+                ) { novel in
+                    bookTile(novel, showsRank: showsRank)
+                        .padding(.vertical, 3)
+                }
             }
         }
+    }
+
+    private func bookTile(_ novel: Novel, showsRank: Bool) -> some View {
+        EditorialBookTile(
+            novel: novel,
+            isSelected: selectedNovelID == novel.id,
+            rank: showsRank && novel.numericRank != .max ? novel.numericRank : nil
+        ) {
+            selectedNovelID = novel.id
+            selectNovel(novel)
+        }
+        .contextMenu { libraryContextMenu(for: novel) }
     }
 
     private var continueReadingShelf: some View {

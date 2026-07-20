@@ -295,7 +295,28 @@ struct AnimeCatalogView: View {
     private var shelf: some View {
         VStack(alignment: .leading, spacing: 10) {
             HomeSection(title: shelfTitle, subtitle: shelfSubtitle) {
-                horizontalTitleRow(store.titles, loadsNextPage: true)
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: AsterionCardMetrics.posterWidth, maximum: AsterionCardMetrics.posterWidth), spacing: 18)],
+                    alignment: .leading,
+                    spacing: 18
+                ) {
+                    ForEach(store.titles) { title in
+                        AnimeTitleTile(
+                            title: title,
+                            isSelected: store.selectedTitleID == title.id
+                        ) {
+                            selectTitle(title)
+                        }
+                        .task {
+                            await store.loadNextPageIfNeeded(
+                                section: section,
+                                query: normalizedQuery,
+                                currentTitle: title
+                            )
+                        }
+                    }
+                }
+                .padding(.horizontal, 32)
             }
             paginationStatus
                 .padding(.horizontal, 32)

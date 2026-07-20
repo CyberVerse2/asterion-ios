@@ -261,7 +261,7 @@ struct ContentView: View {
             )
 
         case .account:
-            AccountView()
+            AccountSummaryView()
         }
     }
 

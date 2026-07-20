@@ -241,26 +241,26 @@ struct MovieCatalogView: View {
     private var shelf: some View {
         VStack(alignment: .leading, spacing: 10) {
             HomeSection(title: shelfTitle, subtitle: shelfSubtitle) {
-                HomeHorizontalShelf(
-                    items: store.titles,
-                    itemWidth: AsterionCardMetrics.posterWidth,
-                    spacing: 18,
-                    height: AsterionCardMetrics.posterShelfHeight
-                ) { title in
-                    MovieTitleTile(
-                        title: title,
-                        isSelected: store.selectedTitleID == title.id
+                if section == .discover, normalizedQuery.isEmpty {
+                    HomeHorizontalShelf(
+                        items: store.titles,
+                        itemWidth: AsterionCardMetrics.posterWidth,
+                        spacing: 18,
+                        height: AsterionCardMetrics.posterShelfHeight
+                    ) { title in
+                        movieTile(title)
+                    }
+                } else {
+                    LazyVGrid(
+                        columns: [GridItem(.adaptive(minimum: AsterionCardMetrics.posterWidth, maximum: AsterionCardMetrics.posterWidth), spacing: 18)],
+                        alignment: .leading,
+                        spacing: 18
                     ) {
-                        selectTitle(title)
+                        ForEach(store.titles) { title in
+                            movieTile(title)
+                        }
                     }
-                    .padding(.vertical, 3)
-                    .task {
-                        await store.loadNextPageIfNeeded(
-                            section: section,
-                            query: normalizedQuery,
-                            currentTitle: title
-                        )
-                    }
+                    .padding(.horizontal, 32)
                 }
             }
 
@@ -282,6 +282,22 @@ struct MovieCatalogView: View {
                 }
             }
             .padding(.horizontal, 32)
+        }
+    }
+
+    private func movieTile(_ title: MovieTitle) -> some View {
+        MovieTitleTile(
+            title: title,
+            isSelected: store.selectedTitleID == title.id
+        ) {
+            selectTitle(title)
+        }
+        .task {
+            await store.loadNextPageIfNeeded(
+                section: section,
+                query: normalizedQuery,
+                currentTitle: title
+            )
         }
     }
 
