@@ -250,12 +250,12 @@ final class MoviePlayerStore: ObservableObject {
         syncServerTracking()
 
         guard failedOption.isAutomatic else {
-            showExhaustedError(automatic: false)
+            advanceToNextWebOptionOrShowError()
             return
         }
 
         guard let playbackSlug = selectedEpisode?.id ?? route?.slug else {
-            showExhaustedError(automatic: true)
+            advanceToNextWebOptionOrShowError()
             return
         }
 
@@ -276,11 +276,13 @@ final class MoviePlayerStore: ObservableObject {
                 streamError = nil
                 beginServerAttempt(at: nextIndex)
             } else {
-                showExhaustedError(automatic: true)
+                advanceToNextWebOptionOrShowError()
             }
         } catch {
             guard currentPlaybackAttemptID == attemptID else { return }
-            streamError = "Playback sources could not be refreshed. \(error.localizedDescription)"
+            advanceToNextWebOptionOrShowError(
+                finalMessage: "Playback sources could not be refreshed. \(error.localizedDescription)"
+            )
         }
     }
 
@@ -295,13 +297,9 @@ final class MoviePlayerStore: ObservableObject {
         playbackOptions = options
         resetOptionTracking()
         streamError = nil
-        if let automaticIndex = options.firstIndex(where: \.isAutomatic) {
-            beginServerAttempt(at: automaticIndex)
-        } else {
-            currentServerIndex = nil
-            currentPlaybackAttemptID = UUID()
-            playbackPhase = .ready
-        }
+        beginServerAttempt(
+            at: options.firstIndex(where: \.isAutomatic) ?? options.startIndex
+        )
     }
 
     private func loadOffline(record: MediaDownloadRecord) -> Bool {
@@ -388,13 +386,20 @@ final class MoviePlayerStore: ObservableObject {
         })
     }
 
-    private func showExhaustedError(automatic: Bool) {
-        let heading = automatic
-            ? "Every verified direct source failed. Choose a web server manually."
-            : "The selected web server failed. Choose another server manually."
+    private func advanceToNextWebOptionOrShowError(finalMessage: String? = nil) {
+        if let nextIndex = playbackOptions.indices.first(where: {
+            playbackOptions[$0].kind == .web
+                && !attemptedOptionIDs.contains(playbackOptions[$0].id)
+        }) {
+            streamError = nil
+            beginServerAttempt(at: nextIndex)
+            return
+        }
+
         let details = failureRecordsByOptionID.values
             .map { "\($0.title): \($0.message)" }
             .sorted()
-        streamError = ([heading] + details).joined(separator: "\n")
+        streamError = ([finalMessage ?? "Every playback source failed."] + details)
+            .joined(separator: "\n")
     }
 }

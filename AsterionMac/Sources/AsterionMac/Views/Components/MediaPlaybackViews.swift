@@ -1232,6 +1232,7 @@ private struct RestrictedMediaWebView: NSViewRepresentable {
                 return
             }
             if type == "error" {
+                guard hasPlaybackIntent || isPlaying else { return }
                 report(
                     payload["message"] as? String
                         ?? "The embedded video could not be played."
