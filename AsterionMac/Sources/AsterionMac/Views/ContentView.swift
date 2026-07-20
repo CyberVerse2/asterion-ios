@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct ContentView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var model: AppModel
 
     @SceneStorage("selectedDestination") private var selectedDestinationRaw = AppDestination.home.rawValue
@@ -163,14 +164,31 @@ struct ContentView: View {
                 )
             }
 
-            if detailSelection == nil {
-                primaryColumn
-            } else {
-                selectedGlobalDetail
+            Group {
+                if detailSelection == nil {
+                    primaryColumn
+                } else {
+                    selectedGlobalDetail
+                }
             }
+            .id(contentIdentity)
+            .transition(.opacity.combined(with: .scale(scale: 0.992, anchor: .center)))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .ignoresSafeArea(.container, edges: .top)
+        .animation(reduceMotion ? nil : AsterionMotion.navigation, value: contentIdentity)
+    }
+
+    private var contentIdentity: String {
+        guard let detailSelection else { return "destination:\(destination.wrappedValue)" }
+        return switch detailSelection {
+        case .novel(let id): "novel:\(id)"
+        case .anime: "anime-detail"
+        case .movie: "movie-detail"
+        case .football: "football-detail"
+        case .loading(let title): "loading:\(title)"
+        case .unavailable(let title, _): "unavailable:\(title)"
+        }
     }
 
     private var showsCatalogContextBar: Bool {

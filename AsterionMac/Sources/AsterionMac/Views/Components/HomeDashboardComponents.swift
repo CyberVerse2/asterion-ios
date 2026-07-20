@@ -378,6 +378,7 @@ struct HomeContinueCard: View {
         }
         .buttonStyle(.plain)
         .asterionHoverLift()
+        .asterionReveal()
         .help("Resume \(item.title)")
     }
 }
@@ -458,6 +459,7 @@ struct AsterionFeatureCard<Metadata: View, Actions: View>: View {
                             .foregroundStyle(.white)
                             .lineLimit(2)
                             .minimumScaleFactor(0.82)
+                            .contentTransition(.interpolate)
 
                         metadata()
 
@@ -469,6 +471,7 @@ struct AsterionFeatureCard<Metadata: View, Actions: View>: View {
                             .padding(.top, 3)
                             .accessibilityLabel("Synopsis")
                             .accessibilityValue(summary)
+                            .contentTransition(.interpolate)
 
                         Spacer(minLength: 6)
 
@@ -498,6 +501,8 @@ struct AsterionFeatureCard<Metadata: View, Actions: View>: View {
             .frame(width: geometry.size.width, height: geometry.size.height)
         }
         .frame(height: AsterionCardMetrics.featureHeight)
+        .animation(reduceMotion ? nil : AsterionMotion.featured, value: title)
+        .asterionReveal()
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -636,6 +641,7 @@ struct AsterionPosterCard: View {
         }
         .buttonStyle(.plain)
         .asterionHoverLift()
+        .asterionReveal()
         .help("Open \(title)")
         .accessibilityLabel("\(title), \(badge)")
     }
@@ -704,6 +710,7 @@ struct HomeMatchCard: View {
         }
         .buttonStyle(.plain)
         .asterionHoverLift()
+        .asterionReveal()
         .help("Open \(match.displayTitle)")
     }
 }
