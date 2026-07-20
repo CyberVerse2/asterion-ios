@@ -7,6 +7,7 @@ import os
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import wraps
+from typing import Optional
 from urllib.parse import urljoin, urlparse
 
 import flask
@@ -232,8 +233,8 @@ def api_show(slug):
         "type": (from_db or {}).get("type", media_type),
         "image_url": (from_db or {}).get("poster_url") or (metadata or {}).get("poster"),
         "description": (from_db or {}).get("overview") or (metadata or {}).get("overview"),
-        "imdb_rating": str((from_db or {}).get("imdb_rating", "")) or str((metadata or {}).get("vote_average", "")),
-        "tmdb_rating": str((from_db or {}).get("tmdb_rating", "")) or str((metadata or {}).get("vote_average", "")),
+        "imdb_rating": _fmt_rating((from_db or {}).get("imdb_rating") or (metadata or {}).get("vote_average")),
+        "tmdb_rating": _fmt_rating((from_db or {}).get("tmdb_rating") or (metadata or {}).get("vote_average")),
         "rotten_tomatoes": (from_db or {}).get("rotten_tomatoes"),
         "metacritic": (from_db or {}).get("metacritic"),
         "genres": [g["name"] for g in (from_db or {}).get("genres", [])] or [g if isinstance(g, str) else g.get("name", "") for g in (metadata or {}).get("genres", [])],
@@ -356,6 +357,15 @@ def _cached_or_scrape(key: str, fetcher):
     result = fetcher()
     db.cache_set(key, result, 30 * 24 * 3600)
     return result
+
+
+def _fmt_rating(val) -> Optional[str]:
+    if val is None:
+        return None
+    try:
+        return str(round(float(val), 1))
+    except (ValueError, TypeError):
+        return str(val)
 
 
 def _search_result_list(results) -> list[dict]:
