@@ -155,9 +155,9 @@ struct HomeDashboardView: View {
         HomeSection(title: "Continue") {
             HomeHorizontalShelf(
                 items: resumeItems,
-                itemWidth: 294,
+                itemWidth: AsterionCardMetrics.landscapeWidth,
                 spacing: 18,
-                height: 172,
+                height: AsterionCardMetrics.landscapeShelfHeight,
                 card: { item in
                     HomeContinueCard(item: item) { resume(item) }
                         .padding(.vertical, 3)
@@ -170,9 +170,9 @@ struct HomeDashboardView: View {
         HomeSection(title: "Football", subtitle: "Live and upcoming matches.") {
             HomeHorizontalShelf(
                 items: Array(footballMatches.prefix(12)),
-                itemWidth: 330,
+                itemWidth: AsterionCardMetrics.matchWidth,
                 spacing: 14,
-                height: 180,
+                height: AsterionCardMetrics.matchShelfHeight,
                 card: { match in
                     HomeMatchCard(match: match) { selectFootball(match) }
                         .padding(.vertical, 3)
@@ -188,9 +188,9 @@ struct HomeDashboardView: View {
         HomeSection(title: title) {
             HomeHorizontalShelf(
                 items: items,
-                itemWidth: 168,
+                itemWidth: AsterionCardMetrics.posterWidth,
                 spacing: 18,
-                height: 258,
+                height: AsterionCardMetrics.posterShelfHeight,
                 card: { item in
                     HomePosterCard(item: item) { select(item) }
                         .padding(.vertical, 3)

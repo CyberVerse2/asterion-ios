@@ -145,9 +145,9 @@ struct EditorialCatalogView: View {
         HomeSection(title: title, subtitle: subtitle) {
             HomeHorizontalShelf(
                 items: novels,
-                itemWidth: 168,
+                itemWidth: AsterionCardMetrics.posterWidth,
                 spacing: 18,
-                height: 258
+                height: AsterionCardMetrics.posterShelfHeight
             ) { novel in
                 EditorialBookTile(
                     novel: novel,
@@ -167,9 +167,9 @@ struct EditorialCatalogView: View {
         HomeSection(title: "Continue Reading", subtitle: "Pick up where you left off.") {
             HomeHorizontalShelf(
                 items: model.continueReadingEntries,
-                itemWidth: 294,
+                itemWidth: AsterionCardMetrics.landscapeWidth,
                 spacing: 18,
-                height: 172
+                height: AsterionCardMetrics.landscapeShelfHeight
             ) { entry in
                 HomeContinueCard(
                     item: .reading(entry),

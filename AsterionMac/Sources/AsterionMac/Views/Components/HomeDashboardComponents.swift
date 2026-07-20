@@ -1,5 +1,20 @@
 import SwiftUI
 
+enum AsterionCardMetrics {
+    static let posterWidth: CGFloat = 152
+    static let posterHeight: CGFloat = 228
+    static let posterShelfHeight: CGFloat = 234
+    static let landscapeWidth: CGFloat = 264
+    static let landscapeHeight: CGFloat = 149
+    static let landscapeShelfHeight: CGFloat = 156
+    static let matchWidth: CGFloat = 296
+    static let matchHeight: CGFloat = 156
+    static let matchShelfHeight: CGFloat = 162
+    static let episodeWidth: CGFloat = 220
+    static let episodeHeight: CGFloat = 124
+    static let featureHeight: CGFloat = 200
+}
+
 enum HomeResumeItem: Identifiable {
     case reading(AppModel.ContinueReadingEntry)
     case watching(MediaPlaybackProgress)
@@ -303,7 +318,7 @@ struct HomeContinueCard: View {
                         Color.asterionCard
                     }
                 }
-                .frame(width: 294, height: 166)
+                .frame(width: AsterionCardMetrics.landscapeWidth, height: AsterionCardMetrics.landscapeHeight)
                 .clipped()
 
                 LinearGradient(
@@ -334,7 +349,7 @@ struct HomeContinueCard: View {
                 }
                 .padding(14)
             }
-            .frame(width: 294, height: 166)
+            .frame(width: AsterionCardMetrics.landscapeWidth, height: AsterionCardMetrics.landscapeHeight)
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -466,7 +481,7 @@ struct AsterionFeatureCard<Metadata: View, Actions: View>: View {
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
         }
-        .frame(height: 220)
+        .frame(height: AsterionCardMetrics.featureHeight)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -561,7 +576,7 @@ struct AsterionPosterCard: View {
                         Color.asterionCard
                     }
                 }
-                .frame(width: 168, height: 252)
+                .frame(width: AsterionCardMetrics.posterWidth, height: AsterionCardMetrics.posterHeight)
                 .clipped()
 
                 LinearGradient(
@@ -592,7 +607,7 @@ struct AsterionPosterCard: View {
                 }
                 .padding(12)
             }
-            .frame(width: 168, height: 252)
+            .frame(width: AsterionCardMetrics.posterWidth, height: AsterionCardMetrics.posterHeight)
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -627,7 +642,7 @@ struct HomeMatchCard: View {
                         Color.asterionCard
                     }
                 }
-                .frame(width: 330, height: 174)
+                .frame(width: AsterionCardMetrics.matchWidth, height: AsterionCardMetrics.matchHeight)
                 .clipped()
 
                 LinearGradient(
@@ -661,7 +676,7 @@ struct HomeMatchCard: View {
                 }
                 .padding(16)
             }
-            .frame(width: 330, height: 174)
+            .frame(width: AsterionCardMetrics.matchWidth, height: AsterionCardMetrics.matchHeight)
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)

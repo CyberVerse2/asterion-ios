@@ -91,9 +91,9 @@ struct MovieCatalogView: View {
         HomeSection(title: "Continue Watching", subtitle: "Pick up where you left off.") {
             HomeHorizontalShelf(
                 items: movieContinueWatching,
-                itemWidth: 294,
+                itemWidth: AsterionCardMetrics.landscapeWidth,
                 spacing: 18,
-                height: 172
+                height: AsterionCardMetrics.landscapeShelfHeight
             ) { progress in
                 HomeContinueCard(item: .watching(progress)) {
                     openWindow(
@@ -243,9 +243,9 @@ struct MovieCatalogView: View {
             HomeSection(title: shelfTitle, subtitle: shelfSubtitle) {
                 HomeHorizontalShelf(
                     items: store.titles,
-                    itemWidth: 168,
+                    itemWidth: AsterionCardMetrics.posterWidth,
                     spacing: 18,
-                    height: 258
+                    height: AsterionCardMetrics.posterShelfHeight
                 ) { title in
                     MovieTitleTile(
                         title: title,

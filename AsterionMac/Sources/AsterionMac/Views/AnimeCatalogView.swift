@@ -106,9 +106,9 @@ struct AnimeCatalogView: View {
         HomeSection(title: "Continue Watching", subtitle: "Pick up where you left off.") {
             HomeHorizontalShelf(
                 items: animeContinueWatching,
-                itemWidth: 294,
+                itemWidth: AsterionCardMetrics.landscapeWidth,
                 spacing: 18,
-                height: 172
+                height: AsterionCardMetrics.landscapeShelfHeight
             ) { progress in
                 HomeContinueCard(item: .watching(progress)) {
                     openWindow(
@@ -205,9 +205,9 @@ struct AnimeCatalogView: View {
     ) -> some View {
         HomeHorizontalShelf(
             items: titles,
-            itemWidth: 168,
+            itemWidth: AsterionCardMetrics.posterWidth,
             spacing: 18,
-            height: 258
+            height: AsterionCardMetrics.posterShelfHeight
         ) { title in
             AnimeTitleTile(
                 title: title,
