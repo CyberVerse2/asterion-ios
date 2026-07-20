@@ -51,7 +51,7 @@ struct AnimePlayerView: View {
             }
         }
         .frame(minWidth: 850, minHeight: 540)
-        .background(.background)
+        .background(Color.asterionMediaCanvas)
         .navigationTitle(route.title)
         .toolbar(removing: .title)
         .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
