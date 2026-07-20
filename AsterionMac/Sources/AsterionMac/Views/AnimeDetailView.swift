@@ -11,6 +11,12 @@ struct AnimeDetailView: View {
     @State private var downloadError: String?
     @State private var downloadPlan: AnimeDownloadPlan?
     @State private var isPreparingDownloadPlan = false
+    @State private var selectedEpisodeRange = 0
+    @State private var episodeSearch = ""
+    @State private var episodeSearchError: String?
+
+    private let longEpisodeThreshold = 24
+    private let episodeRangeSize = 50
 
     var body: some View {
         Group {
@@ -55,17 +61,19 @@ struct AnimeDetailView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 34) {
                     hero(show)
-                        .id("detail-top")
 
                     detailSection(title: "Episodes", trailing: episodeCountLabel) {
                         episodeShelf(show)
                     }
+
+                    if !recommendations(for: show).isEmpty {
+                        detailSection(title: "You Might Like") {
+                            recommendationShelf(show)
+                        }
+                    }
                 }
-                .frame(maxWidth: 1_180, alignment: .leading)
-                .padding(.horizontal, 46)
-                .padding(.top, 30)
-                .padding(.bottom, 64)
-                .frame(maxWidth: .infinity, alignment: .top)
+                .asterionDetailPageFrame()
+                .id("detail-top")
             }
             .hidingScrollIndicators()
             .scrollPosition(id: $scrollPosition, anchor: .top)
@@ -104,6 +112,7 @@ struct AnimeDetailView: View {
                 endPoint: .bottom
             )
         }
+        .backgroundExtensionEffect()
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
@@ -287,28 +296,173 @@ struct AnimeDetailView: View {
     private func episodeShelf(_ show: AnimeShow) -> some View {
         if store.episodes.isEmpty {
             ContentUnavailableView("No episodes", systemImage: "film.stack")
+        } else if store.episodes.count > longEpisodeThreshold {
+            longEpisodeBrowser(show)
         } else {
-            ScrollViewReader { proxy in
-                ScrollView(.horizontal) {
-                    LazyHStack(spacing: 15) {
-                        ForEach(store.episodes) { episode in
-                            episodeCard(show: show, episode: episode)
-                                .id(episode.id)
+            shortEpisodeShelf(show)
+        }
+    }
+
+    private func shortEpisodeShelf(_ show: AnimeShow) -> some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal) {
+                LazyHStack(spacing: 15) {
+                    ForEach(store.episodes) { episode in
+                        episodeCard(show: show, episode: episode)
+                            .id(episode.id)
+                    }
+                }
+                .padding(.vertical, 2)
+                .scrollTargetLayout()
+            }
+            .hidingScrollIndicators()
+            .scrollTargetBehavior(.viewAligned)
+            .task(id: show.id) {
+                try? await Task.sleep(for: .milliseconds(120))
+                if let firstEpisodeID = store.episodes.first?.id {
+                    proxy.scrollTo(firstEpisodeID, anchor: .leading)
+                }
+            }
+        }
+    }
+
+    private func longEpisodeBrowser(_ show: AnimeShow) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 10) {
+                Menu {
+                    ForEach(Array(episodeRanges.enumerated()), id: \.element.id) { index, range in
+                        Button(range.label) {
+                            selectedEpisodeRange = index
+                            episodeSearchError = nil
                         }
                     }
-                    .padding(.vertical, 2)
-                    .scrollTargetLayout()
+                } label: {
+                    Label(currentEpisodeRange?.label ?? "Episodes", systemImage: "rectangle.grid.3x2")
+                        .font(.system(size: 13, weight: .semibold).monospacedDigit())
+                        .frame(minWidth: 116)
                 }
-                .hidingScrollIndicators()
-                .scrollTargetBehavior(.viewAligned)
-                .task(id: show.id) {
-                    try? await Task.sleep(for: .milliseconds(120))
-                    if let firstEpisodeID = store.episodes.first?.id {
-                        proxy.scrollTo(firstEpisodeID, anchor: .leading)
+                .menuStyle(.borderlessButton)
+
+                Button {
+                    selectedEpisodeRange -= 1
+                } label: {
+                    Image(systemName: "chevron.left")
+                }
+                .disabled(selectedEpisodeRange == 0)
+                .help("Previous \(episodeRangeSize) episodes")
+
+                Button {
+                    selectedEpisodeRange += 1
+                } label: {
+                    Image(systemName: "chevron.right")
+                }
+                .disabled(selectedEpisodeRange >= episodeRanges.count - 1)
+                .help("Next \(episodeRangeSize) episodes")
+
+                Spacer()
+
+                TextField("Find episode", text: $episodeSearch)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 13).monospacedDigit())
+                    .frame(width: 130)
+                    .onSubmit { findEpisode(show) }
+                    .accessibilityLabel("Find episode number")
+            }
+            .buttonStyle(.borderless)
+            .controlSize(.regular)
+
+            if let episodeSearchError {
+                Text(episodeSearchError)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+
+            ScrollViewReader { proxy in
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 150, maximum: 210), spacing: 12)],
+                    spacing: 12
+                ) {
+                    ForEach(currentEpisodeRange?.episodes ?? []) { episode in
+                        compactEpisodeCard(show: show, episode: episode)
+                                .id(episode.id)
+                    }
+                }
+                .onChange(of: selectedEpisodeRange) { _, _ in
+                    if let firstEpisodeID = currentEpisodeRange?.episodes.first?.id {
+                        withAnimation(.snappy) {
+                            proxy.scrollTo(firstEpisodeID, anchor: .top)
+                        }
                     }
                 }
             }
         }
+        .onChange(of: show.id, initial: true) {
+            selectedEpisodeRange = 0
+            episodeSearch = ""
+            episodeSearchError = nil
+        }
+    }
+
+    private func compactEpisodeCard(show: AnimeShow, episode: AnimeEpisode) -> some View {
+        HStack(spacing: 10) {
+            Button {
+                openPlayer(show: show, episode: episode)
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "play.fill")
+                        .font(.caption)
+                        .foregroundStyle(Color.asterionAccent)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Episode \(episode.number)")
+                            .font(.system(size: 13, weight: .semibold).monospacedDigit())
+                            .foregroundStyle(Color.asterionText)
+                        Text(episodeStatus(show: show, episode: episode))
+                            .font(.caption2)
+                            .foregroundStyle(Color.asterionMuted)
+                            .lineLimit(1)
+                    }
+
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            animeDownloadButton(show: show, episode: episode)
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 56)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(.white.opacity(0.08))
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    private var episodeRanges: [AnimeEpisodeRange] {
+        AnimeEpisodeRange.pages(for: store.episodes, pageSize: episodeRangeSize)
+    }
+
+    private var currentEpisodeRange: AnimeEpisodeRange? {
+        guard episodeRanges.indices.contains(selectedEpisodeRange) else { return episodeRanges.first }
+        return episodeRanges[selectedEpisodeRange]
+    }
+
+    private func findEpisode(_ show: AnimeShow) {
+        let query = episodeSearch.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let number = Int(query),
+              let episode = store.episodes.first(where: { $0.number == number }) else {
+            episodeSearchError = "Episode not found"
+            return
+        }
+
+        episodeSearchError = nil
+        if let rangeIndex = episodeRanges.firstIndex(where: { $0.contains(episodeID: episode.id) }) {
+            selectedEpisodeRange = rangeIndex
+        }
+        openPlayer(show: show, episode: episode)
     }
 
     private func episodeCard(show: AnimeShow, episode: AnimeEpisode) -> some View {
@@ -375,6 +529,37 @@ struct AnimeDetailView: View {
         return "Available to watch"
     }
 
+    private func recommendationShelf(_ show: AnimeShow) -> some View {
+        ScrollView(.horizontal) {
+            LazyHStack(spacing: 15) {
+                ForEach(recommendations(for: show)) { title in
+                    AsterionPosterCard(
+                        imageURL: title.imageURL,
+                        badge: "ANIME",
+                        title: title.displayTitle,
+                        subtitle: title.episodeLabel ?? title.type ?? "Anime"
+                    ) {
+                        Task { await store.select(title, force: true) }
+                    }
+                }
+            }
+            .padding(.vertical, 2)
+            .scrollTargetLayout()
+        }
+        .hidingScrollIndicators()
+        .scrollTargetBehavior(.viewAligned)
+    }
+
+    private func recommendations(for show: AnimeShow) -> [AnimeTitle] {
+        var seen = Set<String>()
+        return (store.titles + store.seasonalTitles + store.newReleaseTitles)
+            .filter { title in
+                title.slug != show.slug && seen.insert(title.slug).inserted
+            }
+            .prefix(10)
+            .map { $0 }
+    }
+
     private func animeDownloadButton(
         show: AnimeShow,
         episode: AnimeEpisode
@@ -421,7 +606,7 @@ struct AnimeDetailView: View {
                     .controlSize(.small)
                     .frame(width: 20)
             } else {
-                Label("Download", systemImage: "arrow.down.circle")
+                Label("Download", systemImage: "arrow.down.to.line")
                     .labelStyle(.iconOnly)
                     .frame(width: 20)
             }
@@ -552,13 +737,13 @@ struct AnimeDetailView: View {
     ) -> (icon: String, help: String) {
         switch record?.phase {
         case .preparing, .downloading:
-            ("arrow.down.circle.fill", "Downloading episode")
+            ("arrow.down.to.line", "Downloading episode")
         case .completed:
             ("checkmark.circle.fill", "Available offline. Manage it in Downloads")
         case .failed:
             ("arrow.clockwise", "Retry episode download")
         case nil:
-            ("arrow.down.circle", "Download episode for offline viewing")
+            ("arrow.down.to.line", "Download episode for offline viewing")
         }
     }
 

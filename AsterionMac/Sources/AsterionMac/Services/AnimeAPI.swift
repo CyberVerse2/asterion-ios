@@ -158,8 +158,7 @@ actor AnimeAPI {
     func fetchEpisodes(showID: String) async throws -> [AnimeEpisode] {
         try await request(
             path: "/api/amp/episodes/\(showID)",
-            namespace: Self.detailCacheNamespace,
-            cacheLifetime: 900
+            namespace: Self.detailCacheNamespace
         )
     }
 
