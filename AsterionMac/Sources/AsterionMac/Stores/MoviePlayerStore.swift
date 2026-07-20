@@ -40,6 +40,8 @@ final class MoviePlayerStore: ObservableObject {
     private var route: MoviePlayerRoute?
     private var offlineRecordsByUnitID: [String: MediaDownloadRecord] = [:]
     private var showRequestID = UUID()
+    private var attemptedOptionIDs: Set<String> = []
+    private var failureRecordsByOptionID: [String: (title: String, message: String)] = [:]
 
     init(api: MovieAPI = MovieAPI()) {
         self.api = api
@@ -110,7 +112,14 @@ final class MoviePlayerStore: ObservableObject {
                 await play(episode)
             } else {
                 isLoadingShow = false
-                try setPlaybackOptions(from: loadedShow.streams)
+                isLoadingStream = true
+                do {
+                    let sources = try await api.fetchPlaybackSources(slug: route.slug)
+                    try setPlaybackOptions(from: sources)
+                } catch {
+                    streamError = error.localizedDescription
+                }
+                isLoadingStream = false
             }
         } catch {
             guard !Task.isCancelled, showRequestID == requestID else { return }
@@ -142,9 +151,7 @@ final class MoviePlayerStore: ObservableObject {
                 title: "Downloaded"
             )
             playbackOptions = [option]
-            attemptedServerIndices = []
-            failedServerIndices = []
-            serverFailureMessages = [:]
+            resetOptionTracking()
             beginServerAttempt(at: 0)
             streamError = nil
             isLoadingStream = false
@@ -158,9 +165,9 @@ final class MoviePlayerStore: ObservableObject {
         isLoadingStream = true
 
         do {
-            let episodeDetail = try await api.fetchShow(slug: episode.id)
+            let sources = try await api.fetchPlaybackSources(slug: episode.id)
             guard selectedEpisodeID == episode.id else { return }
-            try setPlaybackOptions(from: episodeDetail.streams)
+            try setPlaybackOptions(from: sources)
             isLoadingStream = false
         } catch {
             guard selectedEpisodeID == episode.id else { return }
@@ -182,9 +189,10 @@ final class MoviePlayerStore: ObservableObject {
     func retryStream() async {
         if let selectedEpisode {
             await play(selectedEpisode)
-        } else if let show {
+        } else if let route {
             do {
-                try setPlaybackOptions(from: show.streams)
+                let sources = try await api.fetchPlaybackSources(slug: route.slug)
+                try setPlaybackOptions(from: sources)
             } catch {
                 streamError = error.localizedDescription
             }
@@ -193,8 +201,8 @@ final class MoviePlayerStore: ObservableObject {
 
     func choosePlaybackOption(_ option: MoviePlaybackOption) {
         guard let index = playbackOptions.firstIndex(of: option) else { return }
-        failedServerIndices.remove(index)
-        serverFailureMessages.removeValue(forKey: index)
+        failureRecordsByOptionID.removeValue(forKey: option.id)
+        syncServerTracking()
         streamError = nil
         beginServerAttempt(at: index)
     }
@@ -203,7 +211,7 @@ final class MoviePlayerStore: ObservableObject {
         _ event: MediaPlaybackLifecycleEvent,
         for option: MoviePlaybackOption,
         attemptID: UUID
-    ) {
+    ) async {
         guard let index = currentServerIndex,
               playbackOptions.indices.contains(index),
               playbackOptions[index].id == option.id,
@@ -223,28 +231,56 @@ final class MoviePlayerStore: ObservableObject {
         case .paused:
             playbackPhase = .paused
         case .failed(let message):
-            reportPlaybackFailure(at: index, message: message)
+            await reportPlaybackFailure(
+                at: index,
+                attemptID: attemptID,
+                message: message
+            )
         }
     }
 
-    private func reportPlaybackFailure(at index: Int, message: String) {
-        attemptedServerIndices.insert(index)
-        failedServerIndices.insert(index)
-        serverFailureMessages[index] = message
+    private func reportPlaybackFailure(
+        at index: Int,
+        attemptID: UUID,
+        message: String
+    ) async {
+        let failedOption = playbackOptions[index]
+        attemptedOptionIDs.insert(failedOption.id)
+        failureRecordsByOptionID[failedOption.id] = (failedOption.title, message)
+        syncServerTracking()
 
-        if let nextIndex = playbackOptions.indices.first(where: {
-            $0 > index && !attemptedServerIndices.contains($0)
-        }) {
-            streamError = nil
-            beginServerAttempt(at: nextIndex)
-        } else {
-            let details = failedServerIndices.sorted().compactMap { failedIndex -> String? in
-                guard playbackOptions.indices.contains(failedIndex),
-                      let failure = serverFailureMessages[failedIndex] else { return nil }
-                return "\(playbackOptions[failedIndex].title): \(failure)"
+        guard failedOption.isAutomatic else {
+            showExhaustedError(automatic: false)
+            return
+        }
+
+        guard let playbackSlug = selectedEpisode?.id ?? route?.slug else {
+            showExhaustedError(automatic: true)
+            return
+        }
+
+        isLoadingStream = true
+        defer { isLoadingStream = false }
+        do {
+            let sources = try await api.fetchPlaybackSources(slug: playbackSlug)
+            guard currentPlaybackAttemptID == attemptID else { return }
+            let refreshedOptions = MoviePlaybackOption.options(from: sources)
+            guard !refreshedOptions.isEmpty else { throw MovieAPIError.noPlaybackSource }
+            playbackOptions = refreshedOptions
+            syncServerTracking()
+
+            if let nextIndex = refreshedOptions.indices.first(where: {
+                refreshedOptions[$0].isAutomatic
+                    && !attemptedOptionIDs.contains(refreshedOptions[$0].id)
+            }) {
+                streamError = nil
+                beginServerAttempt(at: nextIndex)
+            } else {
+                showExhaustedError(automatic: true)
             }
-            streamError = (["Every playback source failed."] + details)
-                .joined(separator: "\n")
+        } catch {
+            guard currentPlaybackAttemptID == attemptID else { return }
+            streamError = "Playback sources could not be refreshed. \(error.localizedDescription)"
         }
     }
 
@@ -257,11 +293,11 @@ final class MoviePlayerStore: ObservableObject {
         let options = MoviePlaybackOption.options(from: sources)
         guard !options.isEmpty else { throw MovieAPIError.noPlaybackSource }
         playbackOptions = options
-        attemptedServerIndices = []
-        failedServerIndices = []
-        serverFailureMessages = [:]
+        resetOptionTracking()
         streamError = nil
-        beginServerAttempt(at: options.startIndex)
+        beginServerAttempt(
+            at: options.firstIndex(where: \.isAutomatic) ?? options.startIndex
+        )
     }
 
     private func loadOffline(record: MediaDownloadRecord) -> Bool {
@@ -290,9 +326,7 @@ final class MoviePlayerStore: ObservableObject {
             title: "Downloaded"
         )
         playbackOptions = [option]
-        failedServerIndices = []
-        attemptedServerIndices = []
-        serverFailureMessages = [:]
+        resetOptionTracking()
         beginServerAttempt(at: 0)
         isLoadingShow = false
         isLoadingStream = false
@@ -317,9 +351,7 @@ final class MoviePlayerStore: ObservableObject {
 
     private func resetServerAttempts() {
         currentServerIndex = nil
-        attemptedServerIndices = []
-        failedServerIndices = []
-        serverFailureMessages = [:]
+        resetOptionTracking()
         currentPlaybackAttemptID = UUID()
         playbackPhase = .loading
     }
@@ -329,6 +361,36 @@ final class MoviePlayerStore: ObservableObject {
         currentServerIndex = index
         currentPlaybackAttemptID = UUID()
         playbackPhase = .loading
-        attemptedServerIndices.insert(index)
+        attemptedOptionIDs.insert(playbackOptions[index].id)
+        syncServerTracking()
+    }
+
+    private func resetOptionTracking() {
+        attemptedOptionIDs = []
+        failureRecordsByOptionID = [:]
+        syncServerTracking()
+    }
+
+    private func syncServerTracking() {
+        attemptedServerIndices = Set(playbackOptions.indices.filter {
+            attemptedOptionIDs.contains(playbackOptions[$0].id)
+        })
+        failedServerIndices = Set(playbackOptions.indices.filter {
+            failureRecordsByOptionID[playbackOptions[$0].id] != nil
+        })
+        serverFailureMessages = Dictionary(uniqueKeysWithValues: failedServerIndices.compactMap {
+            guard let record = failureRecordsByOptionID[playbackOptions[$0].id] else { return nil }
+            return ($0, record.message)
+        })
+    }
+
+    private func showExhaustedError(automatic: Bool) {
+        let heading = automatic
+            ? "Every verified direct source failed. Choose a web server manually."
+            : "The selected web server failed. Choose another server manually."
+        let details = failureRecordsByOptionID.values
+            .map { "\($0.title): \($0.message)" }
+            .sorted()
+        streamError = ([heading] + details).joined(separator: "\n")
     }
 }

@@ -198,8 +198,8 @@ final class MediaDownloadManager: NSObject, ObservableObject, AVAssetDownloadDel
         try saveRecord(record)
 
         do {
-            let sourceShow = try await movieAPI.fetchShow(slug: unitID)
-            guard let streamURL = preferredMovieStreamURL(from: sourceShow.streams) else {
+            let sources = try await movieAPI.fetchPlaybackSources(slug: unitID)
+            guard let streamURL = preferredMovieStreamURL(from: sources) else {
                 throw MediaDownloadError.noDownloadableSource(title: unitTitle)
             }
             try startAssetDownload(
@@ -325,8 +325,8 @@ final class MediaDownloadManager: NSObject, ObservableObject, AVAssetDownloadDel
     }
 
     private func preferredMovieStreamURL(from sources: [MovieStreamSource]) -> URL? {
-        let source = sources.first { $0.isHLS && $0.proxyURL != nil }
-            ?? sources.first { $0.isHLS }
+        let source = sources.first { $0.isHLS && $0.isVerified && $0.proxyURL != nil }
+            ?? sources.first { $0.isHLS && $0.isVerified }
         return source.map { $0.proxyURL ?? $0.embedURL }
     }
 

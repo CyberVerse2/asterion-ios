@@ -144,6 +144,15 @@ actor MovieAPI {
         )
     }
 
+    func fetchPlaybackSources(slug: String) async throws -> [MovieStreamSource] {
+        let response: MoviePlaybackSources = try await request(
+            path: "/api/playback/\(slug)",
+            namespace: "movie.playback",
+            cacheLifetime: 0
+        )
+        return response.sources.map(normalize)
+    }
+
     static func serviceURL(_ url: URL, relativeTo baseURL: URL) -> URL {
         guard url.scheme == nil else { return url }
         return URL(string: url.relativeString, relativeTo: baseURL)?.absoluteURL ?? url
@@ -156,6 +165,8 @@ actor MovieAPI {
             quality: source.quality,
             embedURL: Self.serviceURL(source.embedURL, relativeTo: baseURL),
             isHLS: source.isHLS,
+            isVerified: source.isVerified,
+            automatic: source.automatic,
             proxyURL: source.proxyURL.map { Self.serviceURL($0, relativeTo: baseURL) }
         )
     }
