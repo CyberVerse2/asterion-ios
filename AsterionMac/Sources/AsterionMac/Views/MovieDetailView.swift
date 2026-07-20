@@ -52,58 +52,63 @@ struct MovieDetailView: View {
         ZStack(alignment: .top) {
             ambientBackdrop(show)
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 34) {
-                    hero(show)
+            GeometryReader { geometry in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 34) {
+                        hero(show)
 
-                    if hasAdditionalDetails(show) {
-                        detailSection(title: "Details") {
-                            additionalDetails(show)
-                        }
-                    }
-
-                    if show.isSeries {
-                        detailSection(title: "Episodes", trailing: "\(store.episodes.count) available") {
-                            episodeBrowser(show)
-                        }
-                    }
-
-                    if !show.actors.isEmpty {
-                        detailSection(
-                            title: "Cast",
-                            trailing: show.actors.count == 1 ? "1 person" : "\(show.actors.count) people"
-                        ) {
-                            VStack(alignment: .leading, spacing: 12) {
-                                Text(visibleCast(for: show).joined(separator: " · "))
-                                    .font(.callout)
-                                    .foregroundStyle(Color.asterionText.opacity(0.78))
-                                    .textSelection(.enabled)
-
-                                if show.actors.count > 8 {
-                                    Button(showsFullCast ? "Show less" : "Show all cast") {
-                                        showsFullCast.toggle()
-                                    }
-                                    .buttonStyle(.link)
-                                    .font(.caption.weight(.semibold))
-                                    .tint(.asterionText)
-                                }
+                        if hasAdditionalDetails(show) {
+                            detailSection(title: "Details") {
+                                additionalDetails(show)
                             }
-                            .padding(16)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(
-                                .thinMaterial,
-                                in: RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            )
+                        }
+
+                        if show.isSeries {
+                            detailSection(title: "Episodes", trailing: "\(store.episodes.count) available") {
+                                episodeBrowser(show)
+                            }
+                        }
+
+                        if !show.actors.isEmpty {
+                            detailSection(
+                                title: "Cast",
+                                trailing: show.actors.count == 1 ? "1 person" : "\(show.actors.count) people"
+                            ) {
+                                VStack(alignment: .leading, spacing: 12) {
+                                    Text(visibleCast(for: show).joined(separator: " · "))
+                                        .font(.callout)
+                                        .foregroundStyle(Color.asterionText.opacity(0.78))
+                                        .textSelection(.enabled)
+
+                                    if show.actors.count > 8 {
+                                        Button(showsFullCast ? "Show less" : "Show all cast") {
+                                            showsFullCast.toggle()
+                                        }
+                                        .buttonStyle(.link)
+                                        .font(.caption.weight(.semibold))
+                                        .tint(.asterionText)
+                                    }
+                                }
+                                .padding(16)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(
+                                    .thinMaterial,
+                                    in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                )
+                            }
                         }
                     }
+                    .frame(
+                        width: min(1_180, max(0, geometry.size.width - 92)),
+                        alignment: .leading
+                    )
+                    .padding(.horizontal, 46)
+                    .padding(.top, 30)
+                    .padding(.bottom, 64)
+                    .frame(maxWidth: .infinity, alignment: .top)
                 }
-                .frame(maxWidth: 1_180, alignment: .leading)
-                .padding(.horizontal, 46)
-                .padding(.top, 30)
-                .padding(.bottom, 64)
-                .frame(maxWidth: .infinity, alignment: .top)
+                .hidingScrollIndicators()
             }
-            .hidingScrollIndicators()
         }
         .background(Color.asterionMediaCanvas)
         .task(id: show.id) {
