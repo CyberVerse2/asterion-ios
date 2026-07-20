@@ -80,7 +80,7 @@ struct ContentView: View {
                 selection: destination,
                 searchText: $searchText
             )
-            .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 320)
+            .navigationSplitViewColumnWidth(min: 210, ideal: 228, max: 260)
         } detail: {
             mainContent
         }

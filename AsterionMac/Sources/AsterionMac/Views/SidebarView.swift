@@ -16,21 +16,10 @@ struct SidebarView: View {
     ]
 
     private let libraryDestinations: [AppDestination] = [
-        .continueActivity,
         .bookmarks,
         .downloads,
         .history,
     ]
-
-    private var listSelection: Binding<AppDestination?> {
-        Binding(
-            get: { selection == .account ? nil : selection },
-            set: { destination in
-                guard let destination else { return }
-                selection = destination
-            }
-        )
-    }
 
     private var canSearchSelection: Bool {
         selection != .downloads && selection != .account
@@ -50,7 +39,7 @@ struct SidebarView: View {
     }
 
     var body: some View {
-        List(selection: listSelection) {
+        List {
             searchRow
                 .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 8, trailing: 8))
 
@@ -130,11 +119,30 @@ struct SidebarView: View {
     }
 
     private func destinationRow(_ destination: AppDestination) -> some View {
-        Label(destination.title, systemImage: destination.systemImage)
-            .symbolRenderingMode(.hierarchical)
+        let isSelected = selection == destination
+
+        return Button {
+            selection = destination
+        } label: {
+            HStack(spacing: 9) {
+                Image(systemName: destination.systemImage)
+                    .symbolRenderingMode(.hierarchical)
+                    .frame(width: 18)
+                Text(destination.title)
+                Spacer(minLength: 0)
+            }
             .font(.system(size: 13, weight: .medium))
-            .tag(destination)
-            .help(destination.title)
+            .padding(.horizontal, 8)
+            .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
+            .background {
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(.primary.opacity(isSelected ? 0.10 : 0))
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .help(destination.title)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     private var accountButton: some View {
