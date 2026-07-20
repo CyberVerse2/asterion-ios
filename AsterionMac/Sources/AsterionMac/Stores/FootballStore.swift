@@ -20,13 +20,18 @@ final class FootballStore: ObservableObject {
     @Published private(set) var error: String?
 
     private let api: any FootballCatalogServing
+    private let now: @Sendable () -> Date
     private var loadedSection: FootballSection?
     private var allMatches: [FootballMatch] = []
     private var query = ""
     private var requestID = UUID()
 
-    init(api: any FootballCatalogServing = FootballAPI.shared) {
+    init(
+        api: any FootballCatalogServing = FootballAPI.shared,
+        now: @escaping @Sendable () -> Date = Date.init
+    ) {
         self.api = api
+        self.now = now
     }
 
     var selectedMatch: FootballMatch? {
@@ -87,10 +92,14 @@ final class FootballStore: ObservableObject {
     }
 
     private func applySearch() {
+        let availableMatches = loadedSection == .schedule
+            ? allMatches.filter { $0.kickoff >= now() }
+            : allMatches
+
         if query.isEmpty {
-            matches = allMatches
+            matches = availableMatches
         } else {
-            matches = allMatches.filter {
+            matches = availableMatches.filter {
                 $0.displayTitle.localizedStandardContains(query)
                     || $0.category.localizedStandardContains(query)
             }

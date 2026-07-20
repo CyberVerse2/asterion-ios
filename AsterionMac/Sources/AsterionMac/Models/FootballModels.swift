@@ -32,7 +32,7 @@ enum FootballSection: String, CaseIterable, Codable, Hashable, Sendable {
     var catalogDescription: String {
         switch self {
         case .live: "Matches currently in play."
-        case .schedule: "Upcoming and recently started fixtures."
+        case .schedule: "Fixtures that have not started yet."
         case .popular: "The matches drawing the most attention."
         }
     }

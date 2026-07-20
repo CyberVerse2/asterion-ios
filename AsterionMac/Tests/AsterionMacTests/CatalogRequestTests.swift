@@ -184,6 +184,37 @@ struct CatalogRequestTests {
         #expect(store.matches.map(\.id) == [fixture.id])
     }
 
+    @Test @MainActor func animeScheduleExcludesPassedEntriesAndEmptyDays() async {
+        let passed = Self.animeScheduleEntry("passed", passed: true)
+        let upcoming = Self.animeScheduleEntry("upcoming", passed: false)
+        let service = AnimeCatalogStub(
+            pages: [:],
+            scheduleDays: [
+                AnimeScheduleDay(label: "Today", entries: [passed, upcoming]),
+                AnimeScheduleDay(label: "Yesterday", entries: [passed]),
+            ]
+        )
+        let store = AnimeStore(api: service)
+
+        await store.loadSchedule()
+
+        #expect(store.scheduleDays.map(\.label) == ["Today"])
+        #expect(store.scheduleDays.first?.entries.map(\.slug) == ["upcoming"])
+    }
+
+    @Test @MainActor func footballScheduleExcludesFixturesBeforeNow() async {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let past = Self.footballMatch("past", kickoff: now.addingTimeInterval(-1))
+        let startingNow = Self.footballMatch("now", kickoff: now)
+        let future = Self.footballMatch("future", kickoff: now.addingTimeInterval(1))
+        let service = FootballCatalogStub(responses: [[past, future, startingNow]])
+        let store = FootballStore(api: service, now: { now })
+
+        await store.load(section: .schedule)
+
+        #expect(store.matches.map(\.id) == [startingNow.id, future.id])
+    }
+
     private static func stubbedSession() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [CatalogURLProtocol.self]
@@ -219,6 +250,17 @@ struct CatalogRequestTests {
         )
     }
 
+    private static func animeScheduleEntry(_ id: String, passed: Bool) -> AnimeScheduleEntry {
+        AnimeScheduleEntry(
+            slug: id,
+            title: "Title \(id)",
+            japaneseTitle: nil,
+            time: "12:00",
+            episodeNumber: 1,
+            passed: passed
+        )
+    }
+
     private static func movieTitle(_ id: String) -> MovieTitle {
         MovieTitle(
             id: id,
@@ -233,12 +275,15 @@ struct CatalogRequestTests {
         )
     }
 
-    private static func footballMatch(_ id: String) -> FootballMatch {
+    private static func footballMatch(
+        _ id: String,
+        kickoff: Date = Date(timeIntervalSince1970: 1_784_330_000)
+    ) -> FootballMatch {
         FootballMatch(
             id: id,
             title: "Home vs Away",
             category: "football",
-            kickoff: Date(timeIntervalSince1970: 1_784_330_000),
+            kickoff: kickoff,
             poster: nil,
             posterURL: nil,
             popular: false,
@@ -310,11 +355,17 @@ private final class CatalogURLProtocol: URLProtocol, @unchecked Sendable {
 
 private actor AnimeCatalogStub: AnimeCatalogServing {
     let pages: [Int: [AnimeTitle]]
+    let scheduleDays: [AnimeScheduleDay]
     let suspendFirstRequest: Bool
     private(set) var latestCallCount = 0
 
-    init(pages: [Int: [AnimeTitle]], suspendFirstRequest: Bool = false) {
+    init(
+        pages: [Int: [AnimeTitle]],
+        scheduleDays: [AnimeScheduleDay] = [],
+        suspendFirstRequest: Bool = false
+    ) {
         self.pages = pages
+        self.scheduleDays = scheduleDays
         self.suspendFirstRequest = suspendFirstRequest
     }
 
@@ -332,7 +383,7 @@ private actor AnimeCatalogStub: AnimeCatalogServing {
     func fetchSeason(season: String, year: Int, page: Int) async throws -> [AnimeTitle] { pages[page] ?? [] }
     func fetchType(_ type: String, page: Int) async throws -> [AnimeTitle] { pages[page] ?? [] }
     func fetchStatus(_ status: String, page: Int) async throws -> [AnimeTitle] { pages[page] ?? [] }
-    func fetchSchedule(timeZoneHours: Double) async throws -> [AnimeScheduleDay] { [] }
+    func fetchSchedule(timeZoneHours: Double) async throws -> [AnimeScheduleDay] { scheduleDays }
     func fetchGenres() async throws -> [String] { [] }
     func search(query: String, page: Int) async throws -> [AnimeTitle] { pages[page] ?? [] }
 

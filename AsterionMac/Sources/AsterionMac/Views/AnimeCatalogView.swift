@@ -435,7 +435,7 @@ struct AnimeCatalogView: View {
                         HStack(spacing: 16) {
                             Text(entry.time)
                                 .font(.callout.monospacedDigit().weight(.semibold))
-                                .foregroundStyle(entry.passed ? Color.asterionMuted : Color.asterionAccent)
+                                .foregroundStyle(Color.asterionAccent)
                                 .frame(width: 58, alignment: .leading)
 
                             VStack(alignment: .leading, spacing: 2) {
@@ -478,7 +478,6 @@ struct AnimeCatalogView: View {
                                     lineWidth: 1
                                 )
                         }
-                        .opacity(entry.passed ? 0.72 : 1)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)

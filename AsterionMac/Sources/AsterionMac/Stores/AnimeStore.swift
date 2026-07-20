@@ -269,9 +269,14 @@ final class AnimeStore: ObservableObject {
 
         do {
             let seconds = TimeZone.current.secondsFromGMT()
-            scheduleDays = try await api.fetchSchedule(
+            let fetchedDays = try await api.fetchSchedule(
                 timeZoneHours: Double(seconds) / 3_600
             )
+            scheduleDays = fetchedDays.compactMap { day in
+                let upcomingEntries = day.entries.filter { !$0.passed }
+                guard !upcomingEntries.isEmpty else { return nil }
+                return AnimeScheduleDay(label: day.label, entries: upcomingEntries)
+            }
         } catch {
             scheduleDays = []
             scheduleError = error.localizedDescription
