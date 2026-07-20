@@ -159,30 +159,28 @@ def api_show(slug):
         # Fallback: search 2embed by title extracted from slug
         if not imdb_id or not imdb_id.startswith("tt"):
             clean = slug.replace("series/", "").replace("soap2day", "")
-            clean = re.sub(r'-[a-z0-9]{4,8}$', '', clean)  # strip random suffix
-            clean = clean.replace("-", " ").strip()
+            clean = re.sub(r'-[a-z0-9]{4,8}$', '', clean)
+            search_query = clean.replace("-", " ").strip()
             try:
                 import requests
                 from urllib.parse import quote_plus
                 resp = requests.get(
-                    f"https://api.2embed.cc/search?q={quote_plus(clean)}",
+                    f"https://api.2embed.cc/search?q={quote_plus(search_query)}",
                     headers={"User-Agent": "Mozilla/5.0"}, timeout=10,
                 )
                 results = resp.json()
                 if isinstance(results, dict):
                     results = results.get("results", [])
-                if results:
-                    imdb_id = results[0].get("imdb_id")
+                imdb_id = _pick_best_match(results, search_query, "title")
                 if not imdb_id:
                     resp2 = requests.get(
-                        f"https://api.2embed.cc/searchtv?q={quote_plus(clean)}",
+                        f"https://api.2embed.cc/searchtv?q={quote_plus(search_query)}",
                         headers={"User-Agent": "Mozilla/5.0"}, timeout=10,
                     )
                     tv_results = resp2.json()
                     if isinstance(tv_results, dict):
                         tv_results = tv_results.get("results", [])
-                    if tv_results:
-                        imdb_id = tv_results[0].get("imdb_id")
+                    imdb_id = _pick_best_match(tv_results, search_query, "name")
             except Exception:
                 pass
 
@@ -357,6 +355,27 @@ def _cached_or_scrape(key: str, fetcher):
     result = fetcher()
     db.cache_set(key, result, 30 * 24 * 3600)
     return result
+
+
+def _pick_best_match(results: list, query: str, title_key: str) -> Optional[str]:
+    """Pick the best IMDB ID from search results by title similarity."""
+    if not results:
+        return None
+    query_words = set(query.lower().split())
+    best_score = -1
+    best_id = None
+    for r in results:
+        title = (r.get(title_key) or "").lower()
+        title_words = set(title.split())
+        # Score: how many query words appear in the result title
+        score = len(query_words & title_words)
+        if score > best_score:
+            best_score = score
+            best_id = r.get("imdb_id")
+    # Require at least 50% of query words to match
+    if best_score >= len(query_words) * 0.5:
+        return best_id
+    return None
 
 
 def _fmt_rating(val) -> Optional[str]:
