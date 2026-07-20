@@ -184,12 +184,9 @@ private final class DirectMediaPlaybackController: ObservableObject {
     private var onEnded: (@MainActor @Sendable () -> Void)?
     private var onFailure: (@MainActor @Sendable (String) -> Void)?
     private var onLifecycleEvent: (@MainActor @Sendable (MediaPlaybackLifecycleEvent) -> Void)?
-    private var sourceLoadTimeoutTask: Task<Void, Never>?
-    private var playbackWatchdogTask: Task<Void, Never>?
     private var lastReportedPosition = -Double.infinity
     private var lastObservedPosition = -Double.infinity
     private var playbackIntentStartedAt: Date?
-    private var lastPlaybackAdvanceAt: Date?
     private var startingPosition = 0.0
     private var hasConfirmedPlayback = false
     private var hasEnteredPlayingState = false
@@ -237,9 +234,7 @@ private final class DirectMediaPlaybackController: ObservableObject {
         lastReportedPosition = -Double.infinity
         lastObservedPosition = player.currentTime().seconds
         playbackIntentStartedAt = nil
-        lastPlaybackAdvanceAt = nil
         onLifecycleEvent(.loading)
-        startSourceLoadTimeout()
         if initialPosition > 0, player.currentTime().seconds < 1 {
             player.seek(
                 to: CMTime(seconds: initialPosition, preferredTimescale: 600),
@@ -274,8 +269,6 @@ private final class DirectMediaPlaybackController: ObservableObject {
             self.periodicObserver = nil
         }
         player.pause()
-        stopSourceLoadTimeout()
-        stopPlaybackWatchdog()
         wasNativePlaybackActive = false
         sleepController.stopAll()
         activeCaption = nil
@@ -317,7 +310,6 @@ private final class DirectMediaPlaybackController: ObservableObject {
                     guard let self else { return }
                     switch item.status {
                     case .readyToPlay:
-                        self.stopSourceLoadTimeout()
                         self.onLifecycleEvent?(.ready)
                     case .failed:
                         self.reportFailure(
@@ -342,7 +334,6 @@ private final class DirectMediaPlaybackController: ObservableObject {
                 Task { @MainActor [weak self] in
                     guard let self else { return }
                     self.wasNativePlaybackActive = false
-                    self.stopPlaybackWatchdog()
                     self.sleepController.setPlaying(false, sourceID: "native-player")
                     self.report(
                         time: self.player.currentTime(),
@@ -395,9 +386,7 @@ private final class DirectMediaPlaybackController: ObservableObject {
     private func reportFailure(_ message: String) {
         guard !hasReportedFailure else { return }
         hasReportedFailure = true
-        stopSourceLoadTimeout()
         isLifecyclePlaying = false
-        stopPlaybackWatchdog()
         if hasConfirmedPlayback {
             report(time: player.currentTime(), force: true)
         }
@@ -417,9 +406,7 @@ private final class DirectMediaPlaybackController: ObservableObject {
                   playbackIntentStartedAt != nil,
                   !hasSentPlaybackEnd {
             playbackIntentStartedAt = nil
-            lastPlaybackAdvanceAt = nil
             isLifecyclePlaying = false
-            stopPlaybackWatchdog()
             onLifecycleEvent?(.paused)
         }
 
@@ -478,12 +465,9 @@ private final class DirectMediaPlaybackController: ObservableObject {
 
     private func beginPlaybackIntentIfNeeded() {
         guard playbackIntentStartedAt == nil else { return }
-        let now = Date()
-        playbackIntentStartedAt = now
-        lastPlaybackAdvanceAt = now
+        playbackIntentStartedAt = Date()
         lastObservedPosition = player.currentTime().seconds
         onLifecycleEvent?(.playRequested)
-        startPlaybackWatchdog()
     }
 
     private func observePlaybackAdvance(position: Double) {
@@ -491,65 +475,12 @@ private final class DirectMediaPlaybackController: ObservableObject {
         guard playbackIntentStartedAt != nil,
               !hasReportedFailure,
               position > lastObservedPosition + 0.05 else { return }
-        lastPlaybackAdvanceAt = Date()
         if !isLifecyclePlaying {
             isLifecyclePlaying = true
             onLifecycleEvent?(.playing)
         }
     }
 
-    private func startPlaybackWatchdog() {
-        playbackWatchdogTask?.cancel()
-        playbackWatchdogTask = Task { @MainActor [weak self] in
-            while !Task.isCancelled {
-                do {
-                    try await Task.sleep(for: .seconds(1))
-                } catch {
-                    return
-                }
-                guard let self,
-                      !self.hasReportedFailure,
-                      let intentStartedAt = self.playbackIntentStartedAt,
-                      self.player.timeControlStatus != .paused else { continue }
-                let now = Date()
-                if !self.hasConfirmedPlayback,
-                   now.timeIntervalSince(intentStartedAt) >= 10 {
-                    self.reportFailure("Playback did not start within 10 seconds.")
-                    return
-                }
-                if self.hasConfirmedPlayback,
-                   let lastAdvance = self.lastPlaybackAdvanceAt,
-                   now.timeIntervalSince(lastAdvance) >= 8 {
-                    self.reportFailure("Playback stopped advancing for 8 seconds.")
-                    return
-                }
-            }
-        }
-    }
-
-    private func stopPlaybackWatchdog() {
-        playbackWatchdogTask?.cancel()
-        playbackWatchdogTask = nil
-    }
-
-    private func startSourceLoadTimeout() {
-        sourceLoadTimeoutTask?.cancel()
-        sourceLoadTimeoutTask = Task { @MainActor [weak self] in
-            do {
-                try await Task.sleep(for: .seconds(5))
-            } catch {
-                return
-            }
-            guard let self,
-                  self.player.currentItem?.status == .unknown else { return }
-            self.reportFailure("The video source did not become ready within 5 seconds.")
-        }
-    }
-
-    private func stopSourceLoadTimeout() {
-        sourceLoadTimeoutTask?.cancel()
-        sourceLoadTimeoutTask = nil
-    }
 }
 
 private struct CaptionedMediaPlayer: View {
