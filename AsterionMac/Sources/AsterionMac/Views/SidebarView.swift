@@ -84,6 +84,7 @@ struct SidebarView: View {
                 TextField(searchPrompt, text: $searchText)
                     .textFieldStyle(.plain)
                     .focused($searchIsFocused)
+                    .focusEffectDisabled()
 
                 if !searchText.isEmpty {
                     Button {
@@ -101,12 +102,12 @@ struct SidebarView: View {
             .frame(height: 34)
             .background {
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(.primary.opacity(searchIsFocused ? 0.10 : 0.06))
+                    .fill(.primary.opacity(0.06))
             }
             .overlay {
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
                     .stroke(
-                        searchIsFocused ? Color.asterionAccent.opacity(0.72) : .white.opacity(0.08),
+                        searchIsFocused ? Color.asterionAccent.opacity(0.38) : .white.opacity(0.08),
                         lineWidth: 1
                     )
             }
