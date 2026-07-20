@@ -97,7 +97,7 @@ struct ContentView: View {
         .focusedSceneValue(\.asterionMovieSection, movieSection)
         .focusedSceneValue(\.asterionFootballSection, footballSection)
         .tint(.asterionAccent)
-        .frame(minWidth: 1_040, minHeight: 640)
+        .frame(minWidth: 1_200, minHeight: 700)
         .onAppear {
             if destination.wrappedValue == .novels, selectedNovelID.isEmpty {
                 selectFirstNovel(in: section.wrappedValue)
@@ -145,9 +145,9 @@ struct ContentView: View {
                 GeometryReader { geometry in
                     let dividerWidth = 1.0
                     let availableWidth = max(0, geometry.size.width - dividerWidth)
-                    let minimumCatalogWidth = 480.0
+                    let minimumCatalogWidth = 540.0
                     let detailWidth = min(
-                        max(300, availableWidth * 0.30),
+                        max(380, availableWidth * 0.36),
                         max(0, availableWidth - minimumCatalogWidth)
                     )
 
