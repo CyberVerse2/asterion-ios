@@ -1052,6 +1052,15 @@ private struct RestrictedMediaWebView: NSViewRepresentable {
                 Task { @MainActor in onEnded() }
                 return
             }
+            if type == "pageReady",
+               let pageURLString = payload["url"] as? String,
+               let pageURL = URL(string: pageURLString),
+               let isTopLevel = payload["isTopLevel"] as? Bool,
+               pageURL.host?.lowercased() == initialURL.host?.lowercased(),
+               !awaitsRemoteFrameResponse || !isTopLevel {
+                markResponsive()
+                return
+            }
             if type == "ready" {
                 markResponsive()
                 return
@@ -1161,6 +1170,13 @@ enum EmbeddedMediaProgressScript {
               window.webkit.messageHandlers.asterionEmbeddedPlayback.postMessage(payload);
             } catch (_) {}
           };
+
+          post({
+            type: 'pageReady',
+            sourceID,
+            url: globalThis.location.href,
+            isTopLevel: globalThis.top === globalThis
+          });
 
           const stateFor = player => {
             let state = playerState.get(player);
