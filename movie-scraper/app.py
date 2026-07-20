@@ -8,12 +8,13 @@ import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import wraps
 from typing import Optional
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlparse
 
 import flask
-import requests as req_lib
+import requests
 
 import db
+import playback
 import soap2day as scraper
 
 from psycopg2.extras import RealDictCursor
@@ -236,6 +237,45 @@ def api_show_episodes(slug):
     return [e.__dict__ for e in eps]
 
 
+@app.route("/api/playback/<path:slug>")
+def api_playback(slug):
+    """Resolve and verify fresh direct sources; retain embeds for manual use."""
+    try:
+        detail = scraper.show_detail(slug)
+        if not detail or not detail.streams:
+            return flask.jsonify({"error": "No playback sources were found."}), 404
+
+        sources = _stream_list_for_api(detail.streams)
+        direct_sources = [source for source in sources if source["is_hls"]]
+        manual_sources = [source for source in sources if not source["is_hls"]]
+
+        verified_by_index: dict[int, dict] = {}
+        worker_count = min(8, max(1, len(direct_sources)))
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            pending = {
+                executor.submit(playback.verify_direct_source, source): index
+                for index, source in enumerate(direct_sources)
+            }
+            for future in as_completed(pending):
+                verified = future.result()
+                if verified:
+                    verified_by_index[pending[future]] = verified
+
+        verified_sources = [
+            verified_by_index[index]
+            for index in range(len(direct_sources))
+            if index in verified_by_index
+        ]
+        return flask.jsonify({
+            "slug": slug,
+            "sources": verified_sources + manual_sources,
+            "verified_direct_count": len(verified_sources),
+        })
+    except Exception:
+        app.logger.exception("Playback source resolution failed")
+        return flask.jsonify({"error": "Playback sources could not be verified."}), 502
+
+
 @app.route("/api/genres")
 @_json_or_error
 def api_genres():
@@ -244,36 +284,35 @@ def api_genres():
 
 @app.route("/proxy/hls")
 def proxy_hls():
-    """Proxy HLS playlist and TS segments to bypass CORS."""
+    """Proxy verified media while preserving playlists and byte ranges."""
     target = flask.request.args.get("url", "")
-    if not target or not target.startswith("https://"):
+    if not target:
         return "Invalid URL", 400
 
     try:
-        resp = req_lib.get(target, headers={
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-            "Accept": "*/*",
-            "Origin": "https://play.xpass.top",
-            "Referer": "https://play.xpass.top/",
-        }, stream=True, timeout=30)
-    except Exception as e:
+        resp = playback.fetch_upstream(
+            target,
+            range_header=flask.request.headers.get("Range"),
+        )
+    except ValueError:
+        return "Invalid URL", 400
+    except requests.RequestException as error:
         app.logger.exception("HLS proxy fetch failed")
-        return f"Upstream error: {e}", 502
+        return f"Upstream error: {error}", 502
 
     content_type = resp.headers.get("Content-Type", "application/octet-stream")
-    is_m3u8 = ".m3u8" in target or "mpegurl" in content_type or "x-mpegURL" in content_type
+    is_m3u8 = playback.is_playlist_response(resp.url, content_type)
 
     if is_m3u8:
-        body = resp.text
-        base = target.rsplit("/", 1)[0]
-        proxy_base = "https://asterion-movies.cyberverse.cloud/proxy/hls?url="
-        body = re.sub(
-            r'^([^#\s][^\s]*\.(?:m3u8|ts|aac|mp4))',
-            lambda m: proxy_base + urljoin(base + "/", m.group(1)),
-            body, flags=re.MULTILINE,
-        )
-        rv = flask.Response(body, content_type=content_type)
+        try:
+            data = playback.read_limited(resp, playback.PLAYLIST_CONTENT_LIMIT)
+            body = data.decode(resp.encoding or "utf-8", errors="replace")
+            rewritten = playback.rewrite_playlist(body, resp.url)
+        finally:
+            resp.close()
+        rv = flask.Response(rewritten, status=resp.status_code, content_type=content_type)
         rv.headers["Access-Control-Allow-Origin"] = "*"
+        rv.headers["Cache-Control"] = "no-store"
         return rv
 
     def generate():
@@ -284,9 +323,16 @@ def proxy_hls():
         finally:
             resp.close()
 
-    rv = flask.Response(flask.stream_with_context(generate()), content_type=content_type)
+    rv = flask.Response(
+        flask.stream_with_context(generate()),
+        status=resp.status_code,
+        content_type=content_type,
+    )
     rv.headers["Access-Control-Allow-Origin"] = "*"
     rv.headers["Cache-Control"] = "public, max-age=3600"
+    for header in ("Accept-Ranges", "Content-Range", "Content-Length"):
+        if value := resp.headers.get(header):
+            rv.headers[header] = value
     return rv
 
 
@@ -389,21 +435,15 @@ def _stream_list_for_api(streams) -> list[dict]:
             continue
         seen.add(norm)
 
-        is_hls = (
-            ".m3u8" in url or "1x2.space" in url or "greenplanetstore" in url
-            or "workers.dev" in url or url.endswith(".txt")
-        )
+        is_hls = bool(d.get("is_hls")) or playback.is_direct_stream(url)
         d["is_hls"] = is_hls
+        d["is_verified"] = False
+        d["automatic"] = False
         if is_hls:
-            d["proxy_url"] = f"https://asterion-movies.cyberverse.cloud/proxy/hls?url={url}"
+            d["proxy_url"] = playback.proxy_url(url)
         result.append(d)
 
-    # Sort: 2embed first, then HLS, then rest
-    result.sort(key=lambda s: (
-        0 if "2embed.cc" in s.get("embed_url", "") else
-        1 if s.get("is_hls") else
-        2
-    ))
+    result.sort(key=lambda source: 0 if source["is_hls"] else 1)
     return result
 
 

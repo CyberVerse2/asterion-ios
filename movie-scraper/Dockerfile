@@ -12,7 +12,7 @@ RUN groupadd --system asterion \
 COPY requirements.txt ./
 RUN pip install --no-cache-dir --requirement requirements.txt
 
-COPY app.py soap2day.py db.py schema.sql ./
+COPY app.py playback.py soap2day.py db.py schema.sql ./
 
 USER asterion
 
