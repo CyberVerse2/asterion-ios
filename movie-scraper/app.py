@@ -158,7 +158,7 @@ def api_show(slug):
         # Fallback: search 2embed by title extracted from slug
         if not imdb_id or not imdb_id.startswith("tt"):
             clean = slug.replace("series/", "").replace("soap2day", "")
-            clean = _re.sub(r'-[a-z0-9]{4,8}$', '', clean)  # strip random suffix
+            clean = re.sub(r'-[a-z0-9]{4,8}$', '', clean)  # strip random suffix
             clean = clean.replace("-", " ").strip()
             try:
                 import requests
@@ -215,8 +215,8 @@ def api_show(slug):
     # Build result
     media_type = "tv" if "series/" in slug else "movie"
     # Clean slug: strip series/ prefix, remove soap2day, remove random suffix like -adpkc
-    base = _re.sub(r'^series/', '', slug)
-    base = _re.sub(r'-[a-z0-9]{4,8}$', '', base)
+    base = re.sub(r'^series/', '', slug)
+    base = re.sub(r'-[a-z0-9]{4,8}$', '', base)
     base = base.replace("-", " ").title().replace("Soap2Day", "").strip()
     title = base
 
@@ -247,10 +247,9 @@ def api_show(slug):
         "streams": _stream_list_for_api(streams),
     }
 
-    # Strip "soap2day" from generated title
-    import re as _re
-    result["title"] = _re.sub(r'\s*[-–]\s*soap2day\s*$', '', result["title"], flags=_re.IGNORECASE)
-    result["title"] = _re.sub(r'\s*soap2day\s*$', '', result["title"], flags=_re.IGNORECASE)
+    # Strip "soap2day" from title
+    result["title"] = re.sub(r'\s*[-–]\s*soap2day\s*$', '', result["title"], flags=re.IGNORECASE)
+    result["title"] = re.sub(r'\s*soap2day\s*$', '', result["title"], flags=re.IGNORECASE)
     result["title"] = result["title"].strip()
 
     return result
