@@ -2,7 +2,6 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject private var model: AppModel
-    @EnvironmentObject private var mediaDownloads: MediaDownloadManager
 
     @SceneStorage("selectedDestination") private var selectedDestinationRaw = AppDestination.home.rawValue
     @SceneStorage("selectedSection") private var selectedSectionRaw = AppSection.discover.rawValue
@@ -78,10 +77,6 @@ struct ContentView: View {
         model.novel(id: selectedNovelID)
     }
 
-    private var activeDownloadCount: Int {
-        model.offlineDownloads.count(where: \.isDownloading) + mediaDownloads.activeCount
-    }
-
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarView(selection: destination)
@@ -96,6 +91,8 @@ struct ContentView: View {
             isEnabled: searchIsEnabled
         )
         .toolbar { navigationToolbar }
+        .toolbar(removing: .title)
+        .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         .focusedSceneValue(\.asterionDestination, destination)
         .focusedSceneValue(\.asterionSection, section)
         .focusedSceneValue(\.asterionAnimeSection, animeSection)
@@ -386,12 +383,6 @@ struct ContentView: View {
 
     @ToolbarContentBuilder
     private var navigationToolbar: some ToolbarContent {
-        ToolbarItem(placement: .principal) {
-            Text(destination.wrappedValue.title)
-                .font(.headline)
-        }
-        .sharedBackgroundVisibility(.hidden)
-
         if showsRefreshAction {
             ToolbarItem(placement: .primaryAction) {
                 Button {
@@ -404,23 +395,6 @@ struct ContentView: View {
         }
 
         ToolbarSpacer(.fixed)
-
-        if destination.wrappedValue != .downloads {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    destination.wrappedValue = .downloads
-                } label: {
-                    Label(
-                        "Downloads",
-                        systemImage: activeDownloadCount > 0
-                            ? "arrow.down.circle.fill"
-                            : "arrow.down.circle"
-                    )
-                }
-                .badge(activeDownloadCount)
-                .help("Downloads")
-            }
-        }
 
         if destination.wrappedValue != .account {
             ToolbarItem(placement: .primaryAction) {
