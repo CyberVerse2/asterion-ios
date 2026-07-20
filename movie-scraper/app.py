@@ -156,15 +156,15 @@ def api_show(slug):
         except Exception:
             pass
 
-        # Fallback: 2embed search using real page title from soap2day
+        # Fallback: 2embed search using real page title + year from soap2day
         if not imdb_id or not imdb_id.startswith("tt"):
             search_query = ""
+            search_year = None
             try:
                 html = scraper._get(f"{scraper.BASE}/{slug}/")
                 real_imdb = scraper._extract_imdb_id(html)
                 if real_imdb:
                     imdb_id = real_imdb
-                # Also extract real page title for search fallback
                 m = re.search(r'<h1[^>]*>([^<]+)', html)
                 if not m:
                     m = re.search(r'<title>([^<]+)', html)
@@ -172,6 +172,10 @@ def api_show(slug):
                     title_raw = m.group(1).strip()
                     title_raw = re.sub(r'\s*(?:soap2day|uk|au|watch free online|hd).*$', '', title_raw, flags=re.I).strip()
                     search_query = title_raw
+                # Extract year from page
+                ym = re.search(r'href=\"[^\"]*release-year/(\d{4})/', html)
+                if ym:
+                    search_year = ym.group(1)
             except Exception:
                 pass
             try:
@@ -184,7 +188,7 @@ def api_show(slug):
                 results = resp.json()
                 if isinstance(results, dict):
                     results = results.get("results", [])
-                imdb_id = _pick_best_match(results, search_query, "title")
+                imdb_id = _pick_best_match(results, search_query, "title", search_year)
                 if not imdb_id:
                     resp2 = requests.get(
                         f"https://api.2embed.cc/searchtv?q={quote_plus(search_query)}",
@@ -193,7 +197,7 @@ def api_show(slug):
                     tv_results = resp2.json()
                     if isinstance(tv_results, dict):
                         tv_results = tv_results.get("results", [])
-                    imdb_id = _pick_best_match(tv_results, search_query, "name")
+                    imdb_id = _pick_best_match(tv_results, search_query, "name", search_year)
             except Exception:
                 pass
 
@@ -370,8 +374,8 @@ def _cached_or_scrape(key: str, fetcher):
     return result
 
 
-def _pick_best_match(results: list, query: str, title_key: str) -> Optional[str]:
-    """Pick the best IMDB ID from search results by title similarity."""
+def _pick_best_match(results: list, query: str, title_key: str, year: str = None) -> Optional[str]:
+    """Pick the best IMDB ID from search results by title similarity + year match."""
     if not results:
         return None
     query_words = set(query.lower().split())
@@ -380,12 +384,15 @@ def _pick_best_match(results: list, query: str, title_key: str) -> Optional[str]
     for r in results:
         title = (r.get(title_key) or "").lower()
         title_words = set(title.split())
-        # Score: how many query words appear in the result title
         score = len(query_words & title_words)
+        # Bonus for year match
+        if year:
+            result_year = str(r.get("year") or r.get("first_air_year") or "")
+            if result_year == year or (year in result_year):
+                score += 2
         if score > best_score:
             best_score = score
             best_id = r.get("imdb_id")
-    # Require at least 50% of query words to match
     if best_score >= len(query_words) * 0.5:
         return best_id
     return None
