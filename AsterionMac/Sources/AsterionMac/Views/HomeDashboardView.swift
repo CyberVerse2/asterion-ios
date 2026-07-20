@@ -27,8 +27,13 @@ struct HomeDashboardView: View {
         return (reading + watching).sorted { $0.updatedAt > $1.updatedAt }
     }
 
-    private var liveMatches: [FootballMatch] {
-        footballStore.matches.filter(\.isLive)
+    private var footballMatches: [FootballMatch] {
+        footballStore.matches
+            .filter { $0.isLive || $0.kickoff >= .now }
+            .sorted {
+                if $0.isLive != $1.isLive { return $0.isLive }
+                return $0.kickoff < $1.kickoff
+            }
     }
 
     private var freshItems: [HomeCatalogItem] {
@@ -78,8 +83,8 @@ struct HomeDashboardView: View {
                     continueShelf
                 }
 
-                if !liveMatches.isEmpty {
-                    liveShelf
+                if !footballMatches.isEmpty {
+                    footballShelf
                 }
 
                 if !animeStore.seasonalTitles.isEmpty {
@@ -113,7 +118,7 @@ struct HomeDashboardView: View {
             let item = items[safeIndex]
             AsterionFeatureCard(
                 imageURL: item.imageURL,
-                fallbackSystemImage: "sparkles.rectangle.stack.fill",
+                fallbackSystemImage: item.systemImage,
                 eyebrow: "FEATURED ACROSS ASTERION",
                 title: item.title,
                 summary: item.featureSummary,
@@ -121,7 +126,7 @@ struct HomeDashboardView: View {
                 next: { moveFeatured(by: 1, items: items, selectedIndex: safeIndex) }
             ) {
                 HStack(spacing: 14) {
-                    Label(item.badge.capitalized, systemImage: "sparkles")
+                    Label(item.badge.capitalized, systemImage: item.systemImage)
                     Text(item.subtitle)
                 }
                 .font(.caption.weight(.medium))
@@ -129,7 +134,7 @@ struct HomeDashboardView: View {
                 .lineLimit(1)
             } actions: {
                 Button { select(item) } label: {
-                    Label("Open", systemImage: "arrow.right.circle.fill")
+                    Label("Open", systemImage: "arrow.right")
                         .font(.headline)
                         .frame(width: 132)
                 }
@@ -161,10 +166,10 @@ struct HomeDashboardView: View {
         }
     }
 
-    private var liveShelf: some View {
-        HomeSection(title: "Live now") {
+    private var footballShelf: some View {
+        HomeSection(title: "Football", subtitle: "Live and upcoming matches.") {
             HomeHorizontalShelf(
-                items: liveMatches,
+                items: Array(footballMatches.prefix(12)),
                 itemWidth: 330,
                 spacing: 14,
                 height: 180,
@@ -284,7 +289,7 @@ struct HomeDashboardView: View {
                 query: "",
                 selectsInitialTitle: false
             )
-            async let football: Void = footballStore.load(section: .live)
+            async let football: Void = footballStore.load(section: .popular)
             _ = await (anime, season, releases, movies, football)
             return
         }
