@@ -254,10 +254,6 @@ def proxy_hls():
         app.logger.exception("HLS proxy fetch failed")
         return f"Upstream error: {e}", 502
 
-    if resp.status_code != 200:
-        app.logger.warning("HLS proxy upstream returned %d for %s", resp.status_code, target[:100])
-        return f"Upstream returned {resp.status_code}", resp.status_code
-
     content_type = resp.headers.get("Content-Type", "application/octet-stream")
     is_m3u8 = ".m3u8" in target or "mpegurl" in content_type or "x-mpegURL" in content_type
 
