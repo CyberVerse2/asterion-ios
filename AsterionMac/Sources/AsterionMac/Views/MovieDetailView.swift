@@ -90,10 +90,10 @@ struct MovieDetailView: View {
                     }
                 }
             }
-            .frame(maxWidth: 640, alignment: .leading)
-            .padding(.horizontal, 30)
-            .padding(.top, 28)
-            .padding(.bottom, 44)
+            .frame(maxWidth: 980, alignment: .leading)
+            .padding(.horizontal, 48)
+            .padding(.top, 24)
+            .padding(.bottom, 64)
             .frame(maxWidth: .infinity, alignment: .top)
         }
         .hidingScrollIndicators()

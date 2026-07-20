@@ -15,8 +15,8 @@ struct AsterionDetailHero: View {
     let metadata: [AsterionDetailMetadata]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            ZStack(alignment: .bottomLeading) {
+        VStack(alignment: .leading, spacing: 16) {
+            ZStack(alignment: .topLeading) {
                 AsyncImage(url: imageURL) { phase in
                     if case .success(let image) = phase {
                         image.resizable().scaledToFill()
@@ -25,11 +25,11 @@ struct AsterionDetailHero: View {
                     }
                 }
                 .frame(maxWidth: .infinity)
-                .frame(height: 218)
+                .frame(height: 260)
                 .clipped()
 
                 LinearGradient(
-                    colors: [.black.opacity(0.04), .black.opacity(0.18), .black.opacity(0.94)],
+                    colors: [.black.opacity(0.04), .black.opacity(0.34)],
                     startPoint: .top,
                     endPoint: .bottom
                 )
@@ -41,25 +41,7 @@ struct AsterionDetailHero: View {
                     .padding(.horizontal, 8)
                     .padding(.vertical, 5)
                     .background(.ultraThinMaterial, in: Capsule())
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     .padding(14)
-
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(title)
-                        .font(.asterionDisplay(25, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .lineLimit(3)
-                        .minimumScaleFactor(0.78)
-                        .textSelection(.enabled)
-
-                    if let subtitle, !subtitle.isEmpty {
-                        Text(subtitle)
-                            .font(.callout.weight(.medium))
-                            .foregroundStyle(.white.opacity(0.78))
-                            .lineLimit(2)
-                    }
-                }
-                .padding(16)
             }
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay {
@@ -67,18 +49,36 @@ struct AsterionDetailHero: View {
                     .stroke(.white.opacity(0.12))
             }
 
-            VStack(alignment: .leading, spacing: 8) {
-                ForEach(metadata) { item in
-                    Label {
-                        Text(item.value).lineLimit(2)
-                    } icon: {
-                        Image(systemName: item.icon).frame(width: 18)
-                    }
-                    .font(.callout)
-                    .foregroundStyle(Color.asterionMuted)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title)
+                    .font(.system(size: 28, weight: .semibold))
+                    .foregroundStyle(Color.asterionText)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.82)
+                    .textSelection(.enabled)
+
+                if let subtitle, !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.callout.weight(.medium))
+                        .foregroundStyle(Color.asterionMuted)
+                        .lineLimit(2)
                 }
             }
-            .padding(.horizontal, 2)
+
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 16) { metadataItems }
+                VStack(alignment: .leading, spacing: 8) { metadataItems }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var metadataItems: some View {
+        ForEach(metadata) { item in
+            Label(item.value, systemImage: item.icon)
+                .font(.callout)
+                .foregroundStyle(Color.asterionMuted)
+                .lineLimit(1)
         }
     }
 }

@@ -2,6 +2,6 @@ import SwiftUI
 
 extension View {
     func hidingScrollIndicators() -> some View {
-        scrollIndicators(.hidden)
+        scrollIndicators(.never, axes: [.horizontal, .vertical])
     }
 }
