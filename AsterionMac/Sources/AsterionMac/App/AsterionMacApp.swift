@@ -7,9 +7,42 @@ final class AsterionAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         DispatchQueue.main.async {
-            NSApp.activate(ignoringOtherApps: true)
-            NSApp.windows.first?.makeKeyAndOrderFront(nil)
+            self.presentMainWindow(in: NSApp)
         }
+    }
+
+    func applicationShouldHandleReopen(
+        _ sender: NSApplication,
+        hasVisibleWindows flag: Bool
+    ) -> Bool {
+        guard !flag else { return true }
+
+        DispatchQueue.main.async {
+            self.presentMainWindow(in: sender)
+        }
+        return true
+    }
+
+    private func presentMainWindow(in application: NSApplication) {
+        application.activate(ignoringOtherApps: true)
+
+        if let window = application.windows.first(where: { $0.canBecomeMain }) {
+            window.makeKeyAndOrderFront(nil)
+            return
+        }
+
+        guard let newWindowItem = application.mainMenu?
+            .items
+            .compactMap(\.submenu)
+            .flatMap(\.items)
+            .first(where: {
+                $0.keyEquivalent.lowercased() == "n"
+                    && $0.keyEquivalentModifierMask.contains(.command)
+            }), let action = newWindowItem.action else {
+            preconditionFailure("Asterion's native New Window command is unavailable")
+        }
+
+        application.sendAction(action, to: newWindowItem.target, from: newWindowItem)
     }
 }
 
