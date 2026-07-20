@@ -430,52 +430,85 @@ struct MovieDetailView: View {
             if episodesForSelectedSeason.isEmpty {
                 ContentUnavailableView("No episodes", systemImage: "film.stack")
             } else {
-                LazyVStack(spacing: 0) {
-                    ForEach(episodesForSelectedSeason) { episode in
-                        let progress = episodeProgress(for: episode, in: show)
-
-                        HStack(spacing: 10) {
-                            Button {
-                                openPlayer(show: show, episode: episode)
-                            } label: {
-                                HStack(spacing: 14) {
-                                    Text(String(episode.number))
-                                        .font(.caption.monospacedDigit())
-                                        .foregroundStyle(Color.asterionMuted)
-                                        .frame(width: 30, alignment: .trailing)
-                                    Text(episode.title)
-                                        .font(.system(size: 14, weight: .medium))
-                                        .foregroundStyle(Color.asterionText)
-                                        .lineLimit(1)
-                                    Spacer()
-                                    episodeProgressAccessory(progress)
-                                }
-                                .padding(.vertical, 11)
-                                .padding(.horizontal, 8)
-                                .background(
-                                    progress?.isCurrent == true
-                                        ? Color.asterionAccent.opacity(0.08)
-                                        : .clear,
-                                    in: RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                )
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .help(episodeProgressHelp(progress, episode: episode))
-
-                            movieDownloadButton(show: show, episode: episode)
+                ScrollView(.horizontal) {
+                    LazyHStack(spacing: 15) {
+                        ForEach(episodesForSelectedSeason) { episode in
+                            movieEpisodeCard(show: show, episode: episode)
                         }
-                        Divider()
                     }
+                    .padding(.vertical, 2)
+                    .scrollTargetLayout()
                 }
-                .padding(.horizontal, 14)
-                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(.white.opacity(0.08))
-                }
+                .hidingScrollIndicators()
+                .scrollTargetBehavior(.viewAligned)
             }
         }
+    }
+
+    private func movieEpisodeCard(show: MovieShow, episode: MovieEpisode) -> some View {
+        let progress = episodeProgress(for: episode, in: show)
+
+        return VStack(alignment: .leading, spacing: 0) {
+            Button {
+                openPlayer(show: show, episode: episode)
+            } label: {
+                ZStack(alignment: .topLeading) {
+                    AsyncImage(url: show.imageURL) { phase in
+                        if case .success(let image) = phase {
+                            image
+                                .resizable()
+                                .scaledToFill()
+                                .scaleEffect(1.08 + CGFloat(episode.number % 3) * 0.05)
+                                .offset(x: CGFloat((episode.number % 3) - 1) * 10)
+                        } else {
+                            Color.asterionCard
+                        }
+                    }
+                    .frame(width: 246, height: 138)
+                    .clipped()
+
+                    Text(String(episode.number))
+                        .font(.caption.monospacedDigit().weight(.semibold))
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 6)
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                        .padding(10)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(episodeProgressHelp(progress, episode: episode))
+
+            HStack(spacing: 9) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(episode.title.isEmpty ? "Episode \(episode.number)" : episode.title)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Color.asterionText)
+                        .lineLimit(1)
+                    Text(movieEpisodeStatus(progress))
+                        .font(.caption)
+                        .foregroundStyle(Color.asterionMuted)
+                }
+
+                Spacer(minLength: 4)
+                movieDownloadButton(show: show, episode: episode)
+            }
+            .padding(11)
+        }
+        .frame(width: 246)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(.white.opacity(0.09))
+        }
+    }
+
+    private func movieEpisodeStatus(_ progress: MovieEpisodeProgress?) -> String {
+        guard let progress else { return "Available to watch" }
+        if progress.isCompleted { return "Watched" }
+        if progress.isCurrent { return "Continue · \(Int(progress.percentage.rounded()))%" }
+        return "\(Int(progress.percentage.rounded()))% watched"
     }
 
     private func movieDownloadButton(
@@ -753,43 +786,6 @@ struct MovieDetailView: View {
             isCompleted: history.completed,
             isCurrent: false
         )
-    }
-
-    @ViewBuilder
-    private func episodeProgressAccessory(_ progress: MovieEpisodeProgress?) -> some View {
-        if let progress {
-            if progress.isCompleted {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.callout)
-                    .foregroundStyle(Color.asterionText.opacity(0.72))
-                    .accessibilityLabel("Watched")
-            } else {
-                VStack(alignment: .trailing, spacing: 4) {
-                    HStack(spacing: 4) {
-                        if progress.isCurrent {
-                            Image(systemName: "play.fill")
-                                .font(.system(size: 8, weight: .bold))
-                        }
-                        Text("\(Int(progress.percentage.rounded()))%")
-                            .font(.caption2.monospacedDigit().weight(.semibold))
-                    }
-                    .foregroundStyle(
-                        progress.isCurrent ? Color.asterionText : Color.asterionMuted
-                    )
-
-                    ProgressView(value: progress.percentage, total: 100)
-                        .progressViewStyle(.linear)
-                        .tint(progress.isCurrent ? Color.asterionText : Color.asterionMuted)
-                        .frame(width: 72)
-                }
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("\(Int(progress.percentage.rounded())) percent watched")
-            }
-        } else {
-            Image(systemName: "arrow.up.right.square")
-                .font(.caption)
-                .foregroundStyle(Color.asterionMuted)
-        }
     }
 
     private func episodeProgressHelp(
