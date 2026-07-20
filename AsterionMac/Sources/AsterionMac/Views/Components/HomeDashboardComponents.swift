@@ -78,6 +78,7 @@ enum HomeResumeItem: Identifiable {
         case .watching(let progress): progress.updatedAt
         }
     }
+
 }
 
 enum HomeCatalogItem: Identifiable {
@@ -132,6 +133,18 @@ enum HomeCatalogItem: Identifiable {
         case .novel(let novel): novel.imageURL.flatMap(URL.init(string:))
         case .anime(let title): title.imageURL
         case .movie(let title): title.imageURL
+        }
+    }
+
+    var featureSummary: String {
+        switch self {
+        case .novel(let novel):
+            let summary = novel.summary?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+            return summary.flatMap { $0.isEmpty ? nil : $0 } ?? "A featured story from Asterion."
+        case .anime:
+            return "Discover a featured anime from Asterion's latest catalog."
+        case .movie(let title):
+            return "Explore \(title.displayTitle), featured from Asterion's movie and TV catalog."
         }
     }
 }
@@ -270,6 +283,164 @@ struct HomePosterCard: View {
             subtitle: item.subtitle,
             action: action
         )
+    }
+}
+
+struct AsterionFeatureCard<Metadata: View, Actions: View>: View {
+    let imageURL: URL?
+    let fallbackSystemImage: String
+    let eyebrow: String
+    let title: String
+    let summary: String
+    let previous: (() -> Void)?
+    let next: (() -> Void)?
+    @ViewBuilder let metadata: () -> Metadata
+    @ViewBuilder let actions: () -> Actions
+
+    init(
+        imageURL: URL?,
+        fallbackSystemImage: String,
+        eyebrow: String,
+        title: String,
+        summary: String,
+        previous: (() -> Void)? = nil,
+        next: (() -> Void)? = nil,
+        @ViewBuilder metadata: @escaping () -> Metadata,
+        @ViewBuilder actions: @escaping () -> Actions
+    ) {
+        self.imageURL = imageURL
+        self.fallbackSystemImage = fallbackSystemImage
+        self.eyebrow = eyebrow
+        self.title = title
+        self.summary = summary
+        self.previous = previous
+        self.next = next
+        self.metadata = metadata
+        self.actions = actions
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack {
+                backdrop
+                LinearGradient(
+                    colors: [.black.opacity(0.90), .black.opacity(0.24)],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+
+                HStack(spacing: 0) {
+                    poster
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(eyebrow)
+                            .font(.asterionMono(10, weight: .semibold))
+                            .tracking(1.4)
+                            .foregroundStyle(Color.asterionAccent)
+
+                        Text(title)
+                            .font(.asterionDisplay(23, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.82)
+
+                        metadata()
+
+                        Text(summary)
+                            .font(.callout)
+                            .foregroundStyle(.white.opacity(0.76))
+                            .lineSpacing(2)
+                            .lineLimit(2)
+                            .padding(.top, 3)
+                            .accessibilityLabel("Synopsis")
+                            .accessibilityValue(summary)
+
+                        Spacer(minLength: 6)
+
+                        HStack(spacing: 10) {
+                            actions()
+                            Spacer()
+                            if let previous, let next {
+                                navigationButton(
+                                    systemImage: "chevron.left",
+                                    help: "Previous featured item",
+                                    action: previous
+                                )
+                                navigationButton(
+                                    systemImage: "chevron.right",
+                                    help: "Next featured item",
+                                    action: next
+                                )
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 14)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                }
+                .frame(width: geometry.size.width, height: geometry.size.height, alignment: .leading)
+            }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+        }
+        .frame(height: 220)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(.white.opacity(0.12))
+        }
+        .shadow(color: .black.opacity(0.18), radius: 18, y: 9)
+    }
+
+    private var backdrop: some View {
+        AsyncImage(url: imageURL) { phase in
+            if case .success(let image) = phase {
+                image.resizable().scaledToFill().blur(radius: 24).scaleEffect(1.18)
+            } else {
+                Color.asterionCard
+            }
+        }
+        .clipped()
+    }
+
+    private var poster: some View {
+        AsyncImage(url: imageURL) { phase in
+            if case .success(let image) = phase {
+                image.resizable().scaledToFill()
+            } else {
+                Color.asterionCard.overlay {
+                    Image(systemName: fallbackSystemImage)
+                        .font(.system(size: 38, weight: .light))
+                        .foregroundStyle(Color.asterionAccent.opacity(0.72))
+                }
+            }
+        }
+        .frame(width: 156, height: 220)
+        .clipped()
+        .overlay(alignment: .trailing) {
+            LinearGradient(
+                colors: [.clear, .black.opacity(0.34)],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .frame(width: 30)
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func navigationButton(
+        systemImage: String,
+        help: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.title3.weight(.semibold))
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.white.opacity(0.70))
+        .help(help)
     }
 }
 

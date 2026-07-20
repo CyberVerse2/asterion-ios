@@ -115,127 +115,30 @@ struct MovieCatalogView: View {
             let title = titles[safeIndex]
             let synopsis = featuredSynopsis(for: title)
 
-            GeometryReader { geometry in
-                ZStack {
-                    AsyncImage(url: title.imageURL) { phase in
-                        if case .success(let image) = phase {
-                            image.resizable().scaledToFill().blur(radius: 24).scaleEffect(1.18)
-                        } else {
-                            Color.asterionCard
-                        }
-                    }
-                    .clipped()
-
-                    LinearGradient(
-                        colors: [.black.opacity(0.90), .black.opacity(0.24)],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-
-                    HStack(spacing: 0) {
-                        featuredPoster(title)
-
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("NOW TRENDING")
-                                .font(.asterionMono(10, weight: .semibold))
-                                .tracking(1.4)
-                                .foregroundStyle(Color.asterionAccent)
-
-                            Text(title.displayTitle)
-                                .font(.asterionDisplay(23, weight: .semibold))
-                                .foregroundStyle(.white)
-                                .lineLimit(2)
-                                .minimumScaleFactor(0.82)
-
-                            featuredMetadataRow(title)
-
-                            Text(synopsis)
-                                .font(.callout)
-                                .foregroundStyle(.white.opacity(0.76))
-                                .lineSpacing(2)
-                                .lineLimit(2)
-                                .padding(.top, 3)
-                                .accessibilityLabel("Synopsis")
-                                .accessibilityValue(synopsis)
-
-                            Spacer(minLength: 6)
-
-                            HStack(spacing: 10) {
-                                Button {
-                                    openPlayer(title)
-                                } label: {
-                                    Label("Watch now", systemImage: "play.fill")
-                                        .font(.headline)
-                                        .frame(width: 132)
-                                }
-                                .buttonStyle(.glassProminent)
-                                .buttonBorderShape(.roundedRectangle(radius: 8))
-                                .controlSize(.large)
-                                .tint(.asterionAccent)
-
-                                featuredBookmarkButton(title)
-
-                                Spacer()
-
-                                featuredNavigationButton(
-                                    systemImage: "chevron.left",
-                                    help: "Previous featured title"
-                                ) {
-                                    moveFeatured(by: -1, titles: titles, selectedIndex: safeIndex)
-                                }
-
-                                featuredNavigationButton(
-                                    systemImage: "chevron.right",
-                                    help: "Next featured title"
-                                ) {
-                                    moveFeatured(by: 1, titles: titles, selectedIndex: safeIndex)
-                                }
-                            }
-                        }
-                        .padding(.horizontal, 24)
-                        .padding(.vertical, 14)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-                    }
-                    .frame(width: geometry.size.width, height: geometry.size.height, alignment: .leading)
+            AsterionFeatureCard(
+                imageURL: title.imageURL,
+                fallbackSystemImage: "play.rectangle.fill",
+                eyebrow: "NOW TRENDING",
+                title: title.displayTitle,
+                summary: synopsis,
+                previous: { moveFeatured(by: -1, titles: titles, selectedIndex: safeIndex) },
+                next: { moveFeatured(by: 1, titles: titles, selectedIndex: safeIndex) }
+            ) {
+                featuredMetadataRow(title)
+            } actions: {
+                Button { openPlayer(title) } label: {
+                    Label("Watch now", systemImage: "play.fill")
+                        .font(.headline)
+                        .frame(width: 132)
                 }
-                .frame(width: geometry.size.width, height: geometry.size.height)
-            }
-            .frame(height: 220)
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(.white.opacity(0.12))
-            }
-            .shadow(color: .black.opacity(0.18), radius: 18, y: 9)
-        }
-    }
+                .buttonStyle(.glassProminent)
+                .buttonBorderShape(.roundedRectangle(radius: 8))
+                .controlSize(.large)
+                .tint(.asterionAccent)
 
-    private func featuredPoster(_ title: MovieTitle) -> some View {
-        AsyncImage(url: title.imageURL) { phase in
-            if case .success(let image) = phase {
-                image
-                    .resizable()
-                    .scaledToFill()
-            } else {
-                Color.asterionCard
-                    .overlay {
-                        Image(systemName: "play.rectangle.fill")
-                            .font(.system(size: 38, weight: .light))
-                            .foregroundStyle(Color.asterionAccent.opacity(0.72))
-                    }
+                featuredBookmarkButton(title)
             }
         }
-        .frame(width: 156, height: 220)
-        .clipped()
-        .overlay(alignment: .trailing) {
-            LinearGradient(
-                colors: [.clear, .black.opacity(0.34)],
-                startPoint: .leading,
-                endPoint: .trailing
-            )
-            .frame(width: 30)
-        }
-        .accessibilityHidden(true)
     }
 
     @ViewBuilder
@@ -297,22 +200,6 @@ struct MovieCatalogView: View {
         .controlSize(.large)
         .disabled(isUpdating)
         .help(isSaved ? "Remove from saved movies" : "Save this title to your account")
-    }
-
-    private func featuredNavigationButton(
-        systemImage: String,
-        help: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.title3.weight(.semibold))
-                .frame(width: 28, height: 28)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(.white.opacity(0.70))
-        .help(help)
     }
 
     private func moveFeatured(

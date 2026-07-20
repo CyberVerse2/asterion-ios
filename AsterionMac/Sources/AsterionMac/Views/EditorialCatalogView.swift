@@ -7,6 +7,7 @@ struct EditorialCatalogView: View {
     let isSearching: Bool
     @Binding var selectedNovelID: String
     let selectNovel: (Novel) -> Void
+    @State private var featuredIndex = 0
 
     var body: some View {
         Group {
@@ -25,6 +26,9 @@ struct EditorialCatalogView: View {
                                 novels: novels
                             )
                         } else if section == .discover {
+                            featuredCard
+                                .padding(.horizontal, 32)
+
                             shelf(
                                 title: "Featured",
                                 subtitle: "Handpicked stories worth your time.",
@@ -59,6 +63,77 @@ struct EditorialCatalogView: View {
             }
         }
         .background(Color.asterionMediaCanvas)
+        .onChange(of: model.featuredNovels) {
+            featuredIndex = min(featuredIndex, max(0, min(8, model.featuredNovels.count) - 1))
+        }
+    }
+
+    @ViewBuilder
+    private var featuredCard: some View {
+        let novels = Array(model.featuredNovels.prefix(8))
+        if !novels.isEmpty {
+            let safeIndex = min(featuredIndex, novels.count - 1)
+            let novel = novels[safeIndex]
+            AsterionFeatureCard(
+                imageURL: novel.imageURL.flatMap(URL.init(string:)),
+                fallbackSystemImage: "book.closed.fill",
+                eyebrow: "FEATURED NOVEL",
+                title: novel.title,
+                summary: novel.summary
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .flatMap { $0.isEmpty ? nil : $0 }
+                    ?? "A handpicked story from the Asterion library.",
+                previous: { moveFeatured(by: -1, novels: novels, selectedIndex: safeIndex) },
+                next: { moveFeatured(by: 1, novels: novels, selectedIndex: safeIndex) }
+            ) {
+                HStack(spacing: 14) {
+                    Label(novel.authorDisplayName, systemImage: "person.fill")
+                    if let genre = novel.genres?.first {
+                        Label(genre, systemImage: "book.closed")
+                    }
+                    if let rating = novel.rating {
+                        Label(String(format: "%.1f", rating), systemImage: "star.fill")
+                    }
+                }
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.white.opacity(0.68))
+                .lineLimit(1)
+            } actions: {
+                Button { open(novel) } label: {
+                    Label("View novel", systemImage: "book.pages")
+                        .font(.headline)
+                        .frame(width: 132)
+                }
+                .buttonStyle(.glassProminent)
+                .buttonBorderShape(.roundedRectangle(radius: 8))
+                .controlSize(.large)
+                .tint(.asterionAccent)
+
+                Button {
+                    Task { await model.toggleLibrary(novelID: novel.id) }
+                } label: {
+                    Label(
+                        model.libraryNovelIDs.contains(novel.id) ? "Saved" : "Save",
+                        systemImage: model.libraryNovelIDs.contains(novel.id) ? "bookmark.fill" : "bookmark"
+                    )
+                    .frame(width: 86)
+                }
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.roundedRectangle(radius: 8))
+                .controlSize(.large)
+                .disabled(!model.isSignedIn || model.isUpdatingLibrary)
+            }
+        }
+    }
+
+    private func open(_ novel: Novel) {
+        selectedNovelID = novel.id
+        selectNovel(novel)
+    }
+
+    private func moveFeatured(by offset: Int, novels: [Novel], selectedIndex: Int) {
+        guard !novels.isEmpty else { return }
+        featuredIndex = (selectedIndex + offset + novels.count) % novels.count
     }
 
     private func shelf(

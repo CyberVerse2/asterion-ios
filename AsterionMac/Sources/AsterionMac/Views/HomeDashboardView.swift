@@ -13,6 +13,7 @@ struct HomeDashboardView: View {
     let selectAnime: (AnimeTitle) -> Void
     let selectMovie: (MovieTitle) -> Void
     let selectFootball: (FootballMatch) -> Void
+    @State private var featuredIndex = 0
 
     private var normalizedQuery: String {
         query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -68,6 +69,11 @@ struct HomeDashboardView: View {
     private var dashboard: some View {
         ScrollView(.vertical) {
             LazyVStack(alignment: .leading, spacing: 42) {
+                if !freshItems.isEmpty {
+                    featuredCard
+                        .padding(.horizontal, 32)
+                }
+
                 if !resumeItems.isEmpty {
                     continueShelf
                 }
@@ -97,6 +103,47 @@ struct HomeDashboardView: View {
             .frame(maxWidth: .infinity, alignment: .top)
         }
         .hidingScrollIndicators()
+    }
+
+    @ViewBuilder
+    private var featuredCard: some View {
+        let items = Array(freshItems.prefix(8))
+        if !items.isEmpty {
+            let safeIndex = min(featuredIndex, items.count - 1)
+            let item = items[safeIndex]
+            AsterionFeatureCard(
+                imageURL: item.imageURL,
+                fallbackSystemImage: "sparkles.rectangle.stack.fill",
+                eyebrow: "FEATURED ACROSS ASTERION",
+                title: item.title,
+                summary: item.featureSummary,
+                previous: { moveFeatured(by: -1, items: items, selectedIndex: safeIndex) },
+                next: { moveFeatured(by: 1, items: items, selectedIndex: safeIndex) }
+            ) {
+                HStack(spacing: 14) {
+                    Label(item.badge.capitalized, systemImage: "sparkles")
+                    Text(item.subtitle)
+                }
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.white.opacity(0.68))
+                .lineLimit(1)
+            } actions: {
+                Button { select(item) } label: {
+                    Label("Open", systemImage: "arrow.right.circle.fill")
+                        .font(.headline)
+                        .frame(width: 132)
+                }
+                .buttonStyle(.glassProminent)
+                .buttonBorderShape(.roundedRectangle(radius: 8))
+                .controlSize(.large)
+                .tint(.asterionAccent)
+            }
+        }
+    }
+
+    private func moveFeatured(by offset: Int, items: [HomeCatalogItem], selectedIndex: Int) {
+        guard !items.isEmpty else { return }
+        featuredIndex = (selectedIndex + offset + items.count) % items.count
     }
 
     private var continueShelf: some View {

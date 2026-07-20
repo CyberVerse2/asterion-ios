@@ -233,16 +233,26 @@ struct AnimeCatalogView: View {
             let safeIndex = min(featuredIndex, featuredTitles.count - 1)
             let featuredTitle = featuredTitles[safeIndex]
 
-            AnimeFeaturedBanner(
-                title: featuredTitle,
-                synopsis: featuredSynopsis(for: featuredTitle),
-                titles: featuredTitles,
-                selectedIndex: safeIndex,
-                selectIndex: { index in
-                    featuredIndex = index
-                    Task { await store.select(featuredTitles[index]) }
-                },
-                watch: {
+            AsterionFeatureCard(
+                imageURL: featuredTitle.imageURL,
+                fallbackSystemImage: "play.rectangle.fill",
+                eyebrow: "FEATURED ANIME",
+                title: featuredTitle.displayTitle,
+                summary: featuredSynopsis(for: featuredTitle),
+                previous: { moveFeatured(by: -1, titles: featuredTitles, selectedIndex: safeIndex) },
+                next: { moveFeatured(by: 1, titles: featuredTitles, selectedIndex: safeIndex) }
+            ) {
+                HStack(spacing: 14) {
+                    Label(featuredTitle.type ?? "Anime", systemImage: "play.fill")
+                    if let episodeLabel = featuredTitle.episodeLabel {
+                        Label(episodeLabel, systemImage: "text.page")
+                    }
+                }
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.white.opacity(0.68))
+                .lineLimit(1)
+            } actions: {
+                Button {
                     openWindow(
                         value: AnimePlayerRoute(
                             slug: featuredTitle.slug,
@@ -250,9 +260,24 @@ struct AnimeCatalogView: View {
                             initialEpisodeID: nil
                         )
                     )
+                } label: {
+                    Label("Watch now", systemImage: "play.fill")
+                        .font(.headline)
+                        .frame(width: 132)
                 }
-            )
+                .buttonStyle(.glassProminent)
+                .buttonBorderShape(.roundedRectangle(radius: 8))
+                .controlSize(.large)
+                .tint(.asterionAccent)
+            }
         }
+    }
+
+    private func moveFeatured(by offset: Int, titles: [AnimeTitle], selectedIndex: Int) {
+        guard !titles.isEmpty else { return }
+        let destination = (selectedIndex + offset + titles.count) % titles.count
+        featuredIndex = destination
+        Task { await store.select(titles[destination]) }
     }
 
     private func featuredSynopsis(for title: AnimeTitle) -> String {
@@ -510,160 +535,6 @@ private struct AnimeShelfHeader: View {
                 .font(.callout)
                 .foregroundStyle(Color.asterionMuted)
         }
-    }
-}
-
-private struct AnimeFeaturedBanner: View {
-    let title: AnimeTitle
-    let synopsis: String
-    let titles: [AnimeTitle]
-    let selectedIndex: Int
-    let selectIndex: (Int) -> Void
-    let watch: () -> Void
-
-    var body: some View {
-        GeometryReader { geometry in
-            ZStack {
-                AnimeFeaturedBackdrop(url: title.imageURL)
-
-                LinearGradient(
-                    colors: [.black.opacity(0.88), .black.opacity(0.28)],
-                    startPoint: .leading,
-                    endPoint: .trailing
-                )
-
-                featureContent(posterWidth: 104)
-                    .frame(width: geometry.size.width, height: geometry.size.height)
-            }
-            .frame(width: geometry.size.width, height: geometry.size.height)
-        }
-        .frame(height: 252)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(.white.opacity(0.12))
-        }
-        .shadow(color: .black.opacity(0.18), radius: 18, y: 9)
-    }
-
-    private func featureContent(posterWidth: CGFloat) -> some View {
-        ZStack(alignment: .trailing) {
-            MediaCoverView(
-                url: title.imageURL,
-                width: posterWidth,
-                height: posterWidth * 1.43
-            )
-            .padding(.trailing, 20)
-
-            VStack(alignment: .leading, spacing: 9) {
-                HStack(spacing: 10) {
-                    Text("FEATURED")
-                        .font(.asterionMono(10, weight: .semibold))
-                        .tracking(1.4)
-                        .foregroundStyle(Color.asterionAccent)
-
-                    Spacer()
-
-                    carouselControls
-                }
-
-                Text(title.displayTitle)
-                    .font(.asterionDisplay(23, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.82)
-
-                HStack(spacing: 7) {
-                    if let episodeLabel = title.episodeLabel {
-                        featureBadge(episodeLabel, color: Color.asterionAccent)
-                    }
-                    if let type = title.type {
-                        featureBadge(type, color: .white.opacity(0.16))
-                    }
-                }
-
-                Text(synopsis)
-                    .font(.callout)
-                    .foregroundStyle(.white.opacity(0.76))
-                    .lineLimit(2)
-                    .lineSpacing(2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityLabel("Synopsis")
-                    .accessibilityValue(synopsis)
-
-                Spacer(minLength: 0)
-
-                Button(action: watch) {
-                    Label("Watch now", systemImage: "play.fill")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.glassProminent)
-                .buttonBorderShape(.roundedRectangle(radius: 10))
-                .controlSize(.large)
-                .tint(.asterionAccent)
-                .accessibilityLabel("Watch \(title.displayTitle)")
-            }
-            .padding(.leading, 20)
-            .padding(.trailing, posterWidth + 38)
-            .padding(.vertical, 16)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        }
-    }
-
-    private var carouselControls: some View {
-        HStack(spacing: 6) {
-            ForEach(titles.indices, id: \.self) { index in
-                Button {
-                    selectIndex(index)
-                } label: {
-                    Circle()
-                        .fill(index == selectedIndex ? Color.asterionAccent : Color.white.opacity(0.42))
-                        .frame(width: index == selectedIndex ? 8 : 6, height: index == selectedIndex ? 8 : 6)
-                        .frame(width: 18, height: 18)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Show \(titles[index].displayTitle)")
-                .accessibilityValue("Feature \(index + 1) of \(titles.count)")
-                .accessibilityAddTraits(index == selectedIndex ? .isSelected : [])
-                .help(titles[index].displayTitle)
-            }
-        }
-    }
-
-    private func featureBadge(_ label: String, color: Color) -> some View {
-        Text(label)
-            .font(.caption2.weight(.semibold))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(color, in: Capsule())
-    }
-}
-
-private struct AnimeFeaturedBackdrop: View {
-    let url: URL?
-
-    var body: some View {
-        AsyncImage(url: url) { phase in
-            switch phase {
-            case .success(let image):
-                image
-                    .resizable()
-                    .scaledToFill()
-                    .blur(radius: 24)
-                    .scaleEffect(1.18)
-            case .empty:
-                Color.asterionCard
-                    .overlay { ProgressView().controlSize(.small) }
-            case .failure:
-                Color.asterionCard
-            @unknown default:
-                Color.asterionCard
-            }
-        }
-        .clipped()
     }
 }
 
