@@ -48,7 +48,7 @@ struct MediaDownloadPlannerView: View {
             footer
         }
         .frame(minWidth: 500, idealWidth: 560, minHeight: 420, idealHeight: 560)
-        .background(.background)
+        .background(Color.asterionMediaCanvas)
     }
 
     private var header: some View {

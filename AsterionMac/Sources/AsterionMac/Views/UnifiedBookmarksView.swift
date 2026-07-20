@@ -81,8 +81,7 @@ struct UnifiedBookmarksView: View {
                 .hidingScrollIndicators()
             }
         }
-        .background(.background)
-        .navigationTitle("Bookmarks")
+        .background(Color.asterionMediaCanvas)
     }
 
     private var emptyState: some View {
@@ -108,28 +107,38 @@ private struct BookmarkTile: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 0) {
                 ZStack(alignment: .bottomLeading) {
                     MediaCoverView(url: imageURL, width: 124, height: 176)
+
+                    LinearGradient(
+                        colors: [.clear, .clear, .black.opacity(0.88)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+
                     Text(badge)
                         .font(.asterionMono(8, weight: .bold))
                         .tracking(0.7)
                         .foregroundStyle(.white)
                         .padding(.horizontal, 7)
                         .padding(.vertical, 4)
-                        .background(Color.asterionAccent, in: Capsule())
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                         .padding(7)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(title)
+                            .font(.asterionDisplay(14, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .lineLimit(2)
+                        Text(subtitle)
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.white.opacity(0.78))
+                            .lineLimit(1)
+                    }
+                    .padding(10)
                 }
-                Text(title)
-                    .font(.asterionDisplay(14, weight: .medium))
-                    .foregroundStyle(Color.asterionText)
-                    .lineLimit(2)
-                    .frame(width: 132, alignment: .leading)
-                Text(subtitle)
-                    .font(.caption2)
-                    .foregroundStyle(Color.asterionMuted)
-                    .lineLimit(1)
-                    .frame(width: 132, alignment: .leading)
             }
             .contentShape(Rectangle())
         }

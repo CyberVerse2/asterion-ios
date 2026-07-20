@@ -87,8 +87,7 @@ struct UnifiedActivityView: View {
                 .hidingScrollIndicators()
             }
         }
-        .background(.background)
-        .navigationTitle(mode.title)
+        .background(Color.asterionMediaCanvas)
     }
 
     private func select(_ item: UnifiedActivityItem) {

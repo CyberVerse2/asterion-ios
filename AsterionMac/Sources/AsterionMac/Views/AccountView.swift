@@ -55,8 +55,7 @@ struct AccountSummaryView: View {
                 signedOutProfile
             }
         }
-        .background(Color.asterionBackground)
-        .navigationTitle("Profile")
+        .background(Color.asterionMediaCanvas)
     }
 
     private func signedInProfile(_ user: AppModel.SignedInUser) -> some View {
@@ -387,7 +386,7 @@ struct AccountView: View {
         }
         .hidingScrollIndicators()
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(.background)
+        .background(Color.asterionMediaCanvas)
         .sheet(isPresented: $presentsProfileEditor) {
             UserProfileView()
                 .environment(Clerk.shared)
@@ -558,7 +557,7 @@ struct AsterionAuthenticationView: View {
         }
         .padding(24)
         .frame(width: 438, height: 548)
-        .background(Color.asterionBackground)
+        .background(Color.asterionMediaCanvas)
         .onChange(of: clerk.user?.id) {
             if clerk.user != nil {
                 dismissWindow(id: "authentication")

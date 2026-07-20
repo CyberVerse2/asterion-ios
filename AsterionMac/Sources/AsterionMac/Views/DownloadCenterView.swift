@@ -130,7 +130,7 @@ struct DownloadCenterView: View {
             alignment: .topLeading
         )
         .frame(width: presentation == .popover ? 360 : nil)
-        .background(.background)
+        .background(Color.asterionMediaCanvas)
     }
 
     private func downloadGroup<Content: View>(
