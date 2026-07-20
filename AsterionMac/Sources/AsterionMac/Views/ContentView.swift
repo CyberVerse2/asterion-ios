@@ -350,7 +350,7 @@ struct ContentView: View {
             description: Text(message)
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.background)
+        .background(Color.asterionMediaCanvas)
     }
 
     private var novelDetailPlaceholder: some View {
@@ -374,7 +374,7 @@ struct ContentView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.background)
+        .background(Color.asterionMediaCanvas)
     }
 
     private func selectNovelDetail(_ novel: Novel) {

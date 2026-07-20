@@ -36,7 +36,7 @@ struct AnimeDetailView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.background)
+        .background(Color.asterionMediaCanvas)
         .sheet(item: $downloadPlan) { plan in
             MediaDownloadPlannerView(
                 title: plan.title,
@@ -97,8 +97,7 @@ struct AnimeDetailView: View {
         }
         .hidingScrollIndicators()
         .scrollPosition(id: $scrollPosition, anchor: .top)
-        .background(.background)
-        .navigationTitle(show.displayTitle)
+        .background(Color.asterionMediaCanvas)
         .task(id: show.id) {
             showsFullSynopsis = false
             downloadError = nil

@@ -81,8 +81,7 @@ struct NovelDetailView: View {
         }
         .hidingScrollIndicators()
         .scrollPosition(id: $scrollPosition, anchor: .top)
-        .background(.background)
-        .navigationTitle(novel.title)
+        .background(Color.asterionMediaCanvas)
         .safeAreaInset(edge: .bottom) { accountErrorBar }
         .task(id: novel.id) {
             showsFullSynopsis = false

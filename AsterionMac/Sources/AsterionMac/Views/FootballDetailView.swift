@@ -18,7 +18,7 @@ struct FootballDetailView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.background)
+        .background(Color.asterionMediaCanvas)
     }
 
     private func detail(_ match: FootballMatch) -> some View {
@@ -45,7 +45,6 @@ struct FootballDetailView: View {
             .frame(maxWidth: .infinity, alignment: .top)
         }
         .hidingScrollIndicators()
-        .navigationTitle(match.displayTitle)
     }
 
     private func status(_ match: FootballMatch) -> some View {
