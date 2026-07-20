@@ -348,7 +348,7 @@ def _stream_list_for_api(streams) -> list[dict]:
         )
         d["is_hls"] = is_hls
         if is_hls:
-            d["proxy_url"] = url  # AVPlayer plays HLS natively, no proxy needed
+            d["proxy_url"] = f"https://asterion-movies.cyberverse.cloud/proxy/hls?url={url}"
         result.append(d)
     return result
 
