@@ -1,6 +1,7 @@
 import Foundation
 
 enum AppMode: String, CaseIterable, Codable, Hashable, Sendable {
+    case home
     case novels
     case anime
     case movies
@@ -8,6 +9,7 @@ enum AppMode: String, CaseIterable, Codable, Hashable, Sendable {
 
     var title: String {
         switch self {
+        case .home: "Home"
         case .novels: "Novels"
         case .anime: "Anime"
         case .movies: "Movies"

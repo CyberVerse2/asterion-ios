@@ -186,29 +186,35 @@ struct AsterionNavigationCommands: Commands {
 
     var body: some Commands {
         CommandMenu("Navigate") {
+            Button("Home") {
+                mode = .home
+                showsAccount = false
+            }
+                .keyboardShortcut("1", modifiers: [.command, .option])
+                .disabled(mode == nil)
             Button("Novels") {
                 mode = .novels
                 showsAccount = false
             }
-                .keyboardShortcut("1", modifiers: [.command, .option])
+                .keyboardShortcut("2", modifiers: [.command, .option])
                 .disabled(mode == nil)
             Button("Anime") {
                 mode = .anime
                 showsAccount = false
             }
-                .keyboardShortcut("2", modifiers: [.command, .option])
+                .keyboardShortcut("3", modifiers: [.command, .option])
                 .disabled(mode == nil)
             Button("Movies") {
                 mode = .movies
                 showsAccount = false
             }
-                .keyboardShortcut("3", modifiers: [.command, .option])
+                .keyboardShortcut("4", modifiers: [.command, .option])
                 .disabled(mode == nil)
             Button("Football") {
                 mode = .football
                 showsAccount = false
             }
-                .keyboardShortcut("4", modifiers: [.command, .option])
+                .keyboardShortcut("5", modifiers: [.command, .option])
                 .disabled(mode == nil)
 
             Divider()
@@ -248,7 +254,7 @@ struct AsterionNavigationCommands: Commands {
                         .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: .command)
                         .disabled(footballSection == nil)
                 }
-            } else {
+            } else if mode == .novels {
                 ForEach(Array(AppSection.allCases.enumerated()), id: \.element) { index, item in
                     Button(item.title) {
                         section = item

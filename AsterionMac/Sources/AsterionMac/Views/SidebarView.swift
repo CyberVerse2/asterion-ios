@@ -18,6 +18,7 @@ struct SidebarView: View {
                 if showsAccount { return .account }
                 if showsDownloads { return .downloads }
                 return switch mode {
+                case .home: .home
                 case .novels: .novel(novelSelection)
                 case .anime: .anime(animeSelection)
                 case .movies: .movie(movieSelection)
@@ -27,6 +28,9 @@ struct SidebarView: View {
             set: { newValue in
                 guard let newValue else { return }
                 switch newValue {
+                case .home:
+                    showsAccount = false
+                    showsDownloads = false
                 case .account:
                     showsAccount = true
                     showsDownloads = false
@@ -63,7 +67,11 @@ struct SidebarView: View {
 
             List(selection: listSelection) {
                 Section(mode.title) {
-                    if mode == .novels {
+                    if mode == .home {
+                        Label("Overview", systemImage: "house.fill")
+                            .tag(SidebarSelection.home)
+                            .help("Home")
+                    } else if mode == .novels {
                         ForEach(AppSection.allCases, id: \.self) { section in
                             Label(section.title, systemImage: section.systemImage)
                                 .tag(SidebarSelection.novel(section))
@@ -180,6 +188,7 @@ struct SidebarView: View {
 }
 
 private enum SidebarSelection: Hashable {
+    case home
     case novel(AppSection)
     case anime(AnimeSection)
     case movie(MovieSection)

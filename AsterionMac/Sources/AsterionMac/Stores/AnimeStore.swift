@@ -87,12 +87,18 @@ final class AnimeStore: ObservableObject {
     private var catalogPage = 0
     private var canLoadNextPage = false
     private var selectedScheduleTitle: AnimeTitle?
+    private var dashboardSelectionID: AnimeTitle.ID?
 
     init(api: any AnimeCatalogServing = AnimeAPI.shared) {
         self.api = api
     }
 
-    func loadCatalog(section: AnimeSection, query: String, force: Bool = false) async {
+    func loadCatalog(
+        section: AnimeSection,
+        query: String,
+        force: Bool = false,
+        selectsInitialTitle: Bool = true
+    ) async {
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
         if section == .schedule, query.isEmpty {
             await loadSchedule(force: force)
@@ -112,7 +118,13 @@ final class AnimeStore: ObservableObject {
         let requestKey = query.isEmpty
             ? catalogRequestKey(section)
             : "search:\(query)"
-        guard force || loadedRequestKey != requestKey else { return }
+        guard force || loadedRequestKey != requestKey else {
+            if selectsInitialTitle, dashboardSelectionID == nil, show == nil,
+               let selected = titles.first(where: { $0.id == selectedTitleID }) ?? titles.first {
+                await select(selected)
+            }
+            return
+        }
 
         loadedRequestKey = requestKey
         let requestID = UUID()
@@ -145,15 +157,17 @@ final class AnimeStore: ObservableObject {
             canLoadNextPage = !loadedTitles.isEmpty
             completedCatalogRequest = true
 
-            if let selectedTitleID,
-               let selected = loadedTitles.first(where: { $0.id == selectedTitleID }) {
-                if show == nil {
-                    await select(selected)
+            if selectsInitialTitle, dashboardSelectionID == nil {
+                if let selectedTitleID,
+                   let selected = loadedTitles.first(where: { $0.id == selectedTitleID }) {
+                    if show == nil {
+                        await select(selected)
+                    }
+                } else if let first = loadedTitles.first {
+                    await select(first)
+                } else {
+                    clearSelection()
                 }
-            } else if let first = loadedTitles.first {
-                await select(first)
-            } else {
-                clearSelection()
             }
         } catch {
             guard !Task.isCancelled, catalogRequestID == requestID else { return }
@@ -179,6 +193,19 @@ final class AnimeStore: ObservableObject {
         } else {
             await loadCatalog(section: section, query: query, force: true)
         }
+    }
+
+    func refreshHome() async {
+        await api.invalidateCatalogCache()
+        async let catalog: Void = loadCatalog(
+            section: .discover,
+            query: "",
+            force: true,
+            selectsInitialTitle: false
+        )
+        async let currentSeason: Void = loadCurrentSeason(force: true)
+        async let newReleases: Void = loadDiscoverNewReleases(force: true)
+        _ = await (catalog, currentSeason, newReleases)
     }
 
     func loadCurrentSeason(force: Bool = false) async {
@@ -291,6 +318,17 @@ final class AnimeStore: ObservableObject {
         )
         selectedScheduleTitle = title
         await select(title)
+    }
+
+    func selectFromDashboard(_ title: AnimeTitle) {
+        dashboardSelectionID = title.id
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.select(title, force: true)
+            if self.dashboardSelectionID == title.id {
+                self.dashboardSelectionID = nil
+            }
+        }
     }
 
     func select(_ title: AnimeTitle, force: Bool = false) async {

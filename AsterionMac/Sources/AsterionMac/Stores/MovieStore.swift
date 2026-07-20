@@ -47,12 +47,18 @@ final class MovieStore: ObservableObject {
     private var catalogPage = 0
     private var canLoadNextPage = false
     private var detailCache: [String: DetailSnapshot] = [:]
+    private var dashboardSelectionID: MovieTitle.ID?
 
     init(api: any MovieCatalogServing = MovieAPI.shared) {
         self.api = api
     }
 
-    func loadCatalog(section: MovieSection, query: String, force: Bool = false) async {
+    func loadCatalog(
+        section: MovieSection,
+        query: String,
+        force: Bool = false,
+        selectsInitialTitle: Bool = true
+    ) async {
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard query.isEmpty || query.count >= 2 else {
             catalogRequestID = UUID()
@@ -68,7 +74,13 @@ final class MovieStore: ObservableObject {
         let requestKey = query.isEmpty
             ? "\(section.rawValue):\(section == .genres ? selectedGenre?.slug ?? "" : "")"
             : "search:\(query)"
-        guard force || loadedRequestKey != requestKey else { return }
+        guard force || loadedRequestKey != requestKey else {
+            if selectsInitialTitle, dashboardSelectionID == nil, show == nil,
+               let selected = titles.first(where: { $0.id == selectedTitleID }) ?? titles.first {
+                await select(selected)
+            }
+            return
+        }
 
         loadedRequestKey = requestKey
         let requestID = UUID()
@@ -102,13 +114,15 @@ final class MovieStore: ObservableObject {
             isLoadingCatalog = false
             completedCatalogRequest = true
 
-            if let selectedTitleID,
-               let selected = uniqueTitles.first(where: { $0.id == selectedTitleID }) {
-                if show == nil { await select(selected) }
-            } else if let first = uniqueTitles.first {
-                await select(first)
-            } else {
-                clearSelection()
+            if selectsInitialTitle, dashboardSelectionID == nil {
+                if let selectedTitleID,
+                   let selected = uniqueTitles.first(where: { $0.id == selectedTitleID }) {
+                    if show == nil { await select(selected) }
+                } else if let first = uniqueTitles.first {
+                    await select(first)
+                } else {
+                    clearSelection()
+                }
             }
         } catch {
             guard !Task.isCancelled, catalogRequestID == requestID else { return }
@@ -123,10 +137,31 @@ final class MovieStore: ObservableObject {
         await loadCatalog(section: section, query: query, force: true)
     }
 
+    func refreshHome() async {
+        await api.invalidateCatalogCache()
+        await loadCatalog(
+            section: .discover,
+            query: "",
+            force: true,
+            selectsInitialTitle: false
+        )
+    }
+
     func selectGenre(_ genre: MovieGenre, query: String) async {
         guard selectedGenre != genre else { return }
         selectedGenre = genre
         await loadCatalog(section: .genres, query: query, force: true)
+    }
+
+    func selectFromDashboard(_ title: MovieTitle) {
+        dashboardSelectionID = title.id
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.select(title, force: true)
+            if self.dashboardSelectionID == title.id {
+                self.dashboardSelectionID = nil
+            }
+        }
     }
 
     func select(_ title: MovieTitle, force: Bool = false) async {

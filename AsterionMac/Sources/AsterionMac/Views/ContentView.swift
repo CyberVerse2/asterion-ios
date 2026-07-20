@@ -3,7 +3,7 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var mediaDownloads: MediaDownloadManager
-    @SceneStorage("selectedMode") private var selectedModeRaw = AppMode.novels.rawValue
+    @SceneStorage("selectedMode") private var selectedModeRaw = AppMode.home.rawValue
     @SceneStorage("selectedSection") private var selectedSectionRaw = AppSection.discover.rawValue
     @SceneStorage("selectedAnimeSection") private var selectedAnimeSectionRaw = AnimeSection.discover.rawValue
     @SceneStorage("selectedMovieSection") private var selectedMovieSectionRaw = MovieSection.discover.rawValue
@@ -19,10 +19,11 @@ struct ContentView: View {
     @State private var showsDownloadPopover = false
     @State private var selectedAnimeBookmarkID: String?
     @State private var selectedMovieBookmarkID: String?
+    @State private var homeDetailSelection: HomeDetailSelection?
 
     private var mode: Binding<AppMode> {
         Binding(
-            get: { AppMode(rawValue: selectedModeRaw) ?? .novels },
+            get: { AppMode(rawValue: selectedModeRaw) ?? .home },
             set: { newValue in
                 selectedModeRaw = newValue.rawValue
                 showsAccount = false
@@ -183,39 +184,122 @@ struct ContentView: View {
     }
 
     private var responsiveContentColumns: some View {
-        GeometryReader { geometry in
-            let dividerWidth = 1.0
-            let availableWidth = max(0, geometry.size.width - dividerWidth)
-            let minimumCatalogWidth = 480.0
-            let detailWidth = min(
-                max(300, availableWidth * 0.30),
-                max(0, availableWidth - minimumCatalogWidth)
-            )
+        Group {
+            if mode.wrappedValue == .home,
+               !showsAccount,
+               !showsDownloadLibrary,
+               homeDetailSelection == nil {
+                homeCatalog
+            } else {
+                GeometryReader { geometry in
+                    let dividerWidth = 1.0
+                    let availableWidth = max(0, geometry.size.width - dividerWidth)
+                    let minimumCatalogWidth = 480.0
+                    let detailWidth = min(
+                        max(300, availableWidth * 0.30),
+                        max(0, availableWidth - minimumCatalogWidth)
+                    )
 
-            HStack(spacing: 0) {
-                catalogColumn
-                    .frame(width: availableWidth - detailWidth)
+                    HStack(spacing: 0) {
+                        Group {
+                            if mode.wrappedValue == .home, !showsAccount, !showsDownloadLibrary {
+                                homeCatalog
+                            } else {
+                                catalogColumn
+                            }
+                        }
+                            .frame(width: availableWidth - detailWidth)
 
-                Divider()
-                    .frame(width: dividerWidth)
+                        Divider()
+                            .frame(width: dividerWidth)
 
-                detailColumn
-                    .frame(width: detailWidth)
+                        Group {
+                            if mode.wrappedValue == .home, !showsAccount, !showsDownloadLibrary {
+                                homeDetailColumn
+                            } else {
+                                detailColumn
+                            }
+                        }
+                            .frame(width: detailWidth)
+                    }
+                    .frame(
+                        width: geometry.size.width,
+                        height: geometry.size.height,
+                        alignment: .leading
+                    )
+                }
             }
-            .frame(
-                width: geometry.size.width,
-                height: geometry.size.height,
-                alignment: .leading
-            )
         }
+    }
+
+    private var homeCatalog: some View {
+        HomeDashboardView(
+            animeStore: animeStore,
+            movieStore: movieStore,
+            footballStore: footballStore,
+            query: searchText,
+            selectNovel: showNovelFromHome,
+            selectAnime: showAnimeFromHome,
+            selectMovie: showMovieFromHome,
+            selectFootball: showFootballFromHome,
+            showAccount: { showsAccount = true },
+            showDownloads: { showsDownloadLibrary = true }
+        )
+    }
+
+    @ViewBuilder
+    private var homeDetailColumn: some View {
+        Group {
+            switch homeDetailSelection {
+            case .novel(let novelID):
+                if let novel = model.novel(id: novelID) {
+                    NovelDetailView(novel: novel)
+                        .id(novel.id)
+                } else {
+                    homeDetailUnavailable
+                }
+            case .anime:
+                AnimeDetailView(store: animeStore)
+            case .movie:
+                MovieDetailView(store: movieStore)
+            case .football:
+                FootballDetailView(store: footballStore)
+            case nil:
+                homeDetailUnavailable
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            Button {
+                homeDetailSelection = nil
+            } label: {
+                Image(systemName: "xmark")
+                    .frame(width: 20, height: 20)
+            }
+            .buttonStyle(.glass)
+            .buttonBorderShape(.circle)
+            .controlSize(.small)
+            .help("Close details")
+            .accessibilityLabel("Close details")
+            .padding(12)
+        }
+    }
+
+    private var homeDetailUnavailable: some View {
+        ContentUnavailableView(
+            "Select something",
+            systemImage: "sidebar.right",
+            description: Text("Choose a title or match from Home to see its details.")
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(.background)
     }
 
     @ToolbarContentBuilder
     private var navigationToolbar: some ToolbarContent {
         ToolbarItem(placement: .principal) {
             ContentModePicker(selection: mode)
-                .frame(width: 360)
-                .help("Switch between novels, anime, movies, and football")
+                .frame(width: 450)
+                .help("Switch between Home, novels, anime, movies, and football")
         }
         .sharedBackgroundVisibility(.hidden)
 
@@ -333,6 +417,7 @@ struct ContentView: View {
 
     private var searchPrompt: String {
         switch mode.wrappedValue {
+        case .home: "Search all of Asterion"
         case .novels: "Search titles, authors, or genres"
         case .anime:
             animeSection.wrappedValue == .bookmarks ? "Search saved anime" : "Search anime"
@@ -346,6 +431,7 @@ struct ContentView: View {
 
     private var refreshTitle: String {
         switch mode.wrappedValue {
+        case .home: "Refresh Home"
         case .novels: "Refresh Catalog"
         case .anime: "Refresh Anime"
         case .movies: "Refresh Movies"
@@ -356,6 +442,8 @@ struct ContentView: View {
     private var showsRefreshAction: Bool {
         guard !showsAccount, !showsDownloadLibrary else { return false }
         return switch mode.wrappedValue {
+        case .home:
+            true
         case .novels:
             true
         case .anime:
@@ -436,6 +524,12 @@ struct ContentView: View {
     private func refreshActiveCatalog() async {
         guard !showsAccount, !showsDownloadLibrary else { return }
         switch mode.wrappedValue {
+        case .home:
+            async let catalog: Void = model.loadCatalog()
+            async let anime: Void = animeStore.refreshHome()
+            async let movies: Void = movieStore.refreshHome()
+            async let football: Void = footballStore.refresh(section: .live)
+            _ = await (catalog, anime, movies, football)
         case .novels:
             await model.loadCatalog()
         case .anime:
@@ -453,6 +547,25 @@ struct ContentView: View {
         case .football:
             await footballStore.refresh(section: footballSection.wrappedValue)
         }
+    }
+
+    private func showNovelFromHome(_ novel: Novel) {
+        homeDetailSelection = .novel(novel.id)
+    }
+
+    private func showAnimeFromHome(_ title: AnimeTitle) {
+        animeStore.selectFromDashboard(title)
+        homeDetailSelection = .anime(title.id)
+    }
+
+    private func showMovieFromHome(_ title: MovieTitle) {
+        movieStore.selectFromDashboard(title)
+        homeDetailSelection = .movie(title.id)
+    }
+
+    private func showFootballFromHome(_ match: FootballMatch) {
+        footballStore.select(match)
+        homeDetailSelection = .football(match.id)
     }
 
     private func bookmarks(for mediaType: MediaAccountType) -> [MediaBookmark] {
@@ -517,6 +630,13 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.background)
     }
+}
+
+private enum HomeDetailSelection: Equatable {
+    case novel(String)
+    case anime(String)
+    case movie(String)
+    case football(String)
 }
 
 private extension View {
