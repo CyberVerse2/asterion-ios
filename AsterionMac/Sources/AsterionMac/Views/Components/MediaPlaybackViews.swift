@@ -9,6 +9,7 @@ struct MediaDirectPlayer: View {
     let initialPosition: Double
     let onProgress: @MainActor @Sendable (MediaPlaybackSample) -> Void
     let onEnded: @MainActor @Sendable () -> Void
+    let onFailure: @MainActor @Sendable (String) -> Void
 
     @StateObject private var controller: DirectMediaPlaybackController
     @State private var captionCharacterScale = CaptionSizing.systemRelativeCharacterSize
@@ -18,13 +19,15 @@ struct MediaDirectPlayer: View {
         subtitleTracks: [AnimeSubtitleTrack] = [],
         initialPosition: Double = 0,
         onProgress: @escaping @MainActor @Sendable (MediaPlaybackSample) -> Void = { _ in },
-        onEnded: @escaping @MainActor @Sendable () -> Void = {}
+        onEnded: @escaping @MainActor @Sendable () -> Void = {},
+        onFailure: @escaping @MainActor @Sendable (String) -> Void = { _ in }
     ) {
         self.url = url
         self.subtitleTracks = subtitleTracks
         self.initialPosition = initialPosition
         self.onProgress = onProgress
         self.onEnded = onEnded
+        self.onFailure = onFailure
         _controller = StateObject(
             wrappedValue: DirectMediaPlaybackController(
                 url: url,
@@ -75,7 +78,8 @@ struct MediaDirectPlayer: View {
                     controller.start(
                         initialPosition: initialPosition,
                         onProgress: onProgress,
-                        onEnded: onEnded
+                        onEnded: onEnded,
+                        onFailure: onFailure
                     )
                 }
                 .onDisappear { controller.stop() }
@@ -103,7 +107,8 @@ struct MediaDirectPlayer: View {
                     subtitleTracks: subtitleTracks,
                     initialPosition: initialPosition,
                     onProgress: onProgress,
-                    onEnded: onEnded
+                    onEnded: onEnded,
+                    onFailure: onFailure
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -164,14 +169,18 @@ private final class DirectMediaPlaybackController: ObservableObject {
     private var periodicObserver: Any?
     private var timeControlObserver: NSKeyValueObservation?
     private var playbackRateObserver: NSKeyValueObservation?
+    private var itemStatusObserver: NSKeyValueObservation?
     private var playbackEndObserver: NSObjectProtocol?
+    private var playbackFailedObserver: NSObjectProtocol?
     private var onProgress: (@MainActor @Sendable (MediaPlaybackSample) -> Void)?
     private var onEnded: (@MainActor @Sendable () -> Void)?
+    private var onFailure: (@MainActor @Sendable (String) -> Void)?
     private var lastReportedPosition = -Double.infinity
     private var startingPosition = 0.0
     private var hasConfirmedPlayback = false
     private var hasEnteredPlayingState = false
     private var hasSentPlaybackEnd = false
+    private var hasReportedFailure = false
     private var wasNativePlaybackActive = false
 
     init(url: URL, localSubtitleTracks: [AnimeSubtitleTrack]) {
@@ -194,14 +203,17 @@ private final class DirectMediaPlaybackController: ObservableObject {
     func start(
         initialPosition: Double,
         onProgress: @escaping @MainActor @Sendable (MediaPlaybackSample) -> Void,
-        onEnded: @escaping @MainActor @Sendable () -> Void
+        onEnded: @escaping @MainActor @Sendable () -> Void,
+        onFailure: @escaping @MainActor @Sendable (String) -> Void
     ) {
         self.onProgress = onProgress
         self.onEnded = onEnded
+        self.onFailure = onFailure
         startingPosition = max(0, initialPosition)
         hasConfirmedPlayback = false
         hasEnteredPlayingState = false
         hasSentPlaybackEnd = false
+        hasReportedFailure = false
         wasNativePlaybackActive = false
         lastReportedPosition = -Double.infinity
         if initialPosition > 0, player.currentTime().seconds < 1 {
@@ -241,6 +253,7 @@ private final class DirectMediaPlaybackController: ObservableObject {
         activeCaption = nil
         onProgress = nil
         onEnded = nil
+        onFailure = nil
     }
 
     private func installPlaybackObserversIfNeeded() {
@@ -262,6 +275,20 @@ private final class DirectMediaPlaybackController: ObservableObject {
             ) { [weak self] _, _ in
                 Task { @MainActor [weak self] in
                     self?.updateNativePlaybackState()
+                }
+            }
+        }
+
+        if itemStatusObserver == nil, let currentItem = player.currentItem {
+            itemStatusObserver = currentItem.observe(
+                \.status,
+                options: [.initial, .new]
+            ) { [weak self] item, _ in
+                guard item.status == .failed else { return }
+                let message = item.error?.localizedDescription
+                    ?? "The video source could not be played."
+                Task { @MainActor [weak self] in
+                    self?.reportFailure(message)
                 }
             }
         }
@@ -288,6 +315,23 @@ private final class DirectMediaPlaybackController: ObservableObject {
                 }
             }
         }
+
+        if playbackFailedObserver == nil, let currentItem = player.currentItem {
+            playbackFailedObserver = NotificationCenter.default.addObserver(
+                forName: .AVPlayerItemFailedToPlayToEndTime,
+                object: currentItem,
+                queue: .main
+            ) { [weak self] notification in
+                let error = notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey]
+                    as? Error
+                Task { @MainActor [weak self] in
+                    self?.reportFailure(
+                        error?.localizedDescription
+                            ?? "The video source stopped before playback completed."
+                    )
+                }
+            }
+        }
     }
 
     private func removePlaybackObservers() {
@@ -295,10 +339,27 @@ private final class DirectMediaPlaybackController: ObservableObject {
         timeControlObserver = nil
         playbackRateObserver?.invalidate()
         playbackRateObserver = nil
+        itemStatusObserver?.invalidate()
+        itemStatusObserver = nil
         if let playbackEndObserver {
             NotificationCenter.default.removeObserver(playbackEndObserver)
             self.playbackEndObserver = nil
         }
+        if let playbackFailedObserver {
+            NotificationCenter.default.removeObserver(playbackFailedObserver)
+            self.playbackFailedObserver = nil
+        }
+    }
+
+    private func reportFailure(_ message: String) {
+        guard !hasReportedFailure else { return }
+        hasReportedFailure = true
+        if hasConfirmedPlayback {
+            report(time: player.currentTime(), force: true)
+        }
+        wasNativePlaybackActive = false
+        sleepController.stopAll()
+        onFailure?(message)
     }
 
     private func updateNativePlaybackState() {
@@ -367,6 +428,7 @@ private struct CaptionedMediaPlayer: View {
     let initialPosition: Double
     let onProgress: @MainActor @Sendable (MediaPlaybackSample) -> Void
     let onEnded: @MainActor @Sendable () -> Void
+    let onFailure: @MainActor @Sendable (String) -> Void
 
     @State private var phase: Phase = .loading
     @State private var attempt = 0
@@ -387,7 +449,10 @@ private struct CaptionedMediaPlayer: View {
                     initialPosition: initialPosition,
                     onProgress: onProgress,
                     onEnded: onEnded,
-                    onError: { phase = .failure($0) }
+                    onError: {
+                        phase = .failure($0)
+                        onFailure($0)
+                    }
                 )
             case .failure(let message):
                 PlayerFailureView(message: message) {
@@ -418,6 +483,7 @@ struct MediaWebPlayer: View {
     let initialPosition: Double
     let onProgress: @MainActor @Sendable (MediaPlaybackSample) -> Void
     let onEnded: @MainActor @Sendable () -> Void
+    let onFailure: @MainActor @Sendable (String) -> Void
 
     @State private var errorMessage: String?
     @State private var playerAttempt = 0
@@ -426,12 +492,14 @@ struct MediaWebPlayer: View {
         url: URL,
         initialPosition: Double = 0,
         onProgress: @escaping @MainActor @Sendable (MediaPlaybackSample) -> Void = { _ in },
-        onEnded: @escaping @MainActor @Sendable () -> Void = {}
+        onEnded: @escaping @MainActor @Sendable () -> Void = {},
+        onFailure: @escaping @MainActor @Sendable (String) -> Void = { _ in }
     ) {
         self.url = url
         self.initialPosition = initialPosition
         self.onProgress = onProgress
         self.onEnded = onEnded
+        self.onFailure = onFailure
     }
 
     var body: some View {
@@ -441,7 +509,10 @@ struct MediaWebPlayer: View {
                 initialPosition: initialPosition,
                 onProgress: onProgress,
                 onEnded: onEnded,
-                onError: { errorMessage = $0 }
+                onError: {
+                    errorMessage = $0
+                    onFailure($0)
+                }
             )
             .id(playerAttempt)
 
@@ -452,6 +523,51 @@ struct MediaWebPlayer: View {
                 }
             }
         }
+        .background(.black)
+    }
+}
+
+struct MovieFallbackPlayer: View {
+    let options: [MoviePlaybackOption]
+    let currentServerIndex: Int
+    let initialPosition: Double
+    let onProgress: @MainActor @Sendable (MediaPlaybackSample) -> Void
+    let onEnded: @MainActor @Sendable () -> Void
+    let onFailure: @MainActor @Sendable (MoviePlaybackOption, String) -> Void
+
+    var body: some View {
+        Group {
+            if options.indices.contains(currentServerIndex) {
+                let option = options[currentServerIndex]
+                switch option.kind {
+                case .direct:
+                    MediaDirectPlayer(
+                        url: option.url,
+                        initialPosition: initialPosition,
+                        onProgress: onProgress,
+                        onEnded: onEnded,
+                        onFailure: { onFailure(option, $0) }
+                    )
+                case .web:
+                    MediaWebPlayer(
+                        url: option.url,
+                        initialPosition: initialPosition,
+                        onProgress: onProgress,
+                        onEnded: onEnded,
+                        onFailure: { onFailure(option, $0) }
+                    )
+                }
+            } else {
+                ContentUnavailableView(
+                    "No video selected",
+                    systemImage: "play.rectangle",
+                    description: Text("Choose a playback source.")
+                )
+                .foregroundStyle(.white)
+            }
+        }
+        .id(options.indices.contains(currentServerIndex) ? options[currentServerIndex].id : "missing")
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.black)
     }
 }
@@ -779,7 +895,7 @@ private struct RestrictedMediaWebView: NSViewRepresentable {
 
     static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
         coordinator.flushLastProgress()
-        coordinator.stopPlaybackActivity()
+        coordinator.stop()
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
         webView.evaluateJavaScript(
@@ -808,6 +924,10 @@ private struct RestrictedMediaWebView: NSViewRepresentable {
         private let onError: @MainActor (String) -> Void
         private let sleepController = PlaybackSleepController()
         private var lastSample: MediaPlaybackSample?
+        private var loadTimeoutTask: Task<Void, Never>?
+        private var awaitsRemoteFrameResponse = false
+        private var isActive = false
+        private var hasReportedFailure = false
 
         init(
             initialURL: URL,
@@ -826,13 +946,17 @@ private struct RestrictedMediaWebView: NSViewRepresentable {
             stopPlaybackActivity()
             initialURL = url
             navigationState.reset(initialURL: url)
+            isActive = true
+            hasReportedFailure = false
+            awaitsRemoteFrameResponse = url.absoluteString.contains("2embed.cc/embed")
+            startLoadTimeout()
 
             guard MediaNavigationPolicy.isSecureRemoteURL(url) else {
                 report("This video source does not use a secure web address.")
                 return
             }
             // 2embed requires loading inside an iframe
-            if url.absoluteString.contains("2embed.cc/embed") {
+            if awaitsRemoteFrameResponse {
                 let html = """
                 <!DOCTYPE html><html><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">
                 <style>body{margin:0;padding:0;background:#000}iframe{width:100%;height:100vh;border:0}</style>
@@ -879,11 +1003,18 @@ private struct RestrictedMediaWebView: NSViewRepresentable {
                 decisionHandler(.cancel)
                 return
             }
+            if let response = navigationResponse.response as? HTTPURLResponse,
+               MediaNavigationPolicy.allowsHTTPStatus(response.statusCode) {
+                markResponsive()
+            }
             decisionHandler(.allow)
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             navigationState.markInitialNavigationFinished()
+            if !awaitsRemoteFrameResponse {
+                markResponsive()
+            }
         }
 
         func webView(
@@ -931,6 +1062,7 @@ private struct RestrictedMediaWebView: NSViewRepresentable {
             if type == "playback",
                let sourceID = payload["sourceID"] as? String,
                let isPlaying = payload["isPlaying"] as? Bool {
+                if isPlaying { markResponsive() }
                 sleepController.setPlaying(isPlaying, sourceID: sourceID)
                 return
             }
@@ -960,7 +1092,35 @@ private struct RestrictedMediaWebView: NSViewRepresentable {
             sleepController.stopAll()
         }
 
+        func stop() {
+            isActive = false
+            loadTimeoutTask?.cancel()
+            loadTimeoutTask = nil
+            stopPlaybackActivity()
+        }
+
+        private func startLoadTimeout() {
+            loadTimeoutTask?.cancel()
+            loadTimeoutTask = Task { @MainActor [weak self] in
+                do {
+                    try await Task.sleep(for: .seconds(5))
+                } catch {
+                    return
+                }
+                self?.report("The video source did not respond within 5 seconds.")
+            }
+        }
+
+        private func markResponsive() {
+            loadTimeoutTask?.cancel()
+            loadTimeoutTask = nil
+        }
+
         private func report(_ message: String) {
+            guard isActive, !hasReportedFailure else { return }
+            hasReportedFailure = true
+            loadTimeoutTask?.cancel()
+            loadTimeoutTask = nil
             stopPlaybackActivity()
             Task { @MainActor in onError(message) }
         }

@@ -206,13 +206,21 @@ struct MoviePlayerView: View {
             if store.playbackOptions.count > 1 {
                 Menu {
                     ForEach(store.playbackOptions) { option in
+                        let isActive = option == store.selectedPlaybackOption
+                        let hasFailed = store.isPlaybackOptionFailed(option)
                         Button {
                             store.choosePlaybackOption(option)
                         } label: {
-                            if option == store.selectedPlaybackOption {
-                                Label(option.title, systemImage: "checkmark")
-                            } else {
+                            HStack {
                                 Text(option.title)
+                                    .strikethrough(hasFailed)
+                                    .foregroundStyle(hasFailed ? .secondary : .primary)
+                                if hasFailed {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                }
+                                if isActive {
+                                    Image(systemName: "checkmark")
+                                }
                             }
                         }
                     }
@@ -250,43 +258,28 @@ struct MoviePlayerView: View {
                 ProgressView("Syncing your place…")
                     .tint(.white)
                     .foregroundStyle(.white)
-            } else if let option = store.selectedPlaybackOption,
+            } else if let currentServerIndex = store.currentServerIndex,
                       let playback = activePlayback,
                       let sessionID = activePlaybackSessionID {
-                switch option.kind {
-                case .direct:
-                    MediaDirectPlayer(
-                        url: option.url,
-                        initialPosition: playbackResumePosition,
-                        onProgress: { sample in
-                            Task {
-                                await model.recordMediaPlaybackSample(
-                                    playback,
-                                    sample: sample,
-                                    sessionID: sessionID
-                                )
-                            }
-                        },
-                        onEnded: autoplayNextEpisode
-                    )
-                    .id(option.id)
-                case .web:
-                    MediaWebPlayer(
-                        url: option.url,
-                        initialPosition: playbackResumePosition,
-                        onProgress: { sample in
-                            Task {
-                                await model.recordMediaPlaybackSample(
-                                    playback,
-                                    sample: sample,
-                                    sessionID: sessionID
-                                )
-                            }
-                        },
-                        onEnded: autoplayNextEpisode
-                    )
-                    .id(option.id)
-                }
+                MovieFallbackPlayer(
+                    options: store.playbackOptions,
+                    currentServerIndex: currentServerIndex,
+                    initialPosition: playbackResumePosition,
+                    onProgress: { sample in
+                        playbackResumePosition = sample.positionSeconds
+                        Task {
+                            await model.recordMediaPlaybackSample(
+                                playback,
+                                sample: sample,
+                                sessionID: sessionID
+                            )
+                        }
+                    },
+                    onEnded: autoplayNextEpisode,
+                    onFailure: { option, message in
+                        store.reportPlaybackFailure(for: option, message: message)
+                    }
+                )
             } else {
                 ContentUnavailableView(
                     "No video selected",

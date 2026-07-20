@@ -7,7 +7,9 @@ final class MoviePlayerStore: ObservableObject {
     @Published private(set) var episodes: [MovieEpisode] = []
     @Published private(set) var selectedEpisodeID: MovieEpisode.ID?
     @Published private(set) var playbackOptions: [MoviePlaybackOption] = []
-    @Published private(set) var selectedPlaybackOption: MoviePlaybackOption?
+    @Published private(set) var currentServerIndex: Int?
+    @Published private(set) var attemptedServerIndices: Set<Int> = []
+    @Published private(set) var failedServerIndices: Set<Int> = []
     @Published private(set) var isLoadingShow = false
     @Published private(set) var isLoadingStream = false
     @Published private(set) var showError: String?
@@ -24,6 +26,12 @@ final class MoviePlayerStore: ObservableObject {
 
     var selectedEpisode: MovieEpisode? {
         episodes.first { $0.id == selectedEpisodeID }
+    }
+
+    var selectedPlaybackOption: MoviePlaybackOption? {
+        guard let currentServerIndex,
+              playbackOptions.indices.contains(currentServerIndex) else { return nil }
+        return playbackOptions[currentServerIndex]
     }
 
     var previousEpisode: MovieEpisode? { adjacentEpisode(offset: -1) }
@@ -113,7 +121,9 @@ final class MoviePlayerStore: ObservableObject {
                 title: "Downloaded"
             )
             playbackOptions = [option]
-            selectedPlaybackOption = option
+            currentServerIndex = 0
+            attemptedServerIndices = [0]
+            failedServerIndices = []
             streamError = nil
             isLoadingStream = false
             return
@@ -121,7 +131,7 @@ final class MoviePlayerStore: ObservableObject {
 
         selectedEpisodeID = episode.id
         playbackOptions = []
-        selectedPlaybackOption = nil
+        resetServerAttempts()
         streamError = nil
         isLoadingStream = true
 
@@ -160,15 +170,44 @@ final class MoviePlayerStore: ObservableObject {
     }
 
     func choosePlaybackOption(_ option: MoviePlaybackOption) {
-        guard playbackOptions.contains(option) else { return }
-        selectedPlaybackOption = option
+        guard let index = playbackOptions.firstIndex(of: option) else { return }
+        currentServerIndex = index
+        attemptedServerIndices.insert(index)
+        failedServerIndices.remove(index)
+        streamError = nil
+    }
+
+    func reportPlaybackFailure(for option: MoviePlaybackOption, message: String) {
+        guard let index = currentServerIndex,
+              playbackOptions.indices.contains(index),
+              playbackOptions[index].id == option.id else { return }
+
+        attemptedServerIndices.insert(index)
+        failedServerIndices.insert(index)
+
+        if let nextIndex = playbackOptions.indices.first(where: {
+            $0 > index && !attemptedServerIndices.contains($0)
+        }) {
+            currentServerIndex = nextIndex
+            attemptedServerIndices.insert(nextIndex)
+            streamError = nil
+        } else {
+            streamError = "Every playback source failed. \(message)"
+        }
+    }
+
+    func isPlaybackOptionFailed(_ option: MoviePlaybackOption) -> Bool {
+        guard let index = playbackOptions.firstIndex(of: option) else { return false }
+        return failedServerIndices.contains(index)
     }
 
     private func setPlaybackOptions(from sources: [MovieStreamSource]) throws {
         let options = MoviePlaybackOption.options(from: sources)
         guard !options.isEmpty else { throw MovieAPIError.noPlaybackSource }
         playbackOptions = options
-        selectedPlaybackOption = MoviePlaybackOption.preferred(from: options)
+        currentServerIndex = options.startIndex
+        attemptedServerIndices = [options.startIndex]
+        failedServerIndices = []
         streamError = nil
     }
 
@@ -198,7 +237,9 @@ final class MoviePlayerStore: ObservableObject {
             title: "Downloaded"
         )
         playbackOptions = [option]
-        selectedPlaybackOption = option
+        currentServerIndex = 0
+        attemptedServerIndices = [0]
+        failedServerIndices = []
         isLoadingShow = false
         isLoadingStream = false
         return true
@@ -215,8 +256,14 @@ final class MoviePlayerStore: ObservableObject {
     private func resetPlayback() {
         selectedEpisodeID = nil
         playbackOptions = []
-        selectedPlaybackOption = nil
+        resetServerAttempts()
         isLoadingStream = false
         streamError = nil
+    }
+
+    private func resetServerAttempts() {
+        currentServerIndex = nil
+        attemptedServerIndices = []
+        failedServerIndices = []
     }
 }
