@@ -57,6 +57,7 @@ struct AsterionApp: App {
                 .environment(Clerk.shared)
                 .task { await model.start() }
         }
+        .defaultLaunchBehavior(.presented)
         .defaultSize(width: 1420, height: 780)
         .windowResizability(.contentMinSize)
         .commands {

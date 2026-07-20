@@ -16,12 +16,18 @@ struct ContentView: View {
     @State private var columnVisibility = NavigationSplitViewVisibility.all
     @State private var searchText = ""
     @State private var detailSelection: AppDetailSelection?
+    @State private var destinationHistory: [AppDestination] = []
 
     private var destination: Binding<AppDestination> {
         Binding(
             get: { AppDestination(rawValue: selectedDestinationRaw) ?? .home },
             set: { newValue in
-                guard newValue.rawValue != selectedDestinationRaw else { return }
+                let current = AppDestination(rawValue: selectedDestinationRaw) ?? .home
+                guard newValue != current else { return }
+                destinationHistory.append(current)
+                if destinationHistory.count > 40 {
+                    destinationHistory.removeFirst(destinationHistory.count - 40)
+                }
                 selectedDestinationRaw = newValue.rawValue
                 searchText = ""
                 detailSelection = nil
@@ -79,18 +85,31 @@ struct ContentView: View {
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
-            SidebarView(selection: destination)
-                .navigationSplitViewColumnWidth(min: 190, ideal: 224, max: 260)
+            SidebarView(
+                selection: destination,
+                searchText: $searchText
+            )
+            .navigationSplitViewColumnWidth(min: 190, ideal: 224, max: 260)
         } detail: {
-            mainContent
+            ZStack(alignment: .topLeading) {
+                mainContent
+                if canNavigateBack {
+                    Button {
+                        navigateBack()
+                    } label: {
+                        Image(systemName: "chevron.backward")
+                            .frame(width: 20, height: 20)
+                    }
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.circle)
+                    .keyboardShortcut("[", modifiers: .command)
+                    .help("Back")
+                    .accessibilityLabel("Back")
+                    .padding(12)
+                }
+            }
         }
         .navigationSplitViewStyle(.prominentDetail)
-        .catalogSearch(
-            text: $searchText,
-            prompt: searchPrompt,
-            isEnabled: searchIsEnabled
-        )
-        .toolbar { navigationToolbar }
         .toolbar(removing: .title)
         .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         .focusedSceneValue(\.asterionDestination, destination)
@@ -203,12 +222,11 @@ struct ContentView: View {
                 movieStore: movieStore,
                 footballStore: footballStore,
                 query: searchText,
+                contentLeadingInset: 0,
                 selectNovel: selectNovelDetail,
                 selectAnime: selectAnimeDetail,
                 selectMovie: selectMovieDetail,
-                selectFootball: selectFootballDetail,
-                showAccount: { destination.wrappedValue = .account },
-                showDownloads: { destination.wrappedValue = .downloads }
+                selectFootball: selectFootballDetail
             )
 
         case .novels:
@@ -381,90 +399,33 @@ struct ContentView: View {
         .background(.background)
     }
 
-    @ToolbarContentBuilder
-    private var navigationToolbar: some ToolbarContent {
-        if showsRefreshAction {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    Task { await refreshActiveCatalog() }
-                } label: {
-                    Label(refreshTitle, systemImage: "arrow.clockwise")
-                }
-                .help(refreshTitle)
-            }
-        }
-
-        ToolbarSpacer(.fixed)
-
-        if destination.wrappedValue != .account {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    destination.wrappedValue = .account
-                } label: {
-                    Label("Account", systemImage: "person.crop.circle")
-                }
-                .help("Account")
-            }
-        }
-    }
-
-    private var searchIsEnabled: Bool {
-        destination.wrappedValue != .downloads && destination.wrappedValue != .account
-    }
-
-    private var searchPrompt: String {
-        switch destination.wrappedValue {
-        case .home: "Search all of Asterion"
-        case .novels: "Search titles, authors, or genres"
-        case .anime: "Search anime"
-        case .movies: "Search movies and TV shows"
-        case .football: "Search teams or competitions"
-        case .continueActivity: "Search in-progress titles"
-        case .bookmarks: "Search bookmarks"
-        case .history: "Search history"
-        case .downloads: "Downloads"
-        case .account: "Account"
-        }
-    }
-
-    private var refreshTitle: String {
-        switch destination.wrappedValue {
-        case .home: "Refresh Home"
-        case .novels: "Refresh Novels"
-        case .anime: "Refresh Anime"
-        case .movies: "Refresh Movies"
-        case .football: "Refresh Football"
-        default: "Refresh"
-        }
-    }
-
-    private var showsRefreshAction: Bool {
-        switch destination.wrappedValue {
-        case .home, .novels, .anime, .movies, .football:
-            true
+    private var canNavigateBack: Bool {
+        let canCloseDetail: Bool = switch destination.wrappedValue {
+        case .home, .continueActivity, .bookmarks, .history:
+            detailSelection != nil
         default:
             false
         }
+        return canCloseDetail || !destinationHistory.isEmpty
     }
 
-    private func refreshActiveCatalog() async {
+    private func navigateBack() {
         switch destination.wrappedValue {
-        case .home:
-            async let catalog: Void = model.loadCatalog()
-            async let anime: Void = animeStore.refreshHome()
-            async let movies: Void = movieStore.refreshHome()
-            async let football: Void = footballStore.refresh(section: .live)
-            _ = await (catalog, anime, movies, football)
-        case .novels:
-            await model.loadCatalog()
-        case .anime:
-            await animeStore.refresh(section: animeSection.wrappedValue, query: searchText)
-        case .movies:
-            await movieStore.refresh(section: movieSection.wrappedValue, query: searchText)
-        case .football:
-            await footballStore.refresh(section: footballSection.wrappedValue)
+        case .home, .continueActivity, .bookmarks, .history:
+            if detailSelection != nil {
+                detailSelection = nil
+                return
+            }
         default:
             break
+        }
+
+        guard let previous = destinationHistory.popLast() else { return }
+        selectedDestinationRaw = previous.rawValue
+        searchText = ""
+        detailSelection = nil
+        if previous == .novels {
+            ensureNovelSelection()
         }
     }
 
@@ -609,15 +570,4 @@ private enum AppDetailSelection {
     case football
     case loading(String)
     case unavailable(title: String, message: String)
-}
-
-private extension View {
-    @ViewBuilder
-    func catalogSearch(text: Binding<String>, prompt: String, isEnabled: Bool) -> some View {
-        if isEnabled {
-            searchable(text: text, prompt: prompt)
-        } else {
-            self
-        }
-    }
 }

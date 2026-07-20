@@ -1,10 +1,26 @@
-import AppKit
 import SwiftUI
 
 struct SidebarView: View {
     @EnvironmentObject private var model: AppModel
-    @EnvironmentObject private var mediaDownloads: MediaDownloadManager
+
     @Binding var selection: AppDestination
+    @Binding var searchText: String
+    @FocusState private var searchIsFocused: Bool
+
+    private let primaryDestinations: [AppDestination] = [
+        .home,
+        .novels,
+        .anime,
+        .movies,
+        .football,
+    ]
+
+    private let libraryDestinations: [AppDestination] = [
+        .continueActivity,
+        .bookmarks,
+        .downloads,
+        .history,
+    ]
 
     private var listSelection: Binding<AppDestination?> {
         Binding(
@@ -16,142 +32,128 @@ struct SidebarView: View {
         )
     }
 
+    private var canSearchSelection: Bool {
+        selection != .downloads && selection != .account
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            brand
-                .padding(.horizontal, 14)
-                .padding(.top, 16)
-                .padding(.bottom, 12)
+        List(selection: listSelection) {
+            searchRow
+                .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 8, trailing: 8))
 
-            List(selection: listSelection) {
-                Label(AppDestination.home.title, systemImage: AppDestination.home.systemImage)
-                    .tag(AppDestination.home)
-                    .help("Home")
+            ForEach(primaryDestinations, id: \.self) { destination in
+                destinationRow(destination)
+            }
 
-                Section("Browse") {
-                    destinationRow(.novels)
-                    destinationRow(.anime)
-                    destinationRow(.movies)
-                    destinationRow(.football)
-                }
-
-                Section("Your Asterion") {
-                    destinationRow(.continueActivity, count: continueCount)
-                    destinationRow(.bookmarks, count: bookmarkCount)
-                    destinationRow(.downloads, count: completedDownloadCount)
-                    destinationRow(.history, count: historyCount)
+            Section("Library") {
+                ForEach(libraryDestinations, id: \.self) { destination in
+                    destinationRow(destination)
                 }
             }
-            .listStyle(.sidebar)
-            .scrollContentBackground(.hidden)
-
-            Divider()
-
-            VStack(spacing: 4) {
-                Button {
-                    selection = .account
-                } label: {
-                    footerLabel("Account", systemImage: "person.crop.circle")
-                }
-                .buttonStyle(.plain)
-                .modifier(SelectedSidebarFooter(isSelected: selection == .account))
-                .help("Account")
-
-                SettingsLink {
-                    footerLabel("Settings", systemImage: "gearshape")
-                }
-                .buttonStyle(.plain)
-                .help("Settings")
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 10)
         }
-        .navigationTitle("Asterion")
+        .listStyle(.sidebar)
+        .scrollIndicators(.hidden)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            VStack(spacing: 0) {
+                Divider()
+                accountButton
+                    .padding(8)
+            }
+        }
     }
 
-    private func destinationRow(
-        _ destination: AppDestination,
-        count: Int? = nil
-    ) -> some View {
-        HStack(spacing: 8) {
-            Label(destination.title, systemImage: destination.systemImage)
-            Spacer(minLength: 8)
-            if let count, count > 0 {
-                Text(count, format: .number)
-                    .font(.caption.monospacedDigit())
+    @ViewBuilder
+    private var searchRow: some View {
+        if canSearchSelection {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
                     .foregroundStyle(.secondary)
+                    .frame(width: 16)
+
+                TextField("Search", text: $searchText)
+                    .textFieldStyle(.plain)
+                    .focused($searchIsFocused)
+
+                if !searchText.isEmpty {
+                    Button {
+                        searchText = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Clear search")
+                    .accessibilityLabel("Clear search")
+                }
             }
+            .frame(minHeight: 24)
+        } else {
+            Button {
+                selection = .home
+                Task { @MainActor in
+                    await Task.yield()
+                    searchIsFocused = true
+                }
+            } label: {
+                Label("Search", systemImage: "magnifyingglass")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Search Asterion")
         }
-        .tag(destination)
-        .help(destination.title)
     }
 
-    private func footerLabel(_ title: String, systemImage: String) -> some View {
-        Label(title, systemImage: systemImage)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 7)
+    private func destinationRow(_ destination: AppDestination) -> some View {
+        Label(destination.title, systemImage: destination.systemImage)
+            .tag(destination)
+            .help(destination.title)
+    }
+
+    private var accountButton: some View {
+        let isSelected = selection == .account
+
+        return Button {
+            selection = .account
+        } label: {
+            HStack(spacing: 9) {
+                SidebarAccountAvatar(user: model.signedInUser, size: 26)
+                Text(model.signedInUser?.name ?? "Account")
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 8)
+            .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
+            .background {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(.primary.opacity(isSelected ? 0.10 : 0))
+            }
             .contentShape(Rectangle())
-    }
-
-    private var continueCount: Int {
-        model.continueReadingEntries.count + model.continueWatching.count
-    }
-
-    private var bookmarkCount: Int {
-        model.libraryNovelIDs.count + model.mediaBookmarks.count
-    }
-
-    private var completedDownloadCount: Int {
-        model.offlineDownloads.count { $0.phase == .completed }
-            + mediaDownloads.completedCount
-    }
-
-    private var historyCount: Int {
-        model.continueReadingEntries.count + model.mediaHistory.count
-    }
-
-    private var brand: some View {
-        HStack(alignment: .center, spacing: 9) {
-            logoMark
-                .resizable()
-                .scaledToFit()
-                .frame(width: 24, height: 31)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("ASTERION")
-                    .font(.asterionDisplay(16, weight: .semibold))
-                    .tracking(2.3)
-                    .lineLimit(1)
-                Text("Stories that transcend time.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
         }
-        .accessibilityElement(children: .combine)
-    }
-
-    private var logoMark: Image {
-        guard let url = Bundle.module.url(
-            forResource: "AsterionMark",
-            withExtension: "png"
-        ), let image = NSImage(contentsOf: url) else {
-            preconditionFailure("Missing Asterion logo mark")
-        }
-        return Image(nsImage: image)
+        .buttonStyle(.plain)
+        .help("Account")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 
-private struct SelectedSidebarFooter: ViewModifier {
-    let isSelected: Bool
+private struct SidebarAccountAvatar: View {
+    let user: AppModel.SignedInUser?
+    let size: CGFloat
 
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        if isSelected {
-            content.glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 8))
-        } else {
-            content
+    var body: some View {
+        AsyncImage(url: user?.imageURL) { phase in
+            if case .success(let image) = phase {
+                image
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                Image(systemName: "person.crop.circle.fill")
+                    .resizable()
+                    .foregroundStyle(.secondary)
+            }
         }
+        .frame(width: size, height: size)
+        .clipShape(Circle())
+        .accessibilityHidden(true)
     }
 }

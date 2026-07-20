@@ -2,7 +2,6 @@ import SwiftUI
 
 struct HomeDashboardView: View {
     @EnvironmentObject private var model: AppModel
-    @EnvironmentObject private var mediaDownloads: MediaDownloadManager
     @Environment(\.openWindow) private var openWindow
 
     @ObservedObject var animeStore: AnimeStore
@@ -10,12 +9,11 @@ struct HomeDashboardView: View {
     @ObservedObject var footballStore: FootballStore
 
     let query: String
+    let contentLeadingInset: CGFloat
     let selectNovel: (Novel) -> Void
     let selectAnime: (AnimeTitle) -> Void
     let selectMovie: (MovieTitle) -> Void
     let selectFootball: (FootballMatch) -> Void
-    let showAccount: () -> Void
-    let showDownloads: () -> Void
 
     private var normalizedQuery: String {
         query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -61,18 +59,45 @@ struct HomeDashboardView: View {
                 searchResults
             }
         }
-        .background(.background)
-        .navigationTitle("Home")
+        .padding(.leading, contentLeadingInset)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background {
+            homeBackdrop
+                .backgroundExtensionEffect(isEnabled: normalizedQuery.isEmpty)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
         .task(id: normalizedQuery) {
             await loadContent()
         }
     }
 
+    @ViewBuilder
+    private var homeBackdrop: some View {
+        if normalizedQuery.isEmpty, let url = resumeItems.first?.imageURL ?? freshItems.first?.imageURL {
+            AsyncImage(url: url) { phase in
+                if case .success(let image) = phase {
+                    image
+                        .resizable()
+                        .scaledToFill()
+                        .blur(radius: 64)
+                        .scaleEffect(1.16)
+                        .opacity(0.24)
+                        .overlay(Color.asterionBackground.opacity(0.82))
+                } else {
+                    Color.asterionBackground
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .clipped()
+        } else {
+            Color.asterionBackground
+        }
+    }
+
     private var dashboard: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 34) {
-                homeHeader
-
+            VStack(alignment: .leading, spacing: 38) {
                 if let first = resumeItems.first {
                     ResumeSpotlight(item: first) { resume(first) }
                 } else {
@@ -90,7 +115,6 @@ struct HomeDashboardView: View {
                 if !animeStore.seasonalTitles.isEmpty {
                     posterShelf(
                         title: animeStore.season.title,
-                        subtitle: "Anime airing in the current season.",
                         items: animeStore.seasonalTitles.map(HomeCatalogItem.anime)
                     )
                 }
@@ -98,50 +122,17 @@ struct HomeDashboardView: View {
                 if !freshItems.isEmpty {
                     posterShelf(
                         title: "Fresh across Asterion",
-                        subtitle: "New anime, trending movies, and standout novels.",
                         items: freshItems
                     )
                 }
 
-                activityOverview
                 serviceNotices
             }
-            .frame(maxWidth: 1_180, alignment: .leading)
-            .padding(.horizontal, 32)
-            .padding(.top, 26)
+            .padding(.top, 18)
             .padding(.bottom, 56)
             .frame(maxWidth: .infinity, alignment: .top)
         }
         .hidingScrollIndicators()
-    }
-
-    private var homeHeader: some View {
-        HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(greeting)
-                    .font(.asterionDisplay(30, weight: .semibold))
-                    .foregroundStyle(Color.asterionText)
-                Text("Your stories, screens, and live matches in one place.")
-                    .font(.callout)
-                    .foregroundStyle(Color.asterionMuted)
-            }
-            Spacer()
-            Text(Date.now.formatted(.dateTime.weekday(.wide).month(.wide).day()))
-                .font(.asterionMono(11, weight: .semibold))
-                .tracking(0.8)
-                .foregroundStyle(Color.asterionMuted)
-                .textCase(.uppercase)
-        }
-    }
-
-    private var greeting: String {
-        guard let name = model.signedInUser?.name
-            .split(separator: " ")
-            .first
-            .map(String.init), !name.isEmpty else {
-            return "Welcome to Asterion"
-        }
-        return "Welcome back, \(name)"
     }
 
     private var welcomeSpotlight: some View {
@@ -188,83 +179,50 @@ struct HomeDashboardView: View {
     }
 
     private var continueShelf: some View {
-        HomeSection(title: "Continue", subtitle: "Pick up exactly where you stopped.") {
-            ScrollView(.horizontal) {
-                LazyHStack(alignment: .top, spacing: 18) {
-                    ForEach(resumeItems) { item in
-                        HomeContinueCard(item: item) { resume(item) }
-                    }
+        HomeSection(title: "Continue") {
+            HomePagedShelf(
+                items: resumeItems,
+                itemWidth: 294,
+                spacing: 18,
+                height: 172,
+                card: { item in
+                    HomeContinueCard(item: item) { resume(item) }
+                        .padding(.vertical, 3)
                 }
-                .padding(.vertical, 3)
-            }
-            .scrollIndicators(.hidden)
+            )
         }
     }
 
     private var liveShelf: some View {
-        HomeSection(title: "Live now", subtitle: "Matches currently in play.") {
-            ScrollView(.horizontal) {
-                LazyHStack(spacing: 14) {
-                    ForEach(liveMatches) { match in
-                        HomeMatchCard(match: match) { selectFootball(match) }
-                    }
+        HomeSection(title: "Live now") {
+            HomePagedShelf(
+                items: liveMatches,
+                itemWidth: 330,
+                spacing: 14,
+                height: 180,
+                card: { match in
+                    HomeMatchCard(match: match) { selectFootball(match) }
+                        .padding(.vertical, 3)
                 }
-                .padding(.vertical, 3)
-            }
-            .scrollIndicators(.hidden)
+            )
         }
     }
 
     private func posterShelf(
         title: String,
-        subtitle: String,
         items: [HomeCatalogItem]
     ) -> some View {
-        HomeSection(title: title, subtitle: subtitle) {
-            ScrollView(.horizontal) {
-                LazyHStack(alignment: .top, spacing: 18) {
-                    ForEach(items) { item in
-                        HomePosterCard(item: item) { select(item) }
-                    }
+        HomeSection(title: title) {
+            HomePagedShelf(
+                items: items,
+                itemWidth: 190,
+                spacing: 18,
+                height: 276,
+                card: { item in
+                    HomePosterCard(item: item) { select(item) }
+                        .padding(.vertical, 3)
                 }
-                .padding(.vertical, 3)
-            }
-            .scrollIndicators(.hidden)
-        }
-    }
-
-    private var activityOverview: some View {
-        HomeSection(title: "Your Asterion", subtitle: "A quick look at your library and activity.") {
-            LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: 190, maximum: 260), spacing: 14)],
-                spacing: 14
-            ) {
-                HomeMetricCard(
-                    value: model.libraryNovelIDs.count + model.mediaBookmarks.count,
-                    label: "Saved titles",
-                    systemImage: "bookmark.fill",
-                    action: showAccount
-                )
-                HomeMetricCard(
-                    value: model.offlineDownloads.count { $0.phase == .completed }
-                        + mediaDownloads.completedCount,
-                    label: "Downloads",
-                    systemImage: "arrow.down.circle.fill",
-                    action: showDownloads
-                )
-                HomeMetricCard(
-                    value: resumeItems.count,
-                    label: "In progress",
-                    systemImage: "play.circle.fill",
-                    action: showAccount
-                )
-                HomeMetricCard(
-                    value: model.mediaStats.activityLast30Days,
-                    label: "Watched recently",
-                    systemImage: "calendar.badge.clock",
-                    action: showAccount
-                )
-            }
+            )
         }
     }
 
@@ -334,8 +292,6 @@ struct HomeDashboardView: View {
 
                         serviceNotices
                     }
-                    .frame(maxWidth: 1_180, alignment: .leading)
-                    .padding(.horizontal, 32)
                     .padding(.top, 26)
                     .padding(.bottom, 56)
                     .frame(maxWidth: .infinity, alignment: .top)
@@ -435,4 +391,3 @@ struct HomeDashboardView: View {
         }
     }
 }
-

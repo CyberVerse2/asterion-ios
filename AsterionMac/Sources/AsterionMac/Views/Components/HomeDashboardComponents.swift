@@ -138,12 +138,12 @@ enum HomeCatalogItem: Identifiable {
 
 struct HomeSection<Content: View>: View {
     let title: String
-    let subtitle: String
+    let subtitle: String?
     @ViewBuilder let content: () -> Content
 
     init(
         title: String,
-        subtitle: String,
+        subtitle: String? = nil,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.title = title
@@ -152,17 +152,100 @@ struct HomeSection<Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
-                    .font(.asterionDisplay(22, weight: .semibold))
+                    .font(.asterionDisplay(24, weight: .semibold))
                     .foregroundStyle(Color.asterionText)
-                Text(subtitle)
-                    .font(.callout)
-                    .foregroundStyle(Color.asterionMuted)
+                if let subtitle, !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.callout)
+                        .foregroundStyle(Color.asterionMuted)
+                }
             }
+            .padding(.leading, 24)
             content()
         }
+    }
+}
+
+struct HomePagedShelf<Item: Identifiable, Card: View>: View {
+    let items: [Item]
+    let itemWidth: CGFloat
+    let spacing: CGFloat
+    let height: CGFloat
+    @ViewBuilder let card: (Item) -> Card
+
+    @State private var firstVisibleIndex = 0
+
+    var body: some View {
+        GeometryReader { geometry in
+            let visibleCount = max(
+                1,
+                Int((geometry.size.width + spacing) / (itemWidth + spacing))
+            )
+            let maximumIndex = max(0, items.count - visibleCount)
+            let currentIndex = min(firstVisibleIndex, maximumIndex)
+
+            ZStack {
+                HStack(alignment: .top, spacing: spacing) {
+                    ForEach(items) { item in
+                        card(item)
+                    }
+                }
+                .frame(height: height, alignment: .top)
+                .offset(x: -CGFloat(currentIndex) * (itemWidth + spacing))
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                if currentIndex > 0 {
+                    shelfButton(systemImage: "chevron.left") {
+                        move(
+                            to: max(0, currentIndex - max(1, visibleCount - 1))
+                        )
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.leading, 10)
+                }
+
+                if currentIndex < maximumIndex {
+                    shelfButton(systemImage: "chevron.right") {
+                        move(
+                            to: min(
+                                maximumIndex,
+                                currentIndex + max(1, visibleCount - 1)
+                            )
+                        )
+                    }
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .padding(.trailing, 10)
+                }
+            }
+            .clipped()
+            .onChange(of: items.count) {
+                firstVisibleIndex = min(firstVisibleIndex, maximumIndex)
+            }
+        }
+        .frame(height: height)
+    }
+
+    private func move(to index: Int) {
+        withAnimation(.snappy(duration: 0.28)) {
+            firstVisibleIndex = index
+        }
+    }
+
+    private func shelfButton(
+        systemImage: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.headline.weight(.semibold))
+                .frame(width: 34, height: 34)
+        }
+        .buttonStyle(.glass)
+        .buttonBorderShape(.circle)
+        .accessibilityLabel(systemImage == "chevron.left" ? "Previous titles" : "More titles")
     }
 }
 
@@ -219,15 +302,16 @@ struct ResumeSpotlight: View {
                     .tint(.asterionAccent)
                     .padding(.top, 4)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: 620, alignment: .leading)
 
+                Spacer(minLength: 20)
                 MediaCoverView(url: item.imageURL, width: 142, height: 202)
                     .shadow(color: .black.opacity(0.35), radius: 16, y: 8)
                     .accessibilityHidden(true)
             }
             .padding(26)
         }
-        .frame(maxWidth: .infinity, minHeight: 250, maxHeight: 250)
+        .frame(maxWidth: .infinity, minHeight: 272, maxHeight: 272)
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
@@ -244,27 +328,54 @@ struct HomeContinueCard: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(alignment: .leading, spacing: 8) {
-                MediaCoverView(url: item.imageURL, width: 108, height: 154)
-                Text(item.title)
-                    .font(.asterionDisplay(14, weight: .medium))
-                    .foregroundStyle(Color.asterionText)
-                    .lineLimit(2)
-                    .frame(width: 116, alignment: .leading)
-                Text(item.subtitle)
-                    .font(.caption)
-                    .foregroundStyle(Color.asterionMuted)
-                    .lineLimit(1)
-                    .frame(width: 116, alignment: .leading)
-                Text(item.kindTitle)
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(Color.asterionAccent)
-                    .lineLimit(1)
-                ProgressView(value: min(100, max(0, item.percentage)), total: 100)
-                    .tint(Color.asterionAccent)
-                    .frame(width: 116)
+            ZStack(alignment: .bottomLeading) {
+                AsyncImage(url: item.imageURL) { phase in
+                    if case .success(let image) = phase {
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    } else {
+                        Color.asterionCard
+                    }
+                }
+                .frame(width: 294, height: 166)
+                .clipped()
+
+                LinearGradient(
+                    colors: [.clear, .black.opacity(0.22), .black.opacity(0.94)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(item.title)
+                        .font(.asterionDisplay(18, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(2)
+                    HStack(spacing: 6) {
+                        Image(systemName: item.systemImage)
+                            .font(.caption.weight(.bold))
+                        Text(item.subtitle)
+                            .lineLimit(1)
+                        Spacer(minLength: 6)
+                        Text("\(Int(item.percentage.rounded()))%")
+                            .monospacedDigit()
+                    }
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.white.opacity(0.82))
+
+                    ProgressView(value: min(100, max(0, item.percentage)), total: 100)
+                        .tint(Color.asterionAccent)
+                }
+                .padding(14)
             }
-            .contentShape(Rectangle())
+            .frame(width: 294, height: 166)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(.white.opacity(0.10))
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .buttonStyle(.plain)
         .asterionHoverLift()
@@ -278,30 +389,52 @@ struct HomePosterCard: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(alignment: .leading, spacing: 8) {
-                ZStack(alignment: .bottomLeading) {
-                    MediaCoverView(url: item.imageURL, width: 118, height: 168)
+            ZStack(alignment: .bottomLeading) {
+                AsyncImage(url: item.imageURL) { phase in
+                    if case .success(let image) = phase {
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    } else {
+                        Color.asterionCard
+                    }
+                }
+                .frame(width: 190, height: 270)
+                .clipped()
+
+                LinearGradient(
+                    colors: [.clear, .black.opacity(0.12), .black.opacity(0.92)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+
+                VStack(alignment: .leading, spacing: 5) {
                     Text(item.badge)
                         .font(.asterionMono(8, weight: .bold))
                         .tracking(0.8)
                         .foregroundStyle(.white)
                         .padding(.horizontal, 7)
                         .padding(.vertical, 4)
-                        .background(Color.asterionAccent, in: Capsule())
-                        .padding(7)
+                        .background(.ultraThinMaterial, in: Capsule())
+
+                    Text(item.title)
+                        .font(.asterionDisplay(17, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(2)
+                    Text(item.subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.74))
+                        .lineLimit(1)
                 }
-                Text(item.title)
-                    .font(.asterionDisplay(14, weight: .medium))
-                    .foregroundStyle(Color.asterionText)
-                    .lineLimit(2)
-                    .frame(width: 126, alignment: .leading)
-                Text(item.subtitle)
-                    .font(.caption2)
-                    .foregroundStyle(Color.asterionMuted)
-                    .lineLimit(1)
-                    .frame(width: 126, alignment: .leading)
+                .padding(14)
             }
-            .contentShape(Rectangle())
+            .frame(width: 190, height: 270)
+            .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 15, style: .continuous)
+                    .stroke(.white.opacity(0.10))
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
         }
         .buttonStyle(.plain)
         .asterionHoverLift()
@@ -316,81 +449,59 @@ struct HomeMatchCard: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 14) {
-                FootballBadgeView(team: match.homeTeam, size: 34)
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 7) {
-                        Text(match.isLive ? "LIVE" : match.kickoff.formatted(date: .omitted, time: .shortened))
-                            .font(.asterionMono(9, weight: .bold))
-                            .tracking(0.8)
-                            .foregroundStyle(match.isLive ? Color.asterionAccent : Color.asterionMuted)
-                        Text(match.category)
-                            .font(.caption2)
-                            .foregroundStyle(Color.asterionMuted)
-                            .lineLimit(1)
+            ZStack(alignment: .bottomLeading) {
+                AsyncImage(url: match.posterURL) { phase in
+                    if case .success(let image) = phase {
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    } else {
+                        Color.asterionCard
                     }
-                    Text(match.displayTitle)
-                        .font(.asterionDisplay(15, weight: .semibold))
-                        .foregroundStyle(Color.asterionText)
-                        .lineLimit(1)
                 }
-                Spacer(minLength: 10)
-                FootballBadgeView(team: match.awayTeam, size: 34)
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(Color.asterionMuted)
+                .frame(width: 330, height: 174)
+                .clipped()
+
+                LinearGradient(
+                    colors: [.black.opacity(0.08), .black.opacity(0.88)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+
+                HStack(spacing: 12) {
+                    FootballBadgeView(team: match.homeTeam, size: 38)
+
+                    VStack(alignment: .leading, spacing: 5) {
+                        HStack(spacing: 7) {
+                            Text(match.isLive ? "LIVE" : match.kickoff.formatted(date: .omitted, time: .shortened))
+                                .font(.asterionMono(9, weight: .bold))
+                                .tracking(0.8)
+                                .foregroundStyle(match.isLive ? Color.asterionAccent : .white.opacity(0.72))
+                            Text(match.category)
+                                .font(.caption2)
+                                .foregroundStyle(.white.opacity(0.68))
+                                .lineLimit(1)
+                        }
+                        Text(match.displayTitle)
+                            .font(.asterionDisplay(17, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .lineLimit(2)
+                    }
+
+                    Spacer(minLength: 8)
+                    FootballBadgeView(team: match.awayTeam, size: 38)
+                }
+                .padding(16)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 13)
-            .frame(width: 360, alignment: .leading)
-            .background(Color.asterionCard, in: RoundedRectangle(cornerRadius: 13))
+            .frame(width: 330, height: 174)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 13)
-                    .stroke(.white.opacity(0.08))
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(.white.opacity(0.10))
             }
         }
         .buttonStyle(.plain)
         .asterionHoverLift()
         .help("Open \(match.displayTitle)")
-    }
-}
-
-struct HomeMetricCard: View {
-    let value: Int
-    let label: String
-    let systemImage: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 14) {
-                Image(systemName: systemImage)
-                    .font(.title2)
-                    .foregroundStyle(Color.asterionAccent)
-                    .frame(width: 30)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(value, format: .number)
-                        .font(.asterionDisplay(22, weight: .semibold))
-                        .foregroundStyle(Color.asterionText)
-                    Text(label)
-                        .font(.caption)
-                        .foregroundStyle(Color.asterionMuted)
-                }
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(Color.asterionMuted)
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.asterionCard, in: RoundedRectangle(cornerRadius: 13))
-            .overlay {
-                RoundedRectangle(cornerRadius: 13)
-                    .stroke(.white.opacity(0.08))
-            }
-        }
-        .buttonStyle(.plain)
-        .asterionHoverLift()
-        .accessibilityLabel("\(value) \(label)")
     }
 }
