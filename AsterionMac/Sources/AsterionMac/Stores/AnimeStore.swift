@@ -456,8 +456,6 @@ final class AnimeStore: ObservableObject {
             return try await api.fetchStatus("finished-airing", page: page)
         case .schedule:
             return []
-        case .bookmarks:
-            return []
         }
     }
 

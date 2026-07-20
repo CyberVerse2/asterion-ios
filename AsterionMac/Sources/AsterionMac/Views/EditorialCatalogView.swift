@@ -147,18 +147,9 @@ struct EditorialCatalogView: View {
 
     private var emptyState: some View {
         ContentUnavailableView {
-            Label(
-                section == .library ? "Your library is empty" : "No novels found",
-                systemImage: section == .library ? "books.vertical" : "magnifyingglass"
-            )
+            Label("No novels found", systemImage: "magnifyingglass")
         } description: {
-            if section == .library, !model.isSignedIn {
-                Text("Sign in from Account to sync your library.")
-            } else if section == .library {
-                Text("Save a novel from its detail page and it will appear here.")
-            } else {
-                Text("Try a different title, author, or genre.")
-            }
+            Text("Try a different title, author, or genre.")
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.background)

@@ -1,11 +1,16 @@
 import Foundation
 
-enum AppMode: String, CaseIterable, Codable, Hashable, Sendable {
+enum AppDestination: String, CaseIterable, Codable, Hashable, Sendable {
     case home
     case novels
     case anime
     case movies
     case football
+    case continueActivity
+    case bookmarks
+    case downloads
+    case history
+    case account
 
     var title: String {
         switch self {
@@ -14,6 +19,26 @@ enum AppMode: String, CaseIterable, Codable, Hashable, Sendable {
         case .anime: "Anime"
         case .movies: "Movies"
         case .football: "Football"
+        case .continueActivity: "Continue"
+        case .bookmarks: "Bookmarks"
+        case .downloads: "Downloads"
+        case .history: "History"
+        case .account: "Account"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .home: "house.fill"
+        case .novels: "books.vertical.fill"
+        case .anime: "play.rectangle.on.rectangle.fill"
+        case .movies: "film.stack.fill"
+        case .football: "sportscourt.fill"
+        case .continueActivity: "play.circle.fill"
+        case .bookmarks: "bookmark.fill"
+        case .downloads: "arrow.down.circle.fill"
+        case .history: "clock.arrow.circlepath"
+        case .account: "person.crop.circle"
         }
     }
 }
@@ -24,7 +49,6 @@ enum MovieSection: String, CaseIterable, Codable, Hashable, Sendable {
     case tvShows
     case popular
     case genres
-    case bookmarks
 
     var title: String {
         switch self {
@@ -33,7 +57,6 @@ enum MovieSection: String, CaseIterable, Codable, Hashable, Sendable {
         case .tvShows: "TV Shows"
         case .popular: "Popular"
         case .genres: "Genres"
-        case .bookmarks: "Bookmarks"
         }
     }
 
@@ -44,7 +67,6 @@ enum MovieSection: String, CaseIterable, Codable, Hashable, Sendable {
         case .tvShows: "tv"
         case .popular: "flame"
         case .genres: "square.grid.2x2"
-        case .bookmarks: "bookmark.fill"
         }
     }
 
@@ -55,7 +77,6 @@ enum MovieSection: String, CaseIterable, Codable, Hashable, Sendable {
         case .tvShows: "TV shows"
         case .popular: "Most popular"
         case .genres: "Browse by genre"
-        case .bookmarks: "Your bookmarks"
         }
     }
 
@@ -66,7 +87,6 @@ enum MovieSection: String, CaseIterable, Codable, Hashable, Sendable {
         case .tvShows: "Series organized by season and episode."
         case .popular: "The movies audiences return to most."
         case .genres: "Choose a shelf for your next watch."
-        case .bookmarks: "Movies and TV shows saved to your account."
         }
     }
 }
@@ -74,13 +94,11 @@ enum MovieSection: String, CaseIterable, Codable, Hashable, Sendable {
 enum AppSection: String, CaseIterable, Codable, Hashable, Sendable {
     case discover
     case rankings
-    case library
 
     var title: String {
         switch self {
         case .discover: "Discover"
         case .rankings: "Rankings"
-        case .library: "Library"
         }
     }
 
@@ -88,7 +106,6 @@ enum AppSection: String, CaseIterable, Codable, Hashable, Sendable {
         switch self {
         case .discover: "sparkles"
         case .rankings: "crown"
-        case .library: "books.vertical"
         }
     }
 }
@@ -104,7 +121,6 @@ enum AnimeSection: String, CaseIterable, Codable, Hashable, Sendable {
     case ongoing
     case completed
     case schedule
-    case bookmarks
 
     var title: String {
         switch self {
@@ -118,7 +134,6 @@ enum AnimeSection: String, CaseIterable, Codable, Hashable, Sendable {
         case .ongoing: "Ongoing"
         case .completed: "Completed"
         case .schedule: "Schedule"
-        case .bookmarks: "Bookmarks"
         }
     }
 
@@ -134,7 +149,6 @@ enum AnimeSection: String, CaseIterable, Codable, Hashable, Sendable {
         case .ongoing: "dot.radiowaves.left.and.right"
         case .completed: "checkmark.circle"
         case .schedule: "calendar"
-        case .bookmarks: "bookmark.fill"
         }
     }
 
@@ -150,7 +164,6 @@ enum AnimeSection: String, CaseIterable, Codable, Hashable, Sendable {
         case .ongoing: "Currently airing"
         case .completed: "Completed anime"
         case .schedule: "Release schedule"
-        case .bookmarks: "Your bookmarks"
         }
     }
 
@@ -166,7 +179,6 @@ enum AnimeSection: String, CaseIterable, Codable, Hashable, Sendable {
         case .ongoing: "Anime currently releasing new episodes."
         case .completed: "Finished series and films ready to watch through."
         case .schedule: "This week's release times in your timezone."
-        case .bookmarks: "Anime saved to your account."
         }
     }
 }

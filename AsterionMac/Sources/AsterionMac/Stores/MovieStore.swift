@@ -261,8 +261,6 @@ final class MovieStore: ObservableObject {
             loadedRequestKey = "\(section.rawValue):\(selectedGenre.slug)"
             let pageTitles = try await api.fetchGenre(selectedGenre.slug, page: page)
             return (pageTitles, !pageTitles.isEmpty)
-        case .bookmarks:
-            return ([], false)
         }
     }
 

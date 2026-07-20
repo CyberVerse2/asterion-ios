@@ -3,39 +3,31 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var mediaDownloads: MediaDownloadManager
-    @SceneStorage("selectedMode") private var selectedModeRaw = AppMode.home.rawValue
+
+    @SceneStorage("selectedDestination") private var selectedDestinationRaw = AppDestination.home.rawValue
     @SceneStorage("selectedSection") private var selectedSectionRaw = AppSection.discover.rawValue
     @SceneStorage("selectedAnimeSection") private var selectedAnimeSectionRaw = AnimeSection.discover.rawValue
     @SceneStorage("selectedMovieSection") private var selectedMovieSectionRaw = MovieSection.discover.rawValue
     @SceneStorage("selectedFootballSection") private var selectedFootballSectionRaw = FootballSection.live.rawValue
     @SceneStorage("selectedNovelID") private var selectedNovelID = ""
-    @SceneStorage("showsAccount") private var showsAccount = false
-    @SceneStorage("showsDownloadLibrary") private var showsDownloadLibrary = false
+
     @StateObject private var animeStore = AnimeStore()
     @StateObject private var movieStore = MovieStore()
     @StateObject private var footballStore = FootballStore()
     @State private var columnVisibility = NavigationSplitViewVisibility.all
     @State private var searchText = ""
-    @State private var showsDownloadPopover = false
-    @State private var selectedAnimeBookmarkID: String?
-    @State private var selectedMovieBookmarkID: String?
-    @State private var homeDetailSelection: HomeDetailSelection?
+    @State private var detailSelection: AppDetailSelection?
 
-    private var mode: Binding<AppMode> {
+    private var destination: Binding<AppDestination> {
         Binding(
-            get: { AppMode(rawValue: selectedModeRaw) ?? .home },
+            get: { AppDestination(rawValue: selectedDestinationRaw) ?? .home },
             set: { newValue in
-                selectedModeRaw = newValue.rawValue
-                showsAccount = false
-                showsDownloadLibrary = false
+                guard newValue.rawValue != selectedDestinationRaw else { return }
+                selectedDestinationRaw = newValue.rawValue
                 searchText = ""
-                if newValue == .anime, animeSection.wrappedValue == .bookmarks {
-                    selectedAnimeBookmarkID = nil
-                } else if newValue == .movies, movieSection.wrappedValue == .bookmarks {
-                    selectedMovieBookmarkID = nil
-                }
+                detailSelection = nil
                 if newValue == .novels {
-                    ensureSelection()
+                    ensureNovelSelection()
                 }
             }
         )
@@ -46,8 +38,6 @@ struct ContentView: View {
             get: { AppSection(rawValue: selectedSectionRaw) ?? .discover },
             set: { newValue in
                 selectedSectionRaw = newValue.rawValue
-                showsAccount = false
-                showsDownloadLibrary = false
                 searchText = ""
                 selectFirstNovel(in: newValue)
             }
@@ -59,12 +49,7 @@ struct ContentView: View {
             get: { AnimeSection(rawValue: selectedAnimeSectionRaw) ?? .discover },
             set: { newValue in
                 selectedAnimeSectionRaw = newValue.rawValue
-                showsAccount = false
-                showsDownloadLibrary = false
                 searchText = ""
-                if newValue == .bookmarks {
-                    selectedAnimeBookmarkID = nil
-                }
             }
         )
     }
@@ -74,12 +59,7 @@ struct ContentView: View {
             get: { MovieSection(rawValue: selectedMovieSectionRaw) ?? .discover },
             set: { newValue in
                 selectedMovieSectionRaw = newValue.rawValue
-                showsAccount = false
-                showsDownloadLibrary = false
                 searchText = ""
-                if newValue == .bookmarks {
-                    selectedMovieBookmarkID = nil
-                }
             }
         )
     }
@@ -89,8 +69,6 @@ struct ContentView: View {
             get: { FootballSection(rawValue: selectedFootballSectionRaw) ?? .live },
             set: { newValue in
                 selectedFootballSectionRaw = newValue.rawValue
-                showsAccount = false
-                showsDownloadLibrary = false
                 searchText = ""
             }
         )
@@ -100,97 +78,74 @@ struct ContentView: View {
         model.novel(id: selectedNovelID)
     }
 
-    private var accountVisibility: Binding<Bool> {
-        Binding(
-            get: { showsAccount },
-            set: { isVisible in
-                showsAccount = isVisible
-                if isVisible { showsDownloadLibrary = false }
-            }
-        )
-    }
-
     private var activeDownloadCount: Int {
         model.offlineDownloads.count(where: \.isDownloading) + mediaDownloads.activeCount
     }
 
     var body: some View {
-        navigationContent
-        .onAppear {
-            if mode.wrappedValue == .novels, selectedNovelID.isEmpty {
-                selectFirstNovel(in: section.wrappedValue)
-            } else if mode.wrappedValue == .novels {
-                ensureSelection()
-            }
-        }
-        .onChange(of: model.novels) {
-            if mode.wrappedValue == .novels {
-                ensureSelection()
-            }
-        }
-        .onChange(of: model.libraryNovelIDs) {
-            guard section.wrappedValue == .library else { return }
-            ensureSelection()
-        }
-        .onChange(of: selectedSectionRaw) {
-            if mode.wrappedValue == .novels {
-                selectFirstNovel(in: section.wrappedValue)
-            }
-        }
-        .onChange(of: selectedModeRaw) {
-            if mode.wrappedValue == .novels {
-                ensureSelection()
-            }
-        }
-        .onChange(of: searchText) {
-            if mode.wrappedValue == .novels, !showsAccount, !showsDownloadLibrary {
-                ensureSelection()
-            }
-        }
-    }
-
-    private var navigationContent: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
-            SidebarView(
-                mode: mode.wrappedValue,
-                novelSelection: section,
-                animeSelection: animeSection,
-                movieSelection: movieSection,
-                footballSelection: footballSection,
-                showsAccount: accountVisibility,
-                showsDownloads: $showsDownloadLibrary
-            )
-                .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 260)
+            SidebarView(selection: destination)
+                .navigationSplitViewColumnWidth(min: 190, ideal: 224, max: 260)
         } detail: {
-            responsiveContentColumns
+            mainContent
         }
         .navigationSplitViewStyle(.prominentDetail)
         .catalogSearch(
             text: $searchText,
             prompt: searchPrompt,
-            isEnabled: !showsAccount && !showsDownloadLibrary
+            isEnabled: searchIsEnabled
         )
-        .toolbar {
-            navigationToolbar
-        }
+        .toolbar { navigationToolbar }
+        .focusedSceneValue(\.asterionDestination, destination)
         .focusedSceneValue(\.asterionSection, section)
-        .focusedSceneValue(\.asterionMode, mode)
         .focusedSceneValue(\.asterionAnimeSection, animeSection)
         .focusedSceneValue(\.asterionMovieSection, movieSection)
         .focusedSceneValue(\.asterionFootballSection, footballSection)
-        .focusedSceneValue(\.asterionShowsAccount, accountVisibility)
         .tint(.asterionAccent)
         .frame(minWidth: 1_040, minHeight: 640)
+        .onAppear {
+            if destination.wrappedValue == .novels, selectedNovelID.isEmpty {
+                selectFirstNovel(in: section.wrappedValue)
+            }
+        }
+        .onChange(of: model.novels) {
+            if destination.wrappedValue == .novels {
+                ensureNovelSelection()
+            }
+        }
+        .onChange(of: selectedSectionRaw) {
+            if destination.wrappedValue == .novels {
+                selectFirstNovel(in: section.wrappedValue)
+            }
+        }
+        .onChange(of: searchText) {
+            if destination.wrappedValue == .novels {
+                ensureNovelSelection()
+            }
+        }
     }
 
-    private var responsiveContentColumns: some View {
+    private var mainContent: some View {
+        VStack(spacing: 0) {
+            if showsCatalogContextBar {
+                CatalogContextBar(
+                    animeStore: animeStore,
+                    movieStore: movieStore,
+                    destination: destination.wrappedValue,
+                    novelSection: section,
+                    animeSection: animeSection,
+                    movieSection: movieSection,
+                    footballSection: footballSection
+                )
+            }
+
+            responsiveContent
+        }
+    }
+
+    private var responsiveContent: some View {
         Group {
-            if mode.wrappedValue == .home,
-               !showsAccount,
-               !showsDownloadLibrary,
-               homeDetailSelection == nil {
-                homeCatalog
-            } else {
+            if usesDetailPane {
                 GeometryReader { geometry in
                     let dividerWidth = 1.0
                     let availableWidth = max(0, geometry.size.width - dividerWidth)
@@ -201,25 +156,13 @@ struct ContentView: View {
                     )
 
                     HStack(spacing: 0) {
-                        Group {
-                            if mode.wrappedValue == .home, !showsAccount, !showsDownloadLibrary {
-                                homeCatalog
-                            } else {
-                                catalogColumn
-                            }
-                        }
+                        primaryColumn
                             .frame(width: availableWidth - detailWidth)
 
                         Divider()
                             .frame(width: dividerWidth)
 
-                        Group {
-                            if mode.wrappedValue == .home, !showsAccount, !showsDownloadLibrary {
-                                homeDetailColumn
-                            } else {
-                                detailColumn
-                            }
-                        }
+                        detailColumn
                             .frame(width: detailWidth)
                     }
                     .frame(
@@ -228,35 +171,150 @@ struct ContentView: View {
                         alignment: .leading
                     )
                 }
+            } else {
+                primaryColumn
             }
         }
     }
 
-    private var homeCatalog: some View {
-        HomeDashboardView(
-            animeStore: animeStore,
-            movieStore: movieStore,
-            footballStore: footballStore,
-            query: searchText,
-            selectNovel: showNovelFromHome,
-            selectAnime: showAnimeFromHome,
-            selectMovie: showMovieFromHome,
-            selectFootball: showFootballFromHome,
-            showAccount: { showsAccount = true },
-            showDownloads: { showsDownloadLibrary = true }
-        )
+    private var usesDetailPane: Bool {
+        switch destination.wrappedValue {
+        case .home, .continueActivity, .bookmarks, .history:
+            detailSelection != nil
+        case .novels, .anime, .movies, .football, .account:
+            true
+        case .downloads:
+            false
+        }
+    }
+
+    private var showsCatalogContextBar: Bool {
+        switch destination.wrappedValue {
+        case .novels, .anime, .movies, .football:
+            true
+        default:
+            false
+        }
     }
 
     @ViewBuilder
-    private var homeDetailColumn: some View {
+    private var primaryColumn: some View {
+        switch destination.wrappedValue {
+        case .home:
+            HomeDashboardView(
+                animeStore: animeStore,
+                movieStore: movieStore,
+                footballStore: footballStore,
+                query: searchText,
+                selectNovel: selectNovelDetail,
+                selectAnime: selectAnimeDetail,
+                selectMovie: selectMovieDetail,
+                selectFootball: selectFootballDetail,
+                showAccount: { destination.wrappedValue = .account },
+                showDownloads: { destination.wrappedValue = .downloads }
+            )
+
+        case .novels:
+            EditorialCatalogView(
+                section: section.wrappedValue,
+                novels: model.novels(for: section.wrappedValue, search: searchText),
+                isSearching: !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                selectedNovelID: $selectedNovelID
+            )
+            .id(section.wrappedValue)
+
+        case .anime:
+            AnimeCatalogView(
+                store: animeStore,
+                section: animeSection.wrappedValue,
+                query: searchText
+            )
+
+        case .movies:
+            MovieCatalogView(
+                store: movieStore,
+                section: movieSection.wrappedValue,
+                query: searchText
+            )
+
+        case .football:
+            FootballCatalogView(
+                store: footballStore,
+                section: footballSection.wrappedValue,
+                query: searchText
+            )
+
+        case .continueActivity:
+            UnifiedActivityView(
+                mode: .continueActivity,
+                query: searchText,
+                selectReading: { selectNovelDetail($0.novel) },
+                selectProgress: selectProgressDetail,
+                selectHistory: selectHistoryDetail
+            )
+
+        case .bookmarks:
+            UnifiedBookmarksView(
+                query: searchText,
+                selectNovel: selectNovelDetail,
+                selectMedia: selectBookmarkDetail
+            )
+
+        case .downloads:
+            DownloadCenterView(presentation: .library)
+
+        case .history:
+            UnifiedActivityView(
+                mode: .history,
+                query: searchText,
+                selectReading: { selectNovelDetail($0.novel) },
+                selectProgress: selectProgressDetail,
+                selectHistory: selectHistoryDetail
+            )
+
+        case .account:
+            AccountSummaryView()
+        }
+    }
+
+    @ViewBuilder
+    private var detailColumn: some View {
+        switch destination.wrappedValue {
+        case .home, .continueActivity, .bookmarks, .history:
+            selectedGlobalDetail
+        case .novels:
+            if let selectedNovel {
+                NovelDetailView(novel: selectedNovel)
+                    .id(selectedNovel.id)
+            } else {
+                novelDetailPlaceholder
+            }
+        case .anime:
+            AnimeDetailView(store: animeStore)
+        case .movies:
+            MovieDetailView(store: movieStore)
+        case .football:
+            FootballDetailView(store: footballStore)
+        case .account:
+            AccountView()
+        case .downloads:
+            EmptyView()
+        }
+    }
+
+    @ViewBuilder
+    private var selectedGlobalDetail: some View {
         Group {
-            switch homeDetailSelection {
+            switch detailSelection {
             case .novel(let novelID):
                 if let novel = model.novel(id: novelID) {
                     NovelDetailView(novel: novel)
                         .id(novel.id)
                 } else {
-                    homeDetailUnavailable
+                    detailUnavailable(
+                        title: "Novel unavailable",
+                        message: "This novel is no longer in the current catalog."
+                    )
                 }
             case .anime:
                 AnimeDetailView(store: animeStore)
@@ -264,13 +322,21 @@ struct ContentView: View {
                 MovieDetailView(store: movieStore)
             case .football:
                 FootballDetailView(store: footballStore)
+            case .loading(let title):
+                ProgressView("Loading \(title)…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .unavailable(let title, let message):
+                detailUnavailable(title: title, message: message)
             case nil:
-                homeDetailUnavailable
+                detailUnavailable(
+                    title: "Select something",
+                    message: "Choose a title or match to see its details."
+                )
             }
         }
         .overlay(alignment: .topTrailing) {
             Button {
-                homeDetailSelection = nil
+                detailSelection = nil
             } label: {
                 Image(systemName: "xmark")
                     .frame(width: 20, height: 20)
@@ -284,12 +350,36 @@ struct ContentView: View {
         }
     }
 
-    private var homeDetailUnavailable: some View {
+    private func detailUnavailable(title: String, message: String) -> some View {
         ContentUnavailableView(
-            "Select something",
+            title,
             systemImage: "sidebar.right",
-            description: Text("Choose a title or match from Home to see its details.")
+            description: Text(message)
         )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(.background)
+    }
+
+    private var novelDetailPlaceholder: some View {
+        Group {
+            if model.isLoadingCatalog {
+                ProgressView("Loading the Asterion catalog…")
+            } else if let error = model.catalogError {
+                ContentUnavailableView {
+                    Label("Catalog unavailable", systemImage: "wifi.exclamationmark")
+                } description: {
+                    Text(error)
+                } actions: {
+                    Button("Try Again") { Task { await model.loadCatalog() } }
+                }
+            } else {
+                ContentUnavailableView(
+                    "Select a novel",
+                    systemImage: "book.closed",
+                    description: Text("Choose a title from the catalog.")
+                )
+            }
+        }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.background)
     }
@@ -297,9 +387,8 @@ struct ContentView: View {
     @ToolbarContentBuilder
     private var navigationToolbar: some ToolbarContent {
         ToolbarItem(placement: .principal) {
-            ContentModePicker(selection: mode)
-                .frame(width: 450)
-                .help("Switch between Home, novels, anime, movies, and football")
+            Text(destination.wrappedValue.title)
+                .font(.headline)
         }
         .sharedBackgroundVisibility(.hidden)
 
@@ -314,185 +403,202 @@ struct ContentView: View {
             }
         }
 
-        if !showsAccount && !showsDownloadLibrary {
-            ToolbarSpacer(.fixed)
+        ToolbarSpacer(.fixed)
 
+        if destination.wrappedValue != .downloads {
             ToolbarItem(placement: .primaryAction) {
                 Button {
-                    showsDownloadPopover.toggle()
+                    destination.wrappedValue = .downloads
                 } label: {
-                    Label("Downloads", systemImage: activeDownloadCount > 0 ? "arrow.down.circle.fill" : "arrow.down.circle")
+                    Label(
+                        "Downloads",
+                        systemImage: activeDownloadCount > 0
+                            ? "arrow.down.circle.fill"
+                            : "arrow.down.circle"
+                    )
                 }
                 .badge(activeDownloadCount)
                 .help("Downloads")
-                .popover(isPresented: $showsDownloadPopover, arrowEdge: .top) {
-                    DownloadCenterView()
-                        .environmentObject(model)
-                        .environmentObject(mediaDownloads)
+            }
+        }
+
+        if destination.wrappedValue != .account {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    destination.wrappedValue = .account
+                } label: {
+                    Label("Account", systemImage: "person.crop.circle")
                 }
+                .help("Account")
             }
         }
     }
 
-    @ViewBuilder
-    private var catalogColumn: some View {
-        if showsDownloadLibrary {
-            DownloadCenterView(presentation: .library)
-        } else if showsAccount {
-            AccountSummaryView()
-        } else if mode.wrappedValue == .anime, animeSection.wrappedValue == .bookmarks {
-            SavedMediaCatalogView(
-                mediaType: .anime,
-                bookmarks: bookmarks(for: .anime),
-                query: searchText,
-                isSignedIn: model.isSignedIn,
-                selectedContentID: selectedAnimeBookmarkID,
-                select: selectAnimeBookmark
-            )
-        } else if mode.wrappedValue == .anime {
-            AnimeCatalogView(
-                store: animeStore,
-                section: animeSection.wrappedValue,
-                query: searchText
-            )
-        } else if mode.wrappedValue == .movies, movieSection.wrappedValue == .bookmarks {
-            SavedMediaCatalogView(
-                mediaType: .movie,
-                bookmarks: bookmarks(for: .movie),
-                query: searchText,
-                isSignedIn: model.isSignedIn,
-                selectedContentID: selectedMovieBookmarkID,
-                select: selectMovieBookmark
-            )
-        } else if mode.wrappedValue == .movies {
-            MovieCatalogView(
-                store: movieStore,
-                section: movieSection.wrappedValue,
-                query: searchText
-            )
-        } else if mode.wrappedValue == .football {
-            FootballCatalogView(
-                store: footballStore,
-                section: footballSection.wrappedValue,
-                query: searchText
-            )
-        } else {
-            EditorialCatalogView(
-                section: section.wrappedValue,
-                novels: model.novels(for: section.wrappedValue, search: searchText),
-                isSearching: !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                selectedNovelID: $selectedNovelID
-            )
-            .id(section.wrappedValue)
-        }
-    }
-
-    @ViewBuilder
-    private var detailColumn: some View {
-        if showsDownloadLibrary {
-            downloadedLibraryDetailPlaceholder
-        } else if showsAccount {
-            AccountView()
-        } else if mode.wrappedValue == .anime,
-           animeSection.wrappedValue == .bookmarks,
-           !hasSelectedBookmark(for: .anime, contentID: selectedAnimeBookmarkID) {
-            savedMediaDetailPlaceholder(for: .anime)
-        } else if mode.wrappedValue == .anime {
-            AnimeDetailView(store: animeStore)
-        } else if mode.wrappedValue == .movies,
-                  movieSection.wrappedValue == .bookmarks,
-                  !hasSelectedBookmark(for: .movie, contentID: selectedMovieBookmarkID) {
-            savedMediaDetailPlaceholder(for: .movie)
-        } else if mode.wrappedValue == .movies {
-            MovieDetailView(store: movieStore)
-        } else if mode.wrappedValue == .football {
-            FootballDetailView(store: footballStore)
-        } else if let selectedNovel {
-            NovelDetailView(novel: selectedNovel)
-                .id(selectedNovel.id)
-        } else {
-            detailPlaceholder
-        }
+    private var searchIsEnabled: Bool {
+        destination.wrappedValue != .downloads && destination.wrappedValue != .account
     }
 
     private var searchPrompt: String {
-        switch mode.wrappedValue {
+        switch destination.wrappedValue {
         case .home: "Search all of Asterion"
         case .novels: "Search titles, authors, or genres"
-        case .anime:
-            animeSection.wrappedValue == .bookmarks ? "Search saved anime" : "Search anime"
-        case .movies:
-            movieSection.wrappedValue == .bookmarks
-                ? "Search saved movies and TV shows"
-                : "Search movies and TV shows"
+        case .anime: "Search anime"
+        case .movies: "Search movies and TV shows"
         case .football: "Search teams or competitions"
+        case .continueActivity: "Search in-progress titles"
+        case .bookmarks: "Search bookmarks"
+        case .history: "Search history"
+        case .downloads: "Downloads"
+        case .account: "Account"
         }
     }
 
     private var refreshTitle: String {
-        switch mode.wrappedValue {
+        switch destination.wrappedValue {
         case .home: "Refresh Home"
-        case .novels: "Refresh Catalog"
+        case .novels: "Refresh Novels"
         case .anime: "Refresh Anime"
         case .movies: "Refresh Movies"
         case .football: "Refresh Football"
+        default: "Refresh"
         }
     }
 
     private var showsRefreshAction: Bool {
-        guard !showsAccount, !showsDownloadLibrary else { return false }
-        return switch mode.wrappedValue {
-        case .home:
+        switch destination.wrappedValue {
+        case .home, .novels, .anime, .movies, .football:
             true
-        case .novels:
-            true
-        case .anime:
-            animeSection.wrappedValue != .bookmarks
-        case .movies:
-            movieSection.wrappedValue != .bookmarks
-        case .football:
-            true
+        default:
+            false
         }
     }
 
-    private var detailPlaceholder: some View {
-        Group {
-            if model.isLoadingCatalog {
-                ProgressView("Loading the Asterion catalog…")
-            } else if let error = model.catalogError {
-                ContentUnavailableView {
-                    Label("Catalog unavailable", systemImage: "wifi.exclamationmark")
-                } description: {
-                    Text(error)
-                } actions: {
-                    Button("Try Again") { Task { await model.loadCatalog() } }
-                }
-            } else if section.wrappedValue == .library, !model.isSignedIn {
-                ContentUnavailableView(
-                    "Sign in to view your library",
-                    systemImage: "person.crop.circle.badge.questionmark",
-                    description: Text("Choose Account in the sidebar to sign in.")
+    private func refreshActiveCatalog() async {
+        switch destination.wrappedValue {
+        case .home:
+            async let catalog: Void = model.loadCatalog()
+            async let anime: Void = animeStore.refreshHome()
+            async let movies: Void = movieStore.refreshHome()
+            async let football: Void = footballStore.refresh(section: .live)
+            _ = await (catalog, anime, movies, football)
+        case .novels:
+            await model.loadCatalog()
+        case .anime:
+            await animeStore.refresh(section: animeSection.wrappedValue, query: searchText)
+        case .movies:
+            await movieStore.refresh(section: movieSection.wrappedValue, query: searchText)
+        case .football:
+            await footballStore.refresh(section: footballSection.wrappedValue)
+        default:
+            break
+        }
+    }
+
+    private func selectNovelDetail(_ novel: Novel) {
+        detailSelection = .novel(novel.id)
+    }
+
+    private func selectAnimeDetail(_ title: AnimeTitle) {
+        animeStore.selectFromDashboard(title)
+        detailSelection = .anime
+    }
+
+    private func selectMovieDetail(_ title: MovieTitle) {
+        movieStore.selectFromDashboard(title)
+        detailSelection = .movie
+    }
+
+    private func selectFootballDetail(_ match: FootballMatch) {
+        footballStore.select(match)
+        detailSelection = .football
+    }
+
+    private func selectBookmarkDetail(_ bookmark: MediaBookmark) {
+        selectMediaDetail(
+            mediaType: bookmark.mediaType,
+            contentID: bookmark.contentId,
+            title: bookmark.title,
+            subtitle: bookmark.subtitle,
+            imageURL: bookmark.imageURL
+        )
+    }
+
+    private func selectProgressDetail(_ progress: MediaPlaybackProgress) {
+        selectMediaDetail(
+            mediaType: progress.mediaType,
+            contentID: progress.contentId,
+            title: progress.title,
+            subtitle: progress.seasonNumber == nil ? nil : "TV Series",
+            imageURL: progress.imageURL
+        )
+    }
+
+    private func selectHistoryDetail(_ history: MediaHistoryEntry) {
+        selectMediaDetail(
+            mediaType: history.mediaType,
+            contentID: history.contentId,
+            title: history.title,
+            subtitle: history.seasonNumber == nil ? nil : "TV Series",
+            imageURL: history.imageURL
+        )
+    }
+
+    private func selectMediaDetail(
+        mediaType: MediaAccountType,
+        contentID: String,
+        title: String,
+        subtitle: String?,
+        imageURL: URL?
+    ) {
+        switch mediaType {
+        case .anime:
+            selectAnimeDetail(
+                AnimeTitle(
+                    slug: contentID,
+                    title: title,
+                    japaneseTitle: nil,
+                    imageURL: imageURL,
+                    type: subtitle,
+                    episodeLabel: nil
                 )
+            )
+        case .movie:
+            selectMovieDetail(
+                MovieTitle(
+                    id: contentID,
+                    slug: contentID,
+                    title: title,
+                    imageURL: imageURL,
+                    imdbRating: nil,
+                    runtime: nil,
+                    year: nil,
+                    type: subtitle == "TV Series" ? "tv" : "movie",
+                    quality: nil
+                )
+            )
+        case .football:
+            loadFootballDetail(contentID: contentID, title: title)
+        }
+    }
+
+    private func loadFootballDetail(contentID: String, title: String) {
+        if let match = footballStore.matches.first(where: { $0.id == contentID }) {
+            selectFootballDetail(match)
+            return
+        }
+
+        detailSelection = .loading(title)
+        Task { @MainActor in
+            await footballStore.load(section: .live)
+            if let match = footballStore.matches.first(where: { $0.id == contentID }) {
+                selectFootballDetail(match)
             } else {
-                ContentUnavailableView(
-                    "Select a novel",
-                    systemImage: "book.closed",
-                    description: Text("Choose a title from the middle column.")
+                detailSelection = .unavailable(
+                    title: "Match unavailable",
+                    message: "This match is no longer in the current live feed."
                 )
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.background)
-    }
-
-    private var downloadedLibraryDetailPlaceholder: some View {
-        ContentUnavailableView(
-            "Your offline library",
-            systemImage: "arrow.down.circle.fill",
-            description: Text("Choose Read or Play beside a downloaded title to open it offline.")
-        )
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.background)
     }
 
     private func selectFirstNovel(in section: AppSection) {
@@ -503,7 +609,7 @@ struct ContentView: View {
         }
     }
 
-    private func ensureSelection() {
+    private func ensureNovelSelection() {
         let visible = model.novels(for: section.wrappedValue, search: searchText)
         let visibleIDs: Set<String>
         if section.wrappedValue == .discover, searchText.isEmpty {
@@ -520,123 +626,15 @@ struct ContentView: View {
             selectFirstNovel(in: section.wrappedValue)
         }
     }
-
-    private func refreshActiveCatalog() async {
-        guard !showsAccount, !showsDownloadLibrary else { return }
-        switch mode.wrappedValue {
-        case .home:
-            async let catalog: Void = model.loadCatalog()
-            async let anime: Void = animeStore.refreshHome()
-            async let movies: Void = movieStore.refreshHome()
-            async let football: Void = footballStore.refresh(section: .live)
-            _ = await (catalog, anime, movies, football)
-        case .novels:
-            await model.loadCatalog()
-        case .anime:
-            guard animeSection.wrappedValue != .bookmarks else { return }
-            await animeStore.refresh(
-                section: animeSection.wrappedValue,
-                query: searchText
-            )
-        case .movies:
-            guard movieSection.wrappedValue != .bookmarks else { return }
-            await movieStore.refresh(
-                section: movieSection.wrappedValue,
-                query: searchText
-            )
-        case .football:
-            await footballStore.refresh(section: footballSection.wrappedValue)
-        }
-    }
-
-    private func showNovelFromHome(_ novel: Novel) {
-        homeDetailSelection = .novel(novel.id)
-    }
-
-    private func showAnimeFromHome(_ title: AnimeTitle) {
-        animeStore.selectFromDashboard(title)
-        homeDetailSelection = .anime(title.id)
-    }
-
-    private func showMovieFromHome(_ title: MovieTitle) {
-        movieStore.selectFromDashboard(title)
-        homeDetailSelection = .movie(title.id)
-    }
-
-    private func showFootballFromHome(_ match: FootballMatch) {
-        footballStore.select(match)
-        homeDetailSelection = .football(match.id)
-    }
-
-    private func bookmarks(for mediaType: MediaAccountType) -> [MediaBookmark] {
-        model.mediaBookmarks
-            .filter { $0.mediaType == mediaType }
-            .sorted { $0.updatedAt > $1.updatedAt }
-    }
-
-    private func hasSelectedBookmark(
-        for mediaType: MediaAccountType,
-        contentID: String?
-    ) -> Bool {
-        guard let contentID else { return false }
-        return model.mediaBookmarks.contains {
-            $0.mediaType == mediaType && $0.contentId == contentID
-        }
-    }
-
-    @MainActor
-    private func selectAnimeBookmark(_ bookmark: MediaBookmark) async {
-        selectedAnimeBookmarkID = bookmark.contentId
-        await animeStore.select(
-            AnimeTitle(
-                slug: bookmark.contentId,
-                title: bookmark.title,
-                japaneseTitle: nil,
-                imageURL: bookmark.imageURL,
-                type: bookmark.subtitle,
-                episodeLabel: nil
-            )
-        )
-    }
-
-    @MainActor
-    private func selectMovieBookmark(_ bookmark: MediaBookmark) async {
-        selectedMovieBookmarkID = bookmark.contentId
-        await movieStore.select(
-            MovieTitle(
-                id: bookmark.contentId,
-                slug: bookmark.contentId,
-                title: bookmark.title,
-                imageURL: bookmark.imageURL,
-                imdbRating: nil,
-                runtime: nil,
-                year: nil,
-                type: bookmark.subtitle == "TV Series" ? "tv" : "movie",
-                quality: nil
-            )
-        )
-    }
-
-    private func savedMediaDetailPlaceholder(for mediaType: MediaAccountType) -> some View {
-        ContentUnavailableView(
-            model.isSignedIn ? "Select a bookmark" : "Sign in to view bookmarks",
-            systemImage: model.isSignedIn ? "bookmark" : "person.crop.circle.badge.questionmark",
-            description: Text(
-                model.isSignedIn
-                    ? "Choose a saved \(mediaType == .anime ? "anime" : "movie or TV show") from the middle column."
-                    : "Your bookmarks follow your Asterion account."
-            )
-        )
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.background)
-    }
 }
 
-private enum HomeDetailSelection: Equatable {
+private enum AppDetailSelection {
     case novel(String)
-    case anime(String)
-    case movie(String)
-    case football(String)
+    case anime
+    case movie
+    case football
+    case loading(String)
+    case unavailable(title: String, message: String)
 }
 
 private extension View {

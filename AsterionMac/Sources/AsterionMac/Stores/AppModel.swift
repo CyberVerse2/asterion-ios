@@ -257,9 +257,6 @@ final class AppModel: ObservableObject {
                 }
                 return $0.numericRank < $1.numericRank
             }
-        case .library:
-            source = novels.filter { libraryNovelIDs.contains($0.id) || downloadedNovelIDs.contains($0.id) }
-                .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
         }
 
         let query = search.trimmingCharacters(in: .whitespacesAndNewlines)

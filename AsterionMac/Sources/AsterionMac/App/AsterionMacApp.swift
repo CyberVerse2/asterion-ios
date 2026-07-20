@@ -177,89 +177,70 @@ private enum AsterionMediaWindowPlacement {
 }
 
 struct AsterionNavigationCommands: Commands {
-    @FocusedBinding(\.asterionMode) private var mode
+    @FocusedBinding(\.asterionDestination) private var destination
     @FocusedBinding(\.asterionSection) private var section
     @FocusedBinding(\.asterionAnimeSection) private var animeSection
     @FocusedBinding(\.asterionMovieSection) private var movieSection
     @FocusedBinding(\.asterionFootballSection) private var footballSection
-    @FocusedBinding(\.asterionShowsAccount) private var showsAccount
 
     var body: some Commands {
         CommandMenu("Navigate") {
-            Button("Home") {
-                mode = .home
-                showsAccount = false
-            }
+            Button("Home") { destination = .home }
                 .keyboardShortcut("1", modifiers: [.command, .option])
-                .disabled(mode == nil)
-            Button("Novels") {
-                mode = .novels
-                showsAccount = false
-            }
+                .disabled(destination == nil)
+            Button("Novels") { destination = .novels }
                 .keyboardShortcut("2", modifiers: [.command, .option])
-                .disabled(mode == nil)
-            Button("Anime") {
-                mode = .anime
-                showsAccount = false
-            }
+                .disabled(destination == nil)
+            Button("Anime") { destination = .anime }
                 .keyboardShortcut("3", modifiers: [.command, .option])
-                .disabled(mode == nil)
-            Button("Movies") {
-                mode = .movies
-                showsAccount = false
-            }
+                .disabled(destination == nil)
+            Button("Movies") { destination = .movies }
                 .keyboardShortcut("4", modifiers: [.command, .option])
-                .disabled(mode == nil)
-            Button("Football") {
-                mode = .football
-                showsAccount = false
-            }
+                .disabled(destination == nil)
+            Button("Football") { destination = .football }
                 .keyboardShortcut("5", modifiers: [.command, .option])
-                .disabled(mode == nil)
+                .disabled(destination == nil)
+            Button("Continue") { destination = .continueActivity }
+                .keyboardShortcut("6", modifiers: [.command, .option])
+                .disabled(destination == nil)
+            Button("Bookmarks") { destination = .bookmarks }
+                .keyboardShortcut("7", modifiers: [.command, .option])
+                .disabled(destination == nil)
+            Button("Downloads") { destination = .downloads }
+                .keyboardShortcut("8", modifiers: [.command, .option])
+                .disabled(destination == nil)
+            Button("History") { destination = .history }
+                .keyboardShortcut("9", modifiers: [.command, .option])
+                .disabled(destination == nil)
 
             Divider()
 
-            if mode == .anime {
+            if destination == .anime {
                 ForEach(Array(AnimeSection.allCases.enumerated()), id: \.element) { index, item in
                     if index < 9 {
-                        Button(item.title) {
-                            animeSection = item
-                            showsAccount = false
-                        }
+                        Button(item.title) { animeSection = item }
                             .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: .command)
                             .disabled(animeSection == nil)
                     } else {
-                        Button(item.title) {
-                            animeSection = item
-                            showsAccount = false
-                        }
+                        Button(item.title) { animeSection = item }
                             .disabled(animeSection == nil)
                     }
                 }
-            } else if mode == .movies {
+            } else if destination == .movies {
                 ForEach(Array(MovieSection.allCases.enumerated()), id: \.element) { index, item in
-                    Button(item.title) {
-                        movieSection = item
-                        showsAccount = false
-                    }
+                    Button(item.title) { movieSection = item }
                         .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: .command)
                         .disabled(movieSection == nil)
                 }
-            } else if mode == .football {
+            } else if destination == .football {
                 ForEach(Array(FootballSection.allCases.enumerated()), id: \.element) { index, item in
-                    Button(item.title) {
-                        footballSection = item
-                        showsAccount = false
-                    }
+                    Button(item.title) { footballSection = item }
                         .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: .command)
                         .disabled(footballSection == nil)
                 }
-            } else if mode == .novels {
+            } else if destination == .novels {
                 ForEach(Array(AppSection.allCases.enumerated()), id: \.element) { index, item in
-                    Button(item.title) {
-                        section = item
-                        showsAccount = false
-                    }
+                    Button(item.title) { section = item }
                         .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: .command)
                         .disabled(section == nil)
                 }
@@ -267,18 +248,17 @@ struct AsterionNavigationCommands: Commands {
 
             Divider()
 
-            Button("Account") { showsAccount = true }
+            Button("Account") { destination = .account }
                 .keyboardShortcut("0", modifiers: .command)
-                .disabled(showsAccount == nil)
+                .disabled(destination == nil)
         }
     }
 }
 
 extension FocusedValues {
-    @Entry var asterionMode: Binding<AppMode>?
+    @Entry var asterionDestination: Binding<AppDestination>?
     @Entry var asterionSection: Binding<AppSection>?
     @Entry var asterionAnimeSection: Binding<AnimeSection>?
     @Entry var asterionMovieSection: Binding<MovieSection>?
     @Entry var asterionFootballSection: Binding<FootballSection>?
-    @Entry var asterionShowsAccount: Binding<Bool>?
 }

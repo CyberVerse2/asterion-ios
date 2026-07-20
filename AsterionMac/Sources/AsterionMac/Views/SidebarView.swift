@@ -4,56 +4,14 @@ import SwiftUI
 struct SidebarView: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var mediaDownloads: MediaDownloadManager
-    let mode: AppMode
-    @Binding var novelSelection: AppSection
-    @Binding var animeSelection: AnimeSection
-    @Binding var movieSelection: MovieSection
-    @Binding var footballSelection: FootballSection
-    @Binding var showsAccount: Bool
-    @Binding var showsDownloads: Bool
+    @Binding var selection: AppDestination
 
-    private var listSelection: Binding<SidebarSelection?> {
+    private var listSelection: Binding<AppDestination?> {
         Binding(
-            get: {
-                if showsAccount { return .account }
-                if showsDownloads { return .downloads }
-                return switch mode {
-                case .home: .home
-                case .novels: .novel(novelSelection)
-                case .anime: .anime(animeSelection)
-                case .movies: .movie(movieSelection)
-                case .football: .football(footballSelection)
-                }
-            },
-            set: { newValue in
-                guard let newValue else { return }
-                switch newValue {
-                case .home:
-                    showsAccount = false
-                    showsDownloads = false
-                case .account:
-                    showsAccount = true
-                    showsDownloads = false
-                case .downloads:
-                    showsAccount = false
-                    showsDownloads = true
-                case .novel(let section):
-                    showsAccount = false
-                    showsDownloads = false
-                    novelSelection = section
-                case .anime(let section):
-                    showsAccount = false
-                    showsDownloads = false
-                    animeSelection = section
-                case .movie(let section):
-                    showsAccount = false
-                    showsDownloads = false
-                    movieSelection = section
-                case .football(let section):
-                    showsAccount = false
-                    showsDownloads = false
-                    footballSelection = section
-                }
+            get: { selection == .account ? nil : selection },
+            set: { destination in
+                guard let destination else { return }
+                selection = destination
             }
         )
     }
@@ -66,86 +24,57 @@ struct SidebarView: View {
                 .padding(.bottom, 12)
 
             List(selection: listSelection) {
-                Section(mode.title) {
-                    if mode == .home {
-                        Label("Overview", systemImage: "house.fill")
-                            .tag(SidebarSelection.home)
-                            .help("Home")
-                    } else if mode == .novels {
-                        ForEach(AppSection.allCases, id: \.self) { section in
-                            Label(section.title, systemImage: section.systemImage)
-                                .tag(SidebarSelection.novel(section))
-                                .help(section.title)
-                        }
-                    } else if mode == .anime {
-                        ForEach(AnimeSection.allCases, id: \.self) { section in
-                            sidebarRow(
-                                title: section.title,
-                                systemImage: section.systemImage,
-                                count: section == .bookmarks ? animeBookmarkCount : nil
-                            )
-                                .tag(SidebarSelection.anime(section))
-                                .help(section.title)
-                        }
-                    } else if mode == .movies {
-                        ForEach(MovieSection.allCases, id: \.self) { section in
-                            sidebarRow(
-                                title: section.title,
-                                systemImage: section.systemImage,
-                                count: section == .bookmarks ? movieBookmarkCount : nil
-                            )
-                                .tag(SidebarSelection.movie(section))
-                                .help(section.title)
-                        }
-                    } else {
-                        ForEach(FootballSection.allCases, id: \.self) { section in
-                            Label(section.title, systemImage: section.systemImage)
-                                .tag(SidebarSelection.football(section))
-                                .help(section.title)
-                        }
-                    }
+                Label(AppDestination.home.title, systemImage: AppDestination.home.systemImage)
+                    .tag(AppDestination.home)
+                    .help("Home")
+
+                Section("Browse") {
+                    destinationRow(.novels)
+                    destinationRow(.anime)
+                    destinationRow(.movies)
+                    destinationRow(.football)
                 }
 
-                Section {
-                    sidebarRow(
-                        title: "Downloads",
-                        systemImage: "arrow.down.circle.fill",
-                        count: completedDownloadCount
-                    )
-                        .tag(SidebarSelection.downloads)
-                        .help("Downloaded novels, anime, and movies")
-
-                    Label("Account", systemImage: "person.crop.circle")
-                        .tag(SidebarSelection.account)
-                        .help("Account")
+                Section("Your Asterion") {
+                    destinationRow(.continueActivity, count: continueCount)
+                    destinationRow(.bookmarks, count: bookmarkCount)
+                    destinationRow(.downloads, count: completedDownloadCount)
+                    destinationRow(.history, count: historyCount)
                 }
             }
             .listStyle(.sidebar)
             .scrollContentBackground(.hidden)
+
+            Divider()
+
+            VStack(spacing: 4) {
+                Button {
+                    selection = .account
+                } label: {
+                    footerLabel("Account", systemImage: "person.crop.circle")
+                }
+                .buttonStyle(.plain)
+                .modifier(SelectedSidebarFooter(isSelected: selection == .account))
+                .help("Account")
+
+                SettingsLink {
+                    footerLabel("Settings", systemImage: "gearshape")
+                }
+                .buttonStyle(.plain)
+                .help("Settings")
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 10)
         }
         .navigationTitle("Asterion")
     }
 
-    private var animeBookmarkCount: Int {
-        model.mediaBookmarks.count { $0.mediaType == .anime }
-    }
-
-    private var movieBookmarkCount: Int {
-        model.mediaBookmarks.count { $0.mediaType == .movie }
-    }
-
-    private var completedDownloadCount: Int {
-        model.offlineDownloads.count { $0.phase == .completed }
-            + mediaDownloads.completedCount
-    }
-
-    private func sidebarRow(
-        title: String,
-        systemImage: String,
-        count: Int?
+    private func destinationRow(
+        _ destination: AppDestination,
+        count: Int? = nil
     ) -> some View {
         HStack(spacing: 8) {
-            Label(title, systemImage: systemImage)
+            Label(destination.title, systemImage: destination.systemImage)
             Spacer(minLength: 8)
             if let count, count > 0 {
                 Text(count, format: .number)
@@ -153,6 +82,33 @@ struct SidebarView: View {
                     .foregroundStyle(.secondary)
             }
         }
+        .tag(destination)
+        .help(destination.title)
+    }
+
+    private func footerLabel(_ title: String, systemImage: String) -> some View {
+        Label(title, systemImage: systemImage)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 7)
+            .contentShape(Rectangle())
+    }
+
+    private var continueCount: Int {
+        model.continueReadingEntries.count + model.continueWatching.count
+    }
+
+    private var bookmarkCount: Int {
+        model.libraryNovelIDs.count + model.mediaBookmarks.count
+    }
+
+    private var completedDownloadCount: Int {
+        model.offlineDownloads.count { $0.phase == .completed }
+            + mediaDownloads.completedCount
+    }
+
+    private var historyCount: Int {
+        model.continueReadingEntries.count + model.mediaHistory.count
     }
 
     private var brand: some View {
@@ -187,12 +143,15 @@ struct SidebarView: View {
     }
 }
 
-private enum SidebarSelection: Hashable {
-    case home
-    case novel(AppSection)
-    case anime(AnimeSection)
-    case movie(MovieSection)
-    case football(FootballSection)
-    case downloads
-    case account
+private struct SelectedSidebarFooter: ViewModifier {
+    let isSelected: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if isSelected {
+            content.glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 8))
+        } else {
+            content
+        }
+    }
 }
