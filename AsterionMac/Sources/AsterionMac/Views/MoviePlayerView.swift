@@ -285,13 +285,11 @@ struct MoviePlayerView: View {
                     },
                     onEnded: autoplayNextEpisode,
                     onLifecycleEvent: { option, attemptID, event in
-                        Task {
-                            await store.reportPlaybackEvent(
-                                event,
-                                for: option,
-                                attemptID: attemptID
-                            )
-                        }
+                        store.reportPlaybackEvent(
+                            event,
+                            for: option,
+                            attemptID: attemptID
+                        )
                     }
                 )
             } else {

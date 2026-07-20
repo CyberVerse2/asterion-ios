@@ -26,9 +26,7 @@ final class MoviePlayerStore: ObservableObject {
     @Published private(set) var selectedEpisodeID: MovieEpisode.ID?
     @Published private(set) var playbackOptions: [MoviePlaybackOption] = []
     @Published private(set) var currentServerIndex: Int?
-    @Published private(set) var attemptedServerIndices: Set<Int> = []
     @Published private(set) var failedServerIndices: Set<Int> = []
-    @Published private(set) var serverFailureMessages: [Int: String] = [:]
     @Published private(set) var currentPlaybackAttemptID = UUID()
     @Published private(set) var playbackPhase: MoviePlaybackPhase = .loading
     @Published private(set) var isLoadingShow = false
@@ -40,8 +38,7 @@ final class MoviePlayerStore: ObservableObject {
     private var route: MoviePlayerRoute?
     private var offlineRecordsByUnitID: [String: MediaDownloadRecord] = [:]
     private var showRequestID = UUID()
-    private var attemptedOptionIDs: Set<String> = []
-    private var failureRecordsByOptionID: [String: (title: String, message: String)] = [:]
+    private var failureMessagesByOptionID: [String: String] = [:]
 
     init(api: MovieAPI = MovieAPI()) {
         self.api = api
@@ -201,7 +198,7 @@ final class MoviePlayerStore: ObservableObject {
 
     func choosePlaybackOption(_ option: MoviePlaybackOption) {
         guard let index = playbackOptions.firstIndex(of: option) else { return }
-        failureRecordsByOptionID.removeValue(forKey: option.id)
+        failureMessagesByOptionID.removeValue(forKey: option.id)
         syncServerTracking()
         streamError = nil
         beginServerAttempt(at: index)
@@ -211,7 +208,7 @@ final class MoviePlayerStore: ObservableObject {
         _ event: MediaPlaybackLifecycleEvent,
         for option: MoviePlaybackOption,
         attemptID: UUID
-    ) async {
+    ) {
         guard let index = currentServerIndex,
               playbackOptions.indices.contains(index),
               playbackOptions[index].id == option.id,
@@ -231,59 +228,15 @@ final class MoviePlayerStore: ObservableObject {
         case .paused:
             playbackPhase = .paused
         case .failed(let message):
-            await reportPlaybackFailure(
-                at: index,
-                attemptID: attemptID,
-                message: message
-            )
+            reportPlaybackFailure(at: index, message: message)
         }
     }
 
-    private func reportPlaybackFailure(
-        at index: Int,
-        attemptID: UUID,
-        message: String
-    ) async {
+    private func reportPlaybackFailure(at index: Int, message: String) {
         let failedOption = playbackOptions[index]
-        attemptedOptionIDs.insert(failedOption.id)
-        failureRecordsByOptionID[failedOption.id] = (failedOption.title, message)
+        failureMessagesByOptionID[failedOption.id] = message
         syncServerTracking()
-
-        guard failedOption.isAutomatic else {
-            advanceToNextWebOptionOrShowError()
-            return
-        }
-
-        guard let playbackSlug = selectedEpisode?.id ?? route?.slug else {
-            advanceToNextWebOptionOrShowError()
-            return
-        }
-
-        isLoadingStream = true
-        defer { isLoadingStream = false }
-        do {
-            let sources = try await api.fetchPlaybackSources(slug: playbackSlug)
-            guard currentPlaybackAttemptID == attemptID else { return }
-            let refreshedOptions = MoviePlaybackOption.options(from: sources)
-            guard !refreshedOptions.isEmpty else { throw MovieAPIError.noPlaybackSource }
-            playbackOptions = refreshedOptions
-            syncServerTracking()
-
-            if let nextIndex = refreshedOptions.indices.first(where: {
-                refreshedOptions[$0].isAutomatic
-                    && !attemptedOptionIDs.contains(refreshedOptions[$0].id)
-            }) {
-                streamError = nil
-                beginServerAttempt(at: nextIndex)
-            } else {
-                advanceToNextWebOptionOrShowError()
-            }
-        } catch {
-            guard currentPlaybackAttemptID == attemptID else { return }
-            advanceToNextWebOptionOrShowError(
-                finalMessage: "Playback sources could not be refreshed. \(error.localizedDescription)"
-            )
-        }
+        streamError = "\(failedOption.title) failed. Choose another server.\n\(message)"
     }
 
     func isPlaybackOptionFailed(_ option: MoviePlaybackOption) -> Bool {
@@ -363,43 +316,16 @@ final class MoviePlayerStore: ObservableObject {
         currentServerIndex = index
         currentPlaybackAttemptID = UUID()
         playbackPhase = .loading
-        attemptedOptionIDs.insert(playbackOptions[index].id)
-        syncServerTracking()
     }
 
     private func resetOptionTracking() {
-        attemptedOptionIDs = []
-        failureRecordsByOptionID = [:]
+        failureMessagesByOptionID = [:]
         syncServerTracking()
     }
 
     private func syncServerTracking() {
-        attemptedServerIndices = Set(playbackOptions.indices.filter {
-            attemptedOptionIDs.contains(playbackOptions[$0].id)
-        })
         failedServerIndices = Set(playbackOptions.indices.filter {
-            failureRecordsByOptionID[playbackOptions[$0].id] != nil
+            failureMessagesByOptionID[playbackOptions[$0].id] != nil
         })
-        serverFailureMessages = Dictionary(uniqueKeysWithValues: failedServerIndices.compactMap {
-            guard let record = failureRecordsByOptionID[playbackOptions[$0].id] else { return nil }
-            return ($0, record.message)
-        })
-    }
-
-    private func advanceToNextWebOptionOrShowError(finalMessage: String? = nil) {
-        if let nextIndex = playbackOptions.indices.first(where: {
-            playbackOptions[$0].kind == .web
-                && !attemptedOptionIDs.contains(playbackOptions[$0].id)
-        }) {
-            streamError = nil
-            beginServerAttempt(at: nextIndex)
-            return
-        }
-
-        let details = failureRecordsByOptionID.values
-            .map { "\($0.title): \($0.message)" }
-            .sorted()
-        streamError = ([finalMessage ?? "Every playback source failed."] + details)
-            .joined(separator: "\n")
     }
 }
