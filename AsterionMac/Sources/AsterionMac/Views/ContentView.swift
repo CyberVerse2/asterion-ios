@@ -86,6 +86,19 @@ struct ContentView: View {
         }
         .navigationSplitViewStyle(.prominentDetail)
         .toolbar(removing: .title)
+        .toolbar {
+            ToolbarItem(placement: .navigation) {
+                if detailSelection != nil {
+                    Button {
+                        detailSelection = nil
+                    } label: {
+                        Label("Back", systemImage: "chevron.left")
+                    }
+                    .help("Back to browse")
+                    .accessibilityLabel("Back to browse")
+                }
+            }
+        }
         .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         .focusedSceneValue(\.asterionDestination, destination)
         .focusedSceneValue(\.asterionSection, section)
@@ -262,23 +275,6 @@ struct ContentView: View {
                     message: "Choose a title or match to see its details."
                 )
             }
-        }
-        .safeAreaPadding(.top, 48)
-        .overlay(alignment: .topLeading) {
-            Button {
-                detailSelection = nil
-            } label: {
-                Label("Back", systemImage: "chevron.left")
-                    .font(.callout.weight(.semibold))
-            }
-            .buttonStyle(.glass)
-            .buttonBorderShape(.capsule)
-            .controlSize(.small)
-            .tint(Color.asterionText)
-            .help("Back to browse")
-            .accessibilityLabel("Back to browse")
-            .padding(.horizontal, 24)
-            .padding(.top, 12)
         }
     }
 
