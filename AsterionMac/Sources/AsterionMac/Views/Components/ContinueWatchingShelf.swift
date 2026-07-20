@@ -15,21 +15,17 @@ struct ContinueWatchingShelf: View {
                     .foregroundStyle(Color.asterionMuted)
             }
 
-            ViewThatFits(in: .horizontal) {
-                entryRow(count: 4)
-                entryRow(count: 3)
-                entryRow(count: 2)
-            }
-        }
-    }
-
-    private func entryRow(count: Int) -> some View {
-        HStack(alignment: .top, spacing: 22) {
-            ForEach(entries.prefix(count)) { entry in
-                ContinueWatchingTile(progress: entry) {
-                    resume(entry)
+            ScrollView(.horizontal) {
+                LazyHStack(alignment: .top, spacing: 22) {
+                    ForEach(entries) { entry in
+                        ContinueWatchingTile(progress: entry) {
+                            resume(entry)
+                        }
+                    }
                 }
+                .padding(.vertical, 4)
             }
+            .scrollIndicators(.hidden)
         }
     }
 }

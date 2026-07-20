@@ -160,14 +160,10 @@ struct ContentView: View {
                 showsDownloads: $showsDownloadLibrary
             )
                 .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 260)
-        } content: {
-            catalogColumn
-                .navigationSplitViewColumnWidth(min: 420, ideal: 560, max: 900)
         } detail: {
-            detailColumn
-                .navigationSplitViewColumnWidth(min: 420, ideal: 620, max: 900)
+            responsiveContentColumns
         }
-        .navigationSplitViewStyle(.balanced)
+        .navigationSplitViewStyle(.prominentDetail)
         .catalogSearch(
             text: $searchText,
             prompt: searchPrompt,
@@ -184,6 +180,34 @@ struct ContentView: View {
         .focusedSceneValue(\.asterionShowsAccount, accountVisibility)
         .tint(.asterionAccent)
         .frame(minWidth: 1_040, minHeight: 640)
+    }
+
+    private var responsiveContentColumns: some View {
+        GeometryReader { geometry in
+            let dividerWidth = 1.0
+            let availableWidth = max(0, geometry.size.width - dividerWidth)
+            let minimumCatalogWidth = 480.0
+            let detailWidth = min(
+                max(300, availableWidth * 0.30),
+                max(0, availableWidth - minimumCatalogWidth)
+            )
+
+            HStack(spacing: 0) {
+                catalogColumn
+                    .frame(width: availableWidth - detailWidth)
+
+                Divider()
+                    .frame(width: dividerWidth)
+
+                detailColumn
+                    .frame(width: detailWidth)
+            }
+            .frame(
+                width: geometry.size.width,
+                height: geometry.size.height,
+                alignment: .leading
+            )
+        }
     }
 
     @ToolbarContentBuilder
