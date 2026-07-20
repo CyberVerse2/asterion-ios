@@ -70,8 +70,22 @@ if [[ -z "$CODE_SIGN_IDENTITY" ]]; then
 fi
 
 if [[ "$PACKAGE_MODE" == false ]]; then
-  pkill -x "$APP_NAME" >/dev/null 2>&1 || true
-  pkill -x "AsterionMac" >/dev/null 2>&1 || true
+  pkill -9 -x "$APP_NAME" >/dev/null 2>&1 || true
+  pkill -9 -x "AsterionMac" >/dev/null 2>&1 || true
+
+  for _ in {1..50}; do
+    if ! pgrep -x "$APP_NAME" >/dev/null 2>&1 \
+      && ! pgrep -x "AsterionMac" >/dev/null 2>&1; then
+      break
+    fi
+    sleep 0.1
+  done
+
+  if pgrep -x "$APP_NAME" >/dev/null 2>&1 \
+    || pgrep -x "AsterionMac" >/dev/null 2>&1; then
+    echo "error: could not stop the existing $APP_NAME process" >&2
+    exit 1
+  fi
 fi
 
 cd "$ROOT_DIR"
