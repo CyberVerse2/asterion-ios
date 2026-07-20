@@ -8,7 +8,7 @@ struct EditorialCatalogView: View {
     @Binding var selectedNovelID: String
 
     private let columns = [
-        GridItem(.adaptive(minimum: 118, maximum: 154), spacing: 22, alignment: .top),
+        GridItem(.adaptive(minimum: 168, maximum: 168), spacing: 22, alignment: .top),
     ]
 
     var body: some View {
@@ -125,8 +125,8 @@ struct EditorialCatalogView: View {
     private func continueReadingRow(count: Int) -> some View {
         HStack(alignment: .top, spacing: 22) {
             ForEach(model.continueReadingEntries.prefix(count)) { entry in
-                ContinueReadingTile(
-                    entry: entry,
+                HomeContinueCard(
+                    item: .reading(entry),
                     isSelected: selectedNovelID == entry.novel.id
                 ) {
                     selectedNovelID = entry.novel.id
@@ -179,90 +179,15 @@ private struct EditorialBookTile: View {
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: 0) {
-                ZStack(alignment: .bottomLeading) {
-                    CoverView(novel: novel, width: 128, height: 184)
-
-                    LinearGradient(
-                        colors: [.clear, .clear, .black.opacity(0.88)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-
-                    if let rank {
-                        Text("#\(rank)")
-                            .font(.caption2.monospacedDigit().weight(.semibold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 4)
-                            .background(Color.asterionAccent, in: Capsule())
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                            .padding(7)
-                    }
-
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(novel.title)
-                            .font(.asterionDisplay(14, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .lineLimit(2)
-                        Text(novel.authorDisplayName)
-                            .font(.caption2.weight(.medium))
-                            .foregroundStyle(.white.opacity(0.78))
-                            .lineLimit(1)
-                    }
-                    .padding(10)
-                }
-                .padding(4)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 11, style: .continuous)
-                        .stroke(isSelected ? Color.asterionAccent : .clear, lineWidth: 2)
-                }
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .asterionHoverLift()
+        AsterionPosterCard(
+            imageURL: novel.imageURL.flatMap(URL.init(string:)),
+            badge: rank.map { "#\($0)" } ?? "NOVEL",
+            title: novel.title,
+            subtitle: novel.authorDisplayName,
+            isSelected: isSelected,
+            action: action
+        )
         .animation(reduceMotion ? nil : AsterionMotion.reveal, value: isSelected)
-        .accessibilityLabel("\(novel.title), by \(novel.authorDisplayName)")
-    }
-}
-
-private struct ContinueReadingTile: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    let entry: AppModel.ContinueReadingEntry
-    let isSelected: Bool
-    let action: () -> Void
-
-    private var fraction: Double {
-        min(1, max(0, entry.progress.percentage / 100))
-    }
-
-    var body: some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: 8) {
-                CoverView(novel: entry.novel, width: 112, height: 160)
-                    .padding(4)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .stroke(isSelected ? Color.asterionAccent : .clear, lineWidth: 2)
-                    }
-                Text(entry.novel.title)
-                    .font(.asterionDisplay(14, weight: .medium))
-                    .foregroundStyle(Color.asterionText)
-                    .lineLimit(2)
-                    .frame(maxWidth: 120, alignment: .leading)
-                Text("Chapter progress · \(Int(entry.progress.percentage))%")
-                    .font(.caption2)
-                    .foregroundStyle(Color.asterionMuted)
-                    .lineLimit(1)
-                ProgressView(value: fraction)
-                    .tint(Color.asterionAccent)
-                    .frame(maxWidth: 120)
-            }
-        }
-        .buttonStyle(.plain)
-        .asterionHoverLift()
-        .animation(reduceMotion ? nil : AsterionMotion.reveal, value: isSelected)
+        .accessibilityValue("by \(novel.authorDisplayName)")
     }
 }

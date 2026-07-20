@@ -7,7 +7,7 @@ struct UnifiedBookmarksView: View {
     let selectMedia: (MediaBookmark) -> Void
 
     private let columns = [
-        GridItem(.adaptive(minimum: 122, maximum: 156), spacing: 22, alignment: .top),
+        GridItem(.adaptive(minimum: 168, maximum: 168), spacing: 22, alignment: .top),
     ]
 
     private var normalizedQuery: String {
@@ -106,44 +106,12 @@ private struct BookmarkTile: View {
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: 0) {
-                ZStack(alignment: .bottomLeading) {
-                    MediaCoverView(url: imageURL, width: 124, height: 176)
-
-                    LinearGradient(
-                        colors: [.clear, .clear, .black.opacity(0.88)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-
-                    Text(badge)
-                        .font(.asterionMono(8, weight: .bold))
-                        .tracking(0.7)
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 4)
-                        .background(.ultraThinMaterial, in: Capsule())
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                        .padding(7)
-
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(title)
-                            .font(.asterionDisplay(14, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .lineLimit(2)
-                        Text(subtitle)
-                            .font(.caption2.weight(.medium))
-                            .foregroundStyle(.white.opacity(0.78))
-                            .lineLimit(1)
-                    }
-                    .padding(10)
-                }
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .asterionHoverLift()
-        .help("Open \(title)")
+        AsterionPosterCard(
+            imageURL: imageURL,
+            badge: badge,
+            title: title,
+            subtitle: subtitle,
+            action: action
+        )
     }
 }

@@ -195,6 +195,7 @@ struct HomeHorizontalShelf<Item: Identifiable, Card: View>: View {
 
 struct HomeContinueCard: View {
     let item: HomeResumeItem
+    var isSelected = false
     let action: () -> Void
 
     var body: some View {
@@ -244,7 +245,10 @@ struct HomeContinueCard: View {
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(.white.opacity(0.10))
+                    .stroke(
+                        isSelected ? Color.asterionAccent : .white.opacity(0.10),
+                        lineWidth: isSelected ? 2 : 1
+                    )
             }
             .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
@@ -259,9 +263,28 @@ struct HomePosterCard: View {
     let action: () -> Void
 
     var body: some View {
+        AsterionPosterCard(
+            imageURL: item.imageURL,
+            badge: item.badge,
+            title: item.title,
+            subtitle: item.subtitle,
+            action: action
+        )
+    }
+}
+
+struct AsterionPosterCard: View {
+    let imageURL: URL?
+    let badge: String
+    let title: String
+    let subtitle: String
+    var isSelected = false
+    let action: () -> Void
+
+    var body: some View {
         Button(action: action) {
             ZStack(alignment: .bottomLeading) {
-                AsyncImage(url: item.imageURL) { phase in
+                AsyncImage(url: imageURL) { phase in
                     if case .success(let image) = phase {
                         image
                             .resizable()
@@ -280,7 +303,7 @@ struct HomePosterCard: View {
                 )
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(item.badge)
+                    Text(badge)
                         .font(.asterionMono(7, weight: .bold))
                         .tracking(0.6)
                         .foregroundStyle(.white)
@@ -288,13 +311,13 @@ struct HomePosterCard: View {
                         .padding(.vertical, 3)
                         .background(.ultraThinMaterial, in: Capsule())
 
-                    Text(item.title)
+                    Text(title)
                         .font(.asterionDisplay(15, weight: .semibold))
                         .foregroundStyle(.white)
                         .lineLimit(2)
                         .minimumScaleFactor(0.85)
 
-                    Text(item.subtitle)
+                    Text(subtitle)
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(.white.opacity(0.78))
                         .lineLimit(1)
@@ -305,19 +328,23 @@ struct HomePosterCard: View {
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(.white.opacity(0.10))
+                    .stroke(
+                        isSelected ? Color.asterionAccent : .white.opacity(0.10),
+                        lineWidth: isSelected ? 2 : 1
+                    )
             }
             .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
         .buttonStyle(.plain)
         .asterionHoverLift()
-        .help("Open \(item.title)")
-        .accessibilityLabel("\(item.title), \(item.badge)")
+        .help("Open \(title)")
+        .accessibilityLabel("\(title), \(badge)")
     }
 }
 
 struct HomeMatchCard: View {
     let match: FootballMatch
+    var isSelected = false
     let action: () -> Void
 
     var body: some View {
@@ -370,7 +397,10 @@ struct HomeMatchCard: View {
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(.white.opacity(0.10))
+                    .stroke(
+                        isSelected ? Color.asterionAccent : .white.opacity(0.10),
+                        lineWidth: isSelected ? 2 : 1
+                    )
             }
         }
         .buttonStyle(.plain)
