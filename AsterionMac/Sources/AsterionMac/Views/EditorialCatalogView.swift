@@ -11,7 +11,7 @@ struct EditorialCatalogView: View {
 
     var body: some View {
         Group {
-            if model.isLoadingCatalog, novels.isEmpty {
+            if (model.isLoadingCatalog || model.catalogState == .idle), novels.isEmpty {
                 ProgressView("Curating your shelves…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if novels.isEmpty {

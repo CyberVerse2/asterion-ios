@@ -53,6 +53,15 @@ final class MovieStore: ObservableObject {
         self.api = api
     }
 
+    func hasLoadedCatalog(section: MovieSection, query: String) -> Bool {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard query.isEmpty || query.count >= 2 else { return true }
+        let requestKey = query.isEmpty
+            ? "\(section.rawValue):\(section == .genres ? selectedGenre?.slug ?? "" : "")"
+            : "search:\(query)"
+        return loadedRequestKey == requestKey
+    }
+
     func loadCatalog(
         section: MovieSection,
         query: String,

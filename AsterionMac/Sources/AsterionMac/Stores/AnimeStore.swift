@@ -93,6 +93,13 @@ final class AnimeStore: ObservableObject {
         self.api = api
     }
 
+    func hasLoadedCatalog(section: AnimeSection, query: String) -> Bool {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard query.isEmpty || query.count >= 2 else { return true }
+        let requestKey = query.isEmpty ? catalogRequestKey(section) : "search:\(query)"
+        return loadedRequestKey == requestKey
+    }
+
     func loadCatalog(
         section: AnimeSection,
         query: String,

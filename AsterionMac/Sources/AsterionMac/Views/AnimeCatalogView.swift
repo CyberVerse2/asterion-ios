@@ -24,7 +24,9 @@ struct AnimeCatalogView: View {
                 )
             } else if section == .schedule, normalizedQuery.isEmpty {
                 scheduleContent
-            } else if store.isLoadingCatalog, store.titles.isEmpty {
+            } else if (store.isLoadingCatalog
+                || !store.hasLoadedCatalog(section: section, query: normalizedQuery)),
+                store.titles.isEmpty {
                 ProgressView(normalizedQuery.isEmpty ? "Curating your shelves…" : "Searching anime…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let error = store.catalogError, store.titles.isEmpty {

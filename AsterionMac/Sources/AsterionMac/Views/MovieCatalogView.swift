@@ -22,7 +22,9 @@ struct MovieCatalogView: View {
                     systemImage: "character.cursor.ibeam",
                     description: Text("Enter at least two characters to search movies and TV shows.")
                 )
-            } else if store.isLoadingCatalog, store.titles.isEmpty {
+            } else if (store.isLoadingCatalog
+                || !store.hasLoadedCatalog(section: section, query: normalizedQuery)),
+                store.titles.isEmpty {
                 ProgressView(normalizedQuery.isEmpty ? "Curating your screen…" : "Searching…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let error = store.catalogError, store.titles.isEmpty {

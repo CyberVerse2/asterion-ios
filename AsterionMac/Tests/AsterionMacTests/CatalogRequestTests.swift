@@ -52,8 +52,10 @@ struct CatalogRequestTests {
             ]
         )
         let store = AnimeStore(api: service)
+        #expect(!store.hasLoadedCatalog(section: .discover, query: ""))
 
         await store.loadCatalog(section: .discover, query: "")
+        #expect(store.hasLoadedCatalog(section: .discover, query: ""))
         #expect(store.titles.map(\.id) == [first.id, second.id])
 
         await store.loadNextPageIfNeeded(
@@ -99,8 +101,10 @@ struct CatalogRequestTests {
             ]
         )
         let store = MovieStore(api: service)
+        #expect(!store.hasLoadedCatalog(section: .movies, query: ""))
 
         await store.loadCatalog(section: .movies, query: "")
+        #expect(store.hasLoadedCatalog(section: .movies, query: ""))
         #expect(store.titles.map(\.id) == [first.id, second.id])
 
         await store.loadNextPageIfNeeded(
