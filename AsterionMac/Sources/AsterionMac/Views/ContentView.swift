@@ -77,14 +77,15 @@ struct ContentView: View {
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarView(
-                selection: destination,
-                searchText: $searchText
+                selection: destination
             )
-            .navigationSplitViewColumnWidth(min: 176, ideal: 188, max: 200)
+            .navigationSplitViewColumnWidth(min: 220, ideal: 236, max: 248)
         } detail: {
             mainContent
+                .scrollEdgeEffectStyle(.soft, for: [.top, .bottom])
         }
         .navigationSplitViewStyle(.prominentDetail)
+        .searchable(text: $searchText, placement: .sidebar, prompt: Text(searchPrompt))
         .toolbar(removing: .title)
         .toolbar {
             ToolbarItem(placement: .navigation) {
@@ -126,6 +127,19 @@ struct ContentView: View {
             if destination.wrappedValue == .novels {
                 ensureNovelSelection()
             }
+        }
+    }
+
+    private var searchPrompt: String {
+        switch destination.wrappedValue {
+        case .home: "Search everything"
+        case .novels: "Search novels"
+        case .anime: "Search anime"
+        case .movies: "Search movies & TV"
+        case .football: "Search teams"
+        case .continueActivity, .history: "Search activity"
+        case .bookmarks: "Search bookmarks"
+        case .downloads, .account: "Search Asterion"
         }
     }
 
@@ -251,7 +265,7 @@ struct ContentView: View {
             switch detailSelection {
             case .novel(let novelID):
                 if let novel = model.novel(id: novelID) {
-                    NovelDetailView(novel: novel)
+                    NovelDetailView(novel: novel, selectNovel: selectNovelDetail)
                         .id(novel.id)
                 } else {
                     detailUnavailable(
