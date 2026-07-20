@@ -214,6 +214,7 @@ struct MovieDetailView: View {
                 watchAction(show)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.trailing, 32)
         }
         .frame(minHeight: 390)
     }
