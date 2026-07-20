@@ -212,7 +212,11 @@ struct MoviePlayerView: View {
                             store.choosePlaybackOption(option)
                         } label: {
                             HStack {
-                                Text(option.title)
+                                Text(
+                                    isActive
+                                        ? "\(option.title) · \(store.playbackPhase.label)"
+                                        : option.title
+                                )
                                     .strikethrough(hasFailed)
                                     .foregroundStyle(hasFailed ? .secondary : .primary)
                                 if hasFailed {
@@ -264,6 +268,7 @@ struct MoviePlayerView: View {
                 MovieFallbackPlayer(
                     options: store.playbackOptions,
                     currentServerIndex: currentServerIndex,
+                    attemptID: store.currentPlaybackAttemptID,
                     initialPosition: playbackResumePosition,
                     onProgress: { sample in
                         playbackResumePosition = sample.positionSeconds
@@ -276,8 +281,12 @@ struct MoviePlayerView: View {
                         }
                     },
                     onEnded: autoplayNextEpisode,
-                    onFailure: { option, message in
-                        store.reportPlaybackFailure(for: option, message: message)
+                    onLifecycleEvent: { option, attemptID, event in
+                        store.reportPlaybackEvent(
+                            event,
+                            for: option,
+                            attemptID: attemptID
+                        )
                     }
                 )
             } else {

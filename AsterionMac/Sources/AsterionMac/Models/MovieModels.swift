@@ -134,6 +134,15 @@ struct MoviePlaybackOption: Identifiable, Hashable, Sendable {
     }
 }
 
+enum MediaPlaybackLifecycleEvent: Sendable {
+    case loading
+    case ready
+    case playRequested
+    case playing
+    case paused
+    case failed(String)
+}
+
 struct MoviePlayerRoute: Codable, Hashable, Sendable {
     let slug: String
     let title: String

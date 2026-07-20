@@ -1,6 +1,24 @@
 import Combine
 import Foundation
 
+enum MoviePlaybackPhase: Equatable {
+    case loading
+    case ready
+    case starting
+    case playing
+    case paused
+
+    var label: String {
+        switch self {
+        case .loading: "Loading"
+        case .ready: "Ready"
+        case .starting: "Starting"
+        case .playing: "Playing"
+        case .paused: "Paused"
+        }
+    }
+}
+
 @MainActor
 final class MoviePlayerStore: ObservableObject {
     @Published private(set) var show: MovieShow?
@@ -10,6 +28,9 @@ final class MoviePlayerStore: ObservableObject {
     @Published private(set) var currentServerIndex: Int?
     @Published private(set) var attemptedServerIndices: Set<Int> = []
     @Published private(set) var failedServerIndices: Set<Int> = []
+    @Published private(set) var serverFailureMessages: [Int: String] = [:]
+    @Published private(set) var currentPlaybackAttemptID = UUID()
+    @Published private(set) var playbackPhase: MoviePlaybackPhase = .loading
     @Published private(set) var isLoadingShow = false
     @Published private(set) var isLoadingStream = false
     @Published private(set) var showError: String?
@@ -121,9 +142,10 @@ final class MoviePlayerStore: ObservableObject {
                 title: "Downloaded"
             )
             playbackOptions = [option]
-            currentServerIndex = 0
-            attemptedServerIndices = [0]
+            attemptedServerIndices = []
             failedServerIndices = []
+            serverFailureMessages = [:]
+            beginServerAttempt(at: 0)
             streamError = nil
             isLoadingStream = false
             return
@@ -171,28 +193,58 @@ final class MoviePlayerStore: ObservableObject {
 
     func choosePlaybackOption(_ option: MoviePlaybackOption) {
         guard let index = playbackOptions.firstIndex(of: option) else { return }
-        currentServerIndex = index
-        attemptedServerIndices.insert(index)
         failedServerIndices.remove(index)
+        serverFailureMessages.removeValue(forKey: index)
         streamError = nil
+        beginServerAttempt(at: index)
     }
 
-    func reportPlaybackFailure(for option: MoviePlaybackOption, message: String) {
+    func reportPlaybackEvent(
+        _ event: MediaPlaybackLifecycleEvent,
+        for option: MoviePlaybackOption,
+        attemptID: UUID
+    ) {
         guard let index = currentServerIndex,
               playbackOptions.indices.contains(index),
-              playbackOptions[index].id == option.id else { return }
+              playbackOptions[index].id == option.id,
+              currentPlaybackAttemptID == attemptID else { return }
 
+        switch event {
+        case .loading:
+            playbackPhase = .loading
+        case .ready:
+            if playbackPhase == .loading {
+                playbackPhase = .ready
+            }
+        case .playRequested:
+            playbackPhase = .starting
+        case .playing:
+            playbackPhase = .playing
+        case .paused:
+            playbackPhase = .paused
+        case .failed(let message):
+            reportPlaybackFailure(at: index, message: message)
+        }
+    }
+
+    private func reportPlaybackFailure(at index: Int, message: String) {
         attemptedServerIndices.insert(index)
         failedServerIndices.insert(index)
+        serverFailureMessages[index] = message
 
         if let nextIndex = playbackOptions.indices.first(where: {
             $0 > index && !attemptedServerIndices.contains($0)
         }) {
-            currentServerIndex = nextIndex
-            attemptedServerIndices.insert(nextIndex)
             streamError = nil
+            beginServerAttempt(at: nextIndex)
         } else {
-            streamError = "Every playback source failed. \(message)"
+            let details = failedServerIndices.sorted().compactMap { failedIndex -> String? in
+                guard playbackOptions.indices.contains(failedIndex),
+                      let failure = serverFailureMessages[failedIndex] else { return nil }
+                return "\(playbackOptions[failedIndex].title): \(failure)"
+            }
+            streamError = (["Every playback source failed."] + details)
+                .joined(separator: "\n")
         }
     }
 
@@ -205,10 +257,11 @@ final class MoviePlayerStore: ObservableObject {
         let options = MoviePlaybackOption.options(from: sources)
         guard !options.isEmpty else { throw MovieAPIError.noPlaybackSource }
         playbackOptions = options
-        currentServerIndex = options.startIndex
-        attemptedServerIndices = [options.startIndex]
+        attemptedServerIndices = []
         failedServerIndices = []
+        serverFailureMessages = [:]
         streamError = nil
+        beginServerAttempt(at: options.startIndex)
     }
 
     private func loadOffline(record: MediaDownloadRecord) -> Bool {
@@ -237,9 +290,10 @@ final class MoviePlayerStore: ObservableObject {
             title: "Downloaded"
         )
         playbackOptions = [option]
-        currentServerIndex = 0
-        attemptedServerIndices = [0]
         failedServerIndices = []
+        attemptedServerIndices = []
+        serverFailureMessages = [:]
+        beginServerAttempt(at: 0)
         isLoadingShow = false
         isLoadingStream = false
         return true
@@ -265,5 +319,16 @@ final class MoviePlayerStore: ObservableObject {
         currentServerIndex = nil
         attemptedServerIndices = []
         failedServerIndices = []
+        serverFailureMessages = [:]
+        currentPlaybackAttemptID = UUID()
+        playbackPhase = .loading
+    }
+
+    private func beginServerAttempt(at index: Int) {
+        guard playbackOptions.indices.contains(index) else { return }
+        currentServerIndex = index
+        currentPlaybackAttemptID = UUID()
+        playbackPhase = .loading
+        attemptedServerIndices.insert(index)
     }
 }
