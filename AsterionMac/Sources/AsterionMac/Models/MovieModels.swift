@@ -180,6 +180,9 @@ struct MoviePlaybackOption: Identifiable, Hashable, Sendable {
     static func options(from sources: [MovieStreamSource]) -> [MoviePlaybackOption] {
         sources.map { source in
             let kind: Kind = source.isHLS ? .direct : .web
+            let quality = kind == .web && source.quality == "Direct Player"
+                ? "Web Player"
+                : source.quality
             return MoviePlaybackOption(
                 id: [
                     kind.rawValue,
@@ -188,7 +191,7 @@ struct MoviePlaybackOption: Identifiable, Hashable, Sendable {
                 ].joined(separator: "-"),
                 kind: kind,
                 url: source.isHLS ? source.proxyURL ?? source.embedURL : source.embedURL,
-                title: [source.label, source.quality]
+                title: [source.label, quality]
                     .filter { !$0.isEmpty }
                     .joined(separator: " · "),
                 isAutomatic: kind == .direct && source.isVerified && source.automatic

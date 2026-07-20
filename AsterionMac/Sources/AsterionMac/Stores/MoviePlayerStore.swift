@@ -295,9 +295,13 @@ final class MoviePlayerStore: ObservableObject {
         playbackOptions = options
         resetOptionTracking()
         streamError = nil
-        beginServerAttempt(
-            at: options.firstIndex(where: \.isAutomatic) ?? options.startIndex
-        )
+        if let automaticIndex = options.firstIndex(where: \.isAutomatic) {
+            beginServerAttempt(at: automaticIndex)
+        } else {
+            currentServerIndex = nil
+            currentPlaybackAttemptID = UUID()
+            playbackPhase = .ready
+        }
     }
 
     private func loadOffline(record: MediaDownloadRecord) -> Bool {
