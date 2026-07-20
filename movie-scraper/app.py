@@ -443,7 +443,6 @@ def _stream_list_for_api(streams) -> list[dict]:
             d["proxy_url"] = playback.proxy_url(url)
         result.append(d)
 
-    result.sort(key=lambda source: 0 if source["is_hls"] else 1)
     return result
 
 
