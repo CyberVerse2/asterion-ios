@@ -36,6 +36,19 @@ struct SidebarView: View {
         selection != .downloads && selection != .account
     }
 
+    private var searchPrompt: String {
+        switch selection {
+        case .home: "Search everything"
+        case .novels: "Search novels"
+        case .anime: "Search anime"
+        case .movies: "Search movies & TV"
+        case .football: "Search teams"
+        case .continueActivity, .history: "Search activity"
+        case .bookmarks: "Search bookmarks"
+        case .downloads, .account: "Search"
+        }
+    }
+
     var body: some View {
         List(selection: listSelection) {
             searchRow
@@ -65,10 +78,10 @@ struct SidebarView: View {
         if canSearchSelection {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(searchIsFocused ? Color.asterionAccent : .secondary)
                     .frame(width: 16)
 
-                TextField("Search", text: $searchText)
+                TextField(searchPrompt, text: $searchText)
                     .textFieldStyle(.plain)
                     .focused($searchIsFocused)
 
@@ -84,7 +97,20 @@ struct SidebarView: View {
                     .accessibilityLabel("Clear search")
                 }
             }
-            .frame(minHeight: 24)
+            .padding(.horizontal, 10)
+            .frame(height: 34)
+            .background {
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(.primary.opacity(searchIsFocused ? 0.10 : 0.06))
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .stroke(
+                        searchIsFocused ? Color.asterionAccent.opacity(0.72) : .white.opacity(0.08),
+                        lineWidth: 1
+                    )
+            }
+            .animation(.easeOut(duration: 0.16), value: searchIsFocused)
         } else {
             Button {
                 selection = .home
@@ -104,6 +130,8 @@ struct SidebarView: View {
 
     private func destinationRow(_ destination: AppDestination) -> some View {
         Label(destination.title, systemImage: destination.systemImage)
+            .symbolRenderingMode(.hierarchical)
+            .font(.system(size: 13, weight: .medium))
             .tag(destination)
             .help(destination.title)
     }
