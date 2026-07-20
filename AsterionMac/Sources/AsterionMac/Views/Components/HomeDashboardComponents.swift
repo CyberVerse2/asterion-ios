@@ -128,6 +128,14 @@ enum HomeCatalogItem: Identifiable {
         }
     }
 
+    var systemImage: String {
+        switch self {
+        case .novel: "book.closed"
+        case .anime: "play.tv"
+        case .movie(let title): title.isSeries ? "tv" : "film"
+        }
+    }
+
     var imageURL: URL? {
         switch self {
         case .novel(let novel): novel.imageURL.flatMap(URL.init(string:))
@@ -183,6 +191,10 @@ struct HomeSection<Content: View>: View {
 }
 
 struct HomeHorizontalShelf<Item: Identifiable, Card: View>: View {
+    @State private var scrollPosition: Item.ID?
+    @State private var showsNavigationControls = false
+    @State private var hideNavigationControlsTask: Task<Void, Never>?
+
     let items: [Item]
     let itemWidth: CGFloat
     let spacing: CGFloat
@@ -202,7 +214,75 @@ struct HomeHorizontalShelf<Item: Identifiable, Card: View>: View {
         .contentMargins(.horizontal, 32, for: .scrollContent)
         .scrollIndicators(.never, axes: .horizontal)
         .scrollTargetBehavior(.viewAligned)
+        .scrollPosition(id: $scrollPosition, anchor: .leading)
         .frame(height: height)
+        .overlay {
+            HStack {
+                shelfButton(direction: -1, systemImage: "chevron.left")
+                Spacer()
+                shelfButton(direction: 1, systemImage: "chevron.right")
+            }
+            .padding(.horizontal, 8)
+            .opacity(showsNavigationControls ? 1 : 0)
+            .allowsHitTesting(showsNavigationControls)
+        }
+        .onScrollPhaseChange { _, phase in
+            updateNavigationControls(for: phase)
+        }
+        .onAppear { scrollPosition = scrollPosition ?? items.first?.id }
+        .onDisappear { hideNavigationControlsTask?.cancel() }
+        .onChange(of: items.map(\.id)) {
+            guard let scrollPosition, items.contains(where: { $0.id == scrollPosition }) else {
+                self.scrollPosition = items.first?.id
+                return
+            }
+        }
+    }
+
+    private func updateNavigationControls(for phase: ScrollPhase) {
+        hideNavigationControlsTask?.cancel()
+
+        guard phase == .idle else {
+            withAnimation(.easeOut(duration: 0.16)) {
+                showsNavigationControls = true
+            }
+            return
+        }
+
+        hideNavigationControlsTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1.1))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.22)) {
+                showsNavigationControls = false
+            }
+        }
+    }
+
+    private func shelfButton(direction: Int, systemImage: String) -> some View {
+        Button {
+            let currentIndex = scrollPosition.flatMap { current in
+                items.firstIndex(where: { $0.id == current })
+            } ?? 0
+            let targetIndex = min(max(currentIndex + direction, 0), max(items.count - 1, 0))
+            guard items.indices.contains(targetIndex) else { return }
+            withAnimation(.snappy) { scrollPosition = items[targetIndex].id }
+        } label: {
+            Image(systemName: systemImage)
+                .font(.system(size: 15, weight: .semibold))
+                .frame(width: 30, height: 48)
+        }
+        .buttonStyle(.glass)
+        .buttonBorderShape(.capsule)
+        .disabled(isShelfEdge(direction: direction))
+        .accessibilityLabel(direction < 0 ? "Previous items" : "Next items")
+    }
+
+    private func isShelfEdge(direction: Int) -> Bool {
+        guard !items.isEmpty else { return true }
+        let currentIndex = scrollPosition.flatMap { current in
+            items.firstIndex(where: { $0.id == current })
+        } ?? 0
+        return direction < 0 ? currentIndex == 0 : currentIndex == items.count - 1
     }
 }
 
