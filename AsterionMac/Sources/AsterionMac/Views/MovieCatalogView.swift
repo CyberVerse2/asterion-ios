@@ -9,10 +9,6 @@ struct MovieCatalogView: View {
 
     @State private var featuredIndex = 0
 
-    private let columns = [
-        GridItem(.adaptive(minimum: 168, maximum: 168), spacing: 22, alignment: .top),
-    ]
-
     private var normalizedQuery: String {
         query.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -49,30 +45,22 @@ struct MovieCatalogView: View {
                     VStack(alignment: .leading, spacing: 34) {
                         if section == .discover, normalizedQuery.isEmpty {
                             featuredBanner
+                                .padding(.horizontal, 32)
 
                             if !movieContinueWatching.isEmpty {
-                                ContinueWatchingShelf(entries: movieContinueWatching) { progress in
-                                    openWindow(
-                                        value: MoviePlayerRoute(
-                                            slug: progress.contentId,
-                                            title: progress.title,
-                                            initialEpisodeID: progress.unitId
-                                        )
-                                    )
-                                }
+                                continueWatchingShelf
                             }
                         }
 
                         if section == .genres, normalizedQuery.isEmpty, !store.genres.isEmpty {
                             genreSelection
+                                .padding(.horizontal, 32)
                         }
 
                         shelf
                     }
-                    .frame(maxWidth: 920, alignment: .leading)
-                    .padding(.horizontal, 28)
-                    .padding(.top, 24)
-                    .padding(.bottom, 48)
+                    .padding(.top, 32)
+                    .padding(.bottom, 64)
                     .frame(maxWidth: .infinity, alignment: .top)
                 }
                 .hidingScrollIndicators()
@@ -94,6 +82,28 @@ struct MovieCatalogView: View {
 
     private var movieContinueWatching: [MediaPlaybackProgress] {
         model.continueWatching.filter { $0.mediaType == .movie }
+    }
+
+    private var continueWatchingShelf: some View {
+        HomeSection(title: "Continue Watching", subtitle: "Pick up where you left off.") {
+            HomeHorizontalShelf(
+                items: movieContinueWatching,
+                itemWidth: 294,
+                spacing: 18,
+                height: 172
+            ) { progress in
+                HomeContinueCard(item: .watching(progress)) {
+                    openWindow(
+                        value: MoviePlayerRoute(
+                            slug: progress.contentId,
+                            title: progress.title,
+                            initialEpisodeID: progress.unitId
+                        )
+                    )
+                }
+                .padding(.vertical, 3)
+            }
+        }
     }
 
     @ViewBuilder
@@ -339,57 +349,49 @@ struct MovieCatalogView: View {
     }
 
     private var shelf: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            shelfHeader(title: shelfTitle, subtitle: shelfSubtitle)
-
-            if section == .discover, normalizedQuery.isEmpty {
-                ScrollView(.horizontal) {
-                    LazyHStack(alignment: .top, spacing: 22) {
-                        movieTiles
+        VStack(alignment: .leading, spacing: 10) {
+            HomeSection(title: shelfTitle, subtitle: shelfSubtitle) {
+                HomeHorizontalShelf(
+                    items: store.titles,
+                    itemWidth: 168,
+                    spacing: 18,
+                    height: 258
+                ) { title in
+                    MovieTitleTile(
+                        title: title,
+                        isSelected: store.selectedTitleID == title.id
+                    ) {
+                        Task { await store.select(title) }
                     }
-                    .padding(.vertical, 2)
-                }
-                .hidingScrollIndicators()
-            } else {
-                LazyVGrid(columns: columns, alignment: .leading, spacing: 26) {
-                    movieTiles
-                }
-            }
-
-            if store.isLoadingNextPage {
-                ProgressView("Loading more titles…")
-                    .controlSize(.small)
-                    .frame(maxWidth: .infinity)
-            } else if let error = store.paginationError {
-                HStack {
-                    Label(error, systemImage: "exclamationmark.triangle")
-                        .font(.caption)
-                        .foregroundStyle(Color.asterionMuted)
-                    Spacer()
-                    Button("Try Again") {
-                        Task { await store.retryNextPage(section: section, query: normalizedQuery) }
+                    .padding(.vertical, 3)
+                    .task {
+                        await store.loadNextPageIfNeeded(
+                            section: section,
+                            query: normalizedQuery,
+                            currentTitle: title
+                        )
                     }
                 }
             }
-        }
-    }
 
-    @ViewBuilder
-    private var movieTiles: some View {
-        ForEach(store.titles) { title in
-            MovieTitleTile(
-                title: title,
-                isSelected: store.selectedTitleID == title.id
-            ) {
-                Task { await store.select(title) }
+            Group {
+                if store.isLoadingNextPage {
+                    ProgressView("Loading more titles…")
+                        .controlSize(.small)
+                        .frame(maxWidth: .infinity)
+                } else if let error = store.paginationError {
+                    HStack {
+                        Label(error, systemImage: "exclamationmark.triangle")
+                            .font(.caption)
+                            .foregroundStyle(Color.asterionMuted)
+                        Spacer()
+                        Button("Try Again") {
+                            Task { await store.retryNextPage(section: section, query: normalizedQuery) }
+                        }
+                    }
+                }
             }
-            .task {
-                await store.loadNextPageIfNeeded(
-                    section: section,
-                    query: normalizedQuery,
-                    currentTitle: title
-                )
-            }
+            .padding(.horizontal, 32)
         }
     }
 

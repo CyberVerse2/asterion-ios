@@ -9,10 +9,6 @@ struct AnimeCatalogView: View {
 
     @State private var featuredIndex = 0
 
-    private let columns = [
-        GridItem(.adaptive(minimum: 168, maximum: 168), spacing: 22, alignment: .top),
-    ]
-
     private var normalizedQuery: String {
         query.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -47,17 +43,10 @@ struct AnimeCatalogView: View {
                     VStack(alignment: .leading, spacing: 34) {
                         if section == .discover, normalizedQuery.isEmpty {
                             featuredBanner
+                                .padding(.horizontal, 32)
 
                             if !animeContinueWatching.isEmpty {
-                                ContinueWatchingShelf(entries: animeContinueWatching) { progress in
-                                    openWindow(
-                                        value: AnimePlayerRoute(
-                                            slug: progress.contentId,
-                                            title: progress.title,
-                                            initialEpisodeID: progress.unitId
-                                        )
-                                    )
-                                }
+                                continueWatchingShelf
                             }
 
                             seasonalShelf
@@ -66,19 +55,19 @@ struct AnimeCatalogView: View {
                         } else {
                             if section == .genres, normalizedQuery.isEmpty, !store.genres.isEmpty {
                                 genreSelection
+                                    .padding(.horizontal, 32)
                             }
 
                             if section == .types, normalizedQuery.isEmpty {
                                 typeSelection
+                                    .padding(.horizontal, 32)
                             }
 
                             shelf
                         }
                     }
-                    .frame(maxWidth: 920, alignment: .leading)
-                    .padding(.horizontal, 28)
-                    .padding(.top, 24)
-                    .padding(.bottom, 48)
+                    .padding(.top, 32)
+                    .padding(.bottom, 64)
                     .frame(maxWidth: .infinity, alignment: .top)
                 }
                 .hidingScrollIndicators()
@@ -110,12 +99,33 @@ struct AnimeCatalogView: View {
         model.continueWatching.filter { $0.mediaType == .anime }
     }
 
+    private var continueWatchingShelf: some View {
+        HomeSection(title: "Continue Watching", subtitle: "Pick up where you left off.") {
+            HomeHorizontalShelf(
+                items: animeContinueWatching,
+                itemWidth: 294,
+                spacing: 18,
+                height: 172
+            ) { progress in
+                HomeContinueCard(item: .watching(progress)) {
+                    openWindow(
+                        value: AnimePlayerRoute(
+                            slug: progress.contentId,
+                            title: progress.title,
+                            initialEpisodeID: progress.unitId
+                        )
+                    )
+                }
+                .padding(.vertical, 3)
+            }
+        }
+    }
+
     private var seasonalShelf: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            AnimeShelfHeader(
-                title: store.season.title,
-                subtitle: "Anime airing in the current season."
-            )
+        HomeSection(
+            title: store.season.title,
+            subtitle: "Anime airing in the current season."
+        ) {
 
             if store.isLoadingSeason, store.seasonalTitles.isEmpty {
                 ProgressView("Loading \(store.season.title)…")
@@ -145,22 +155,19 @@ struct AnimeCatalogView: View {
     }
 
     private var recentlyUpdatedShelf: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            AnimeShelfHeader(
-                title: "Recently Updated",
-                subtitle: "Fresh episodes, ready when you are."
-            )
+        HomeSection(
+            title: "Recently Updated",
+            subtitle: "Fresh episodes, ready when you are."
+        ) {
             horizontalTitleRow(store.titles, loadsNextPage: true)
-            paginationStatus
         }
     }
 
     private var newReleasesShelf: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            AnimeShelfHeader(
-                title: "New Releases",
-                subtitle: "New arrivals across series, films, and specials."
-            )
+        HomeSection(
+            title: "New Releases",
+            subtitle: "New arrivals across series, films, and specials."
+        ) {
 
             if store.isLoadingNewReleases, store.newReleaseTitles.isEmpty {
                 ProgressView("Loading new releases…")
@@ -193,28 +200,28 @@ struct AnimeCatalogView: View {
         _ titles: [AnimeTitle],
         loadsNextPage: Bool
     ) -> some View {
-        ScrollView(.horizontal) {
-            LazyHStack(alignment: .top, spacing: 22) {
-                ForEach(titles) { title in
-                    AnimeTitleTile(
-                        title: title,
-                        isSelected: store.selectedTitleID == title.id
-                    ) {
-                        Task { await store.select(title) }
-                    }
-                    .task {
-                        guard loadsNextPage else { return }
-                        await store.loadNextPageIfNeeded(
-                            section: section,
-                            query: normalizedQuery,
-                            currentTitle: title
-                        )
-                    }
-                }
+        HomeHorizontalShelf(
+            items: titles,
+            itemWidth: 168,
+            spacing: 18,
+            height: 258
+        ) { title in
+            AnimeTitleTile(
+                title: title,
+                isSelected: store.selectedTitleID == title.id
+            ) {
+                Task { await store.select(title) }
             }
-            .padding(.vertical, 2)
+            .padding(.vertical, 3)
+            .task {
+                guard loadsNextPage else { return }
+                await store.loadNextPageIfNeeded(
+                    section: section,
+                    query: normalizedQuery,
+                    currentTitle: title
+                )
+            }
         }
-        .hidingScrollIndicators()
     }
 
     @ViewBuilder
@@ -258,28 +265,12 @@ struct AnimeCatalogView: View {
     }
 
     private var shelf: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            AnimeShelfHeader(title: shelfTitle, subtitle: shelfSubtitle)
-
-            LazyVGrid(columns: columns, alignment: .leading, spacing: 26) {
-                ForEach(store.titles) { title in
-                    AnimeTitleTile(
-                        title: title,
-                        isSelected: store.selectedTitleID == title.id
-                    ) {
-                        Task { await store.select(title) }
-                    }
-                    .task {
-                        await store.loadNextPageIfNeeded(
-                            section: section,
-                            query: normalizedQuery,
-                            currentTitle: title
-                        )
-                    }
-                }
+        VStack(alignment: .leading, spacing: 10) {
+            HomeSection(title: shelfTitle, subtitle: shelfSubtitle) {
+                horizontalTitleRow(store.titles, loadsNextPage: true)
             }
-
             paginationStatus
+                .padding(.horizontal, 32)
         }
     }
 

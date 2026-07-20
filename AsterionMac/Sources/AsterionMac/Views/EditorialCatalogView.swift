@@ -7,10 +7,6 @@ struct EditorialCatalogView: View {
     let isSearching: Bool
     @Binding var selectedNovelID: String
 
-    private let columns = [
-        GridItem(.adaptive(minimum: 168, maximum: 168), spacing: 22, alignment: .top),
-    ]
-
     var body: some View {
         Group {
             if model.isLoadingCatalog, novels.isEmpty {
@@ -31,8 +27,7 @@ struct EditorialCatalogView: View {
                             shelf(
                                 title: "Featured",
                                 subtitle: "Handpicked stories worth your time.",
-                                novels: model.featuredNovels,
-                                horizontal: true
+                                novels: model.featuredNovels
                             )
 
                             if !model.continueReadingEntries.isEmpty {
@@ -42,8 +37,7 @@ struct EditorialCatalogView: View {
                             shelf(
                                 title: "Trending This Week",
                                 subtitle: "Stories readers keep returning to.",
-                                novels: model.trendingNovels,
-                                horizontal: true
+                                novels: model.trendingNovels
                             )
                         } else {
                             shelf(
@@ -56,10 +50,8 @@ struct EditorialCatalogView: View {
                             )
                         }
                     }
-                    .frame(maxWidth: 920, alignment: .leading)
-                    .padding(.horizontal, 28)
-                    .padding(.top, 24)
-                    .padding(.bottom, 48)
+                    .padding(.top, 32)
+                    .padding(.bottom, 64)
                     .frame(maxWidth: .infinity, alignment: .top)
                 }
                 .hidingScrollIndicators()
@@ -72,65 +64,43 @@ struct EditorialCatalogView: View {
         title: String,
         subtitle: String,
         novels: [Novel],
-        showsRank: Bool = false,
-        horizontal: Bool = false
+        showsRank: Bool = false
     ) -> some View {
-        VStack(alignment: .leading, spacing: 18) {
-            ShelfHeader(title: title, subtitle: subtitle)
-            if horizontal {
-                ViewThatFits(in: .horizontal) {
-                    bookRow(novels: novels, showsRank: showsRank, count: 4)
-                    bookRow(novels: novels, showsRank: showsRank, count: 3)
-                    bookRow(novels: novels, showsRank: showsRank, count: 2)
+        HomeSection(title: title, subtitle: subtitle) {
+            HomeHorizontalShelf(
+                items: novels,
+                itemWidth: 168,
+                spacing: 18,
+                height: 258
+            ) { novel in
+                EditorialBookTile(
+                    novel: novel,
+                    isSelected: selectedNovelID == novel.id,
+                    rank: showsRank && novel.numericRank != .max ? novel.numericRank : nil
+                ) {
+                    selectedNovelID = novel.id
                 }
-            } else {
-                LazyVGrid(columns: columns, alignment: .leading, spacing: 26) {
-                    bookTiles(novels: novels, showsRank: showsRank)
-                }
+                .padding(.vertical, 3)
+                .contextMenu { libraryContextMenu(for: novel) }
             }
-        }
-    }
-
-    private func bookRow(novels: [Novel], showsRank: Bool, count: Int) -> some View {
-        HStack(alignment: .top, spacing: 22) {
-            bookTiles(novels: Array(novels.prefix(count)), showsRank: showsRank)
-        }
-    }
-
-    @ViewBuilder
-    private func bookTiles(novels: [Novel], showsRank: Bool) -> some View {
-        ForEach(novels) { novel in
-            EditorialBookTile(
-                novel: novel,
-                isSelected: selectedNovelID == novel.id,
-                rank: showsRank && novel.numericRank != .max ? novel.numericRank : nil
-            ) {
-                selectedNovelID = novel.id
-            }
-            .contextMenu { libraryContextMenu(for: novel) }
         }
     }
 
     private var continueReadingShelf: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            ShelfHeader(title: "Continue Reading", subtitle: "Pick up where you left off.")
-            ViewThatFits(in: .horizontal) {
-                continueReadingRow(count: 4)
-                continueReadingRow(count: 3)
-                continueReadingRow(count: 2)
-            }
-        }
-    }
-
-    private func continueReadingRow(count: Int) -> some View {
-        HStack(alignment: .top, spacing: 22) {
-            ForEach(model.continueReadingEntries.prefix(count)) { entry in
+        HomeSection(title: "Continue Reading", subtitle: "Pick up where you left off.") {
+            HomeHorizontalShelf(
+                items: model.continueReadingEntries,
+                itemWidth: 294,
+                spacing: 18,
+                height: 172
+            ) { entry in
                 HomeContinueCard(
                     item: .reading(entry),
                     isSelected: selectedNovelID == entry.novel.id
                 ) {
                     selectedNovelID = entry.novel.id
                 }
+                .padding(.vertical, 3)
                 .contextMenu { libraryContextMenu(for: entry.novel) }
             }
         }
@@ -152,22 +122,6 @@ struct EditorialCatalogView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.asterionMediaCanvas)
-    }
-}
-
-private struct ShelfHeader: View {
-    let title: String
-    let subtitle: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(title)
-                .font(.asterionDisplay(22, weight: .semibold))
-                .foregroundStyle(Color.asterionText)
-            Text(subtitle)
-                .font(.callout)
-                .foregroundStyle(Color.asterionMuted)
-        }
     }
 }
 
