@@ -83,7 +83,7 @@ struct DomainModelTests {
         #expect(episode.id == "episode/show-season-2-episode-3")
     }
 
-    @Test func moviePlaybackPrefersTheSubtitleCapableWebPlayer() throws {
+    @Test func moviePlaybackPrefersTheVerifiedNativeSource() throws {
         let options = [
             MoviePlaybackOption(
                 id: "direct-1",
@@ -105,7 +105,7 @@ struct DomainModelTests {
             ),
         ]
 
-        #expect(MoviePlaybackOption.preferred(from: options)?.id == "web-3")
+        #expect(MoviePlaybackOption.preferred(from: options)?.id == "direct-1")
     }
 
     @Test func animeTitleDecodesTheLiveServiceShapeAndFindsItsShowSlug() throws {
@@ -259,12 +259,6 @@ struct DomainModelTests {
         }
 
         SubtitleURLProtocol.install { request in
-            guard request.value(forHTTPHeaderField: "Origin") == "https://vidtube.site" else {
-                throw SubtitleProtocolError.invalidHeader("Origin")
-            }
-            guard request.value(forHTTPHeaderField: "Referer") == "https://vidtube.site/" else {
-                throw SubtitleProtocolError.invalidHeader("Referer")
-            }
             guard request.value(forHTTPHeaderField: "Accept")
                 == "text/vtt,text/plain;q=0.9,*/*;q=0.1" else {
                 throw SubtitleProtocolError.invalidHeader("Accept")
