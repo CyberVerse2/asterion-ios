@@ -99,7 +99,7 @@ struct NovelDetailView: View {
     }
 
     private var hero: some View {
-        HStack(alignment: .center, spacing: 38) {
+        HStack(alignment: .top, spacing: 38) {
             AsyncImage(url: coverURL) { phase in
                 if case .success(let image) = phase {
                     image.resizable().scaledToFill()
@@ -146,6 +146,7 @@ struct NovelDetailView: View {
                         .lineSpacing(4)
                         .lineLimit(showsFullSynopsis ? nil : 3)
                         .frame(maxWidth: 650, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
                         .textSelection(.enabled)
 
                     if cleanSummary.count > 240 {
