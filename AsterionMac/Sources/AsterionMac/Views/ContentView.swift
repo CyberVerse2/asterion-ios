@@ -83,6 +83,12 @@ struct ContentView: View {
         } detail: {
             mainContent
                 .scrollEdgeEffectStyle(.soft, for: [.top, .bottom])
+                .safeAreaBar(edge: .top, spacing: 0) {
+                    Color.clear.frame(height: 1)
+                }
+                .safeAreaBar(edge: .bottom, spacing: 0) {
+                    Color.clear.frame(height: 1)
+                }
         }
         .navigationSplitViewStyle(.prominentDetail)
         .searchable(text: $searchText, placement: .sidebar, prompt: Text(searchPrompt))
