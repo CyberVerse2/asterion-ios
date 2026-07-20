@@ -214,16 +214,18 @@ struct AnimeDetailView: View {
             if isUpdating {
                 ProgressView()
                     .controlSize(.small)
-                    .frame(width: 72)
+                    .frame(width: 20)
             } else {
                 Label(isSaved ? "Saved" : "Save", systemImage: isSaved ? "bookmark.fill" : "bookmark")
-                    .frame(width: 72)
+                    .labelStyle(.iconOnly)
+                    .frame(width: 20)
             }
         }
         .buttonStyle(.bordered)
         .controlSize(.large)
         .disabled(isUpdating)
         .help(isSaved ? "Remove from saved anime" : "Save anime to your account")
+        .accessibilityLabel(isSaved ? "Remove from saved anime" : "Save anime")
     }
 
     @ViewBuilder
@@ -311,16 +313,18 @@ struct AnimeDetailView: View {
             if isPreparingDownloadPlan {
                 ProgressView()
                     .controlSize(.small)
-                    .frame(width: 84)
+                    .frame(width: 20)
             } else {
                 Label("Download", systemImage: "arrow.down.circle")
-                    .frame(width: 84)
+                    .labelStyle(.iconOnly)
+                    .frame(width: 20)
             }
         }
         .buttonStyle(.bordered)
         .controlSize(.large)
         .disabled(isPreparingDownloadPlan || store.episodes.isEmpty)
         .help("Choose episodes and quality across every season")
+        .accessibilityLabel("Choose episodes and quality to download")
     }
 
     private func presentEpisodeDownload(show: AnimeShow, episode: AnimeEpisode) {

@@ -210,16 +210,18 @@ struct MovieDetailView: View {
             if isUpdating {
                 ProgressView()
                     .controlSize(.small)
-                    .frame(width: 72)
+                    .frame(width: 20)
             } else {
                 Label(isSaved ? "Saved" : "Save", systemImage: isSaved ? "bookmark.fill" : "bookmark")
-                    .frame(width: 72)
+                    .labelStyle(.iconOnly)
+                    .frame(width: 20)
             }
         }
         .buttonStyle(.bordered)
         .controlSize(.large)
         .disabled(isUpdating)
         .help(isSaved ? "Remove from saved movies" : "Save this title to your account")
+        .accessibilityLabel(isSaved ? "Remove from saved movies" : "Save this title")
     }
 
     private func episodeBrowser(_ show: MovieShow) -> some View {
@@ -320,16 +322,22 @@ struct MovieDetailView: View {
     }
 
     private func movieCollectionDownloadButton(_ show: MovieShow) -> some View {
-        Button {
+        let help = show.isSeries
+            ? "Choose episodes and quality across every season"
+            : "Choose download quality"
+
+        return Button {
             presentMovieDownload(show: show, selectedEpisode: nil)
         } label: {
             Label("Download", systemImage: "arrow.down.circle")
-                .frame(width: 84)
+                .labelStyle(.iconOnly)
+                .frame(width: 20)
         }
         .buttonStyle(.bordered)
         .controlSize(.large)
         .disabled(show.isSeries && store.episodes.isEmpty)
-        .help(show.isSeries ? "Choose episodes and quality across every season" : "Choose download quality")
+        .help(help)
+        .accessibilityLabel(help)
     }
 
     private func presentMovieDownload(show: MovieShow, selectedEpisode: MovieEpisode?) {
