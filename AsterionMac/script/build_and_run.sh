@@ -50,8 +50,8 @@ if [[ -z "$CODE_SIGN_IDENTITY" ]]; then
 fi
 
 if [[ "$RELEASE_PACKAGE_MODE" == true ]]; then
-  if [[ "$CLERK_PUBLISHABLE_KEY" != pk_live_* ]]; then
-    echo "error: ASTERION_CLERK_PUBLISHABLE_KEY must contain a production Clerk publishable key" >&2
+  if [[ "$CLERK_PUBLISHABLE_KEY" != pk_* ]]; then
+    echo "error: ASTERION_CLERK_PUBLISHABLE_KEY must contain a Clerk publishable key" >&2
     exit 1
   fi
 

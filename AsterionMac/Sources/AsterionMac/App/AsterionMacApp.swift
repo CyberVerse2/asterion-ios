@@ -57,9 +57,9 @@ struct AsterionApp: App {
         "pk_test_cG9ldGljLWdhdG9yLTk3LmNsZXJrLmFjY291bnRzLmRldiQ"
         #else
         guard let key = Bundle.main.object(forInfoDictionaryKey: clerkPublishableKeyInfoKey) as? String,
-              key.hasPrefix("pk_live_") else {
+              key.hasPrefix("pk_") else {
             fatalError(
-                "Release builds require a production Clerk publishable key in the "
+                "Release builds require a Clerk publishable key in the "
                     + "\(clerkPublishableKeyInfoKey) Info.plist entry."
             )
         }
