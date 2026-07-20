@@ -112,42 +112,26 @@ struct MovieDetailView: View {
     }
 
     private func hero(_ show: MovieShow) -> some View {
-        HStack(alignment: .top, spacing: 20) {
-            MediaCoverView(url: show.imageURL, width: 138, height: 198)
+        AsterionDetailHero(
+            imageURL: show.imageURL,
+            badge: show.isSeries ? "SERIES" : "MOVIE",
+            title: show.displayTitle,
+            subtitle: show.genres.prefix(3).joined(separator: " · "),
+            metadata: movieMetadata(for: show)
+        )
+    }
 
-            VStack(alignment: .leading, spacing: 10) {
-                Text(show.displayTitle)
-                    .asterionDetailTitleStyle()
-
-                if !show.genres.isEmpty {
-                    Text(show.genres.prefix(3).joined(separator: " · "))
-                        .font(.asterionDisplay(14, weight: .medium))
-                        .foregroundStyle(Color.asterionText)
-                        .lineLimit(2)
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    metadataLine(
-                        icon: show.isSeries ? "tv" : "film",
-                        value: show.isSeries ? "TV Series" : "Movie"
-                    )
-                    if let year = show.releaseYear {
-                        metadataLine(icon: "calendar", value: year)
-                    }
-                    if let duration = show.duration, !duration.isEmpty {
-                        metadataLine(icon: "clock", value: duration)
-                    }
-                    if let director = show.director, !director.isEmpty {
-                        metadataLine(icon: "person.fill", value: director)
-                    }
-                    if let rating = show.imdbRating {
-                        metadataLine(icon: "star.fill", value: "IMDb \(rating)")
-                    }
-                }
-                .padding(.top, 3)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
+    private func movieMetadata(for show: MovieShow) -> [AsterionDetailMetadata] {
+        [
+            AsterionDetailMetadata(
+                icon: show.isSeries ? "tv" : "film",
+                value: show.isSeries ? "TV Series" : "Movie"
+            ),
+            show.releaseYear.map { AsterionDetailMetadata(icon: "calendar", value: $0) },
+            show.duration.flatMap { $0.isEmpty ? nil : AsterionDetailMetadata(icon: "clock", value: $0) },
+            show.director.flatMap { $0.isEmpty ? nil : AsterionDetailMetadata(icon: "person.fill", value: $0) },
+            show.imdbRating.map { AsterionDetailMetadata(icon: "star.fill", value: "IMDb \($0)") },
+        ].compactMap { $0 }
     }
 
     private func watchAction(_ show: MovieShow) -> some View {

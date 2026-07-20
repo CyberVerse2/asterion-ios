@@ -24,7 +24,22 @@ struct FootballDetailView: View {
     private func detail(_ match: FootballMatch) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
-                status(match)
+                AsterionDetailHero(
+                    imageURL: match.posterURL,
+                    badge: match.isLive ? "LIVE" : "MATCH",
+                    title: match.displayTitle,
+                    subtitle: match.category.capitalized,
+                    metadata: [
+                        AsterionDetailMetadata(
+                            icon: "calendar",
+                            value: match.kickoff.formatted(date: .abbreviated, time: .shortened)
+                        ),
+                        AsterionDetailMetadata(
+                            icon: "antenna.radiowaves.left.and.right",
+                            value: sourceDescription(match)
+                        ),
+                    ]
+                )
                 matchup(match)
                 watchAction(match)
 
@@ -45,18 +60,6 @@ struct FootballDetailView: View {
             .frame(maxWidth: .infinity, alignment: .top)
         }
         .hidingScrollIndicators()
-    }
-
-    private func status(_ match: FootballMatch) -> some View {
-        HStack(spacing: 8) {
-            Circle()
-                .fill(match.isLive ? Color.asterionAccent : Color.asterionMuted)
-                .frame(width: 7, height: 7)
-            Text(match.isLive ? "LIVE NOW" : match.kickoff.formatted(.relative(presentation: .named)))
-                .font(.asterionMono(10, weight: .bold))
-                .tracking(1.3)
-                .foregroundStyle(match.isLive ? Color.asterionAccent : Color.asterionMuted)
-        }
     }
 
     private func matchup(_ match: FootballMatch) -> some View {

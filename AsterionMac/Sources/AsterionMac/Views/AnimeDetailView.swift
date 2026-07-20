@@ -108,48 +108,33 @@ struct AnimeDetailView: View {
     }
 
     private func hero(_ show: AnimeShow) -> some View {
-        HStack(alignment: .top, spacing: 20) {
-            MediaCoverView(url: show.imageURL, width: 138, height: 198)
+        AsterionDetailHero(
+            imageURL: show.imageURL,
+            badge: "ANIME",
+            title: show.displayTitle,
+            subtitle: byline(for: show),
+            metadata: animeMetadata(for: show)
+        )
+    }
 
-            VStack(alignment: .leading, spacing: 10) {
-                Text(show.displayTitle)
-                    .asterionDetailTitleStyle()
+    private func animeMetadata(for show: AnimeShow) -> [AsterionDetailMetadata] {
+        let mediaSummary = [show.type, show.status]
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+            .joined(separator: " · ")
+        let date = [show.season, show.dateAired]
+            .compactMap { $0 }
+            .first { !$0.isEmpty }
 
-                if let byline = byline(for: show) {
-                    Text(byline)
-                        .font(.asterionDisplay(14, weight: .medium))
-                        .foregroundStyle(Color.asterionText)
-                        .lineLimit(1)
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    let mediaSummary = [show.type, show.status]
-                        .compactMap { $0 }
-                        .filter { !$0.isEmpty }
-                        .joined(separator: " · ")
-                    if !mediaSummary.isEmpty {
-                        AnimeMetadataLine(icon: "play.rectangle", value: mediaSummary)
-                    }
-
-                    if let season = show.season, !season.isEmpty {
-                        AnimeMetadataLine(icon: "calendar", value: season)
-                    } else if let dateAired = show.dateAired, !dateAired.isEmpty {
-                        AnimeMetadataLine(icon: "calendar", value: dateAired)
-                    }
-
-                    if let studio = show.displayStudio, !studio.isEmpty {
-                        AnimeMetadataLine(icon: "building.2", value: studio)
-                    }
-
-                    AnimeMetadataLine(
-                        icon: "film.stack",
-                        value: "\(max(show.episodesCount, store.episodes.count)) episodes"
-                    )
-                }
-                .padding(.top, 3)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
+        return [
+            mediaSummary.isEmpty ? nil : AsterionDetailMetadata(icon: "play.rectangle", value: mediaSummary),
+            date.map { AsterionDetailMetadata(icon: "calendar", value: $0) },
+            show.displayStudio.flatMap { $0.isEmpty ? nil : AsterionDetailMetadata(icon: "building.2", value: $0) },
+            AsterionDetailMetadata(
+                icon: "film.stack",
+                value: "\(max(show.episodesCount, store.episodes.count)) episodes"
+            ),
+        ].compactMap { $0 }
     }
 
     private func watchAction(_ show: AnimeShow) -> some View {

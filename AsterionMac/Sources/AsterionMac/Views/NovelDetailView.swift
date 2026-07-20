@@ -93,39 +93,24 @@ struct NovelDetailView: View {
     }
 
     private var hero: some View {
-        HStack(alignment: .top, spacing: 24) {
-            CoverView(novel: novel, width: 156, height: 224)
-
-            VStack(alignment: .leading, spacing: 13) {
-                Text(novel.title)
-                    .font(.asterionDisplay(28, weight: .semibold))
-                    .foregroundStyle(Color.asterionText)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
-
-                Text(novel.authorDisplayName)
-                    .font(.asterionDisplay(16, weight: .medium))
-                    .foregroundStyle(Color.asterionText)
-
-                VStack(alignment: .leading, spacing: 9) {
-                    MetadataLine(
-                        icon: "book.closed",
-                        value: novel.genres?.first ?? "Fiction"
-                    )
-                    MetadataLine(
-                        icon: "text.page",
-                        value: "\(novel.totalChapters ?? String(chapters.count)) chapters"
-                    )
-                    MetadataLine(icon: "eye", value: "\(novel.views ?? "—") views")
-                    MetadataLine(
-                        icon: "star",
-                        value: novel.rating.map { String(format: "%.1f rating", $0) } ?? "Not yet rated"
-                    )
-                }
-                .padding(.top, 5)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
+        AsterionDetailHero(
+            imageURL: novel.imageURL.flatMap(URL.init(string:)),
+            badge: "NOVEL",
+            title: novel.title,
+            subtitle: novel.authorDisplayName,
+            metadata: [
+                AsterionDetailMetadata(icon: "book.closed", value: novel.genres?.first ?? "Fiction"),
+                AsterionDetailMetadata(
+                    icon: "text.page",
+                    value: "\(novel.totalChapters ?? String(chapters.count)) chapters"
+                ),
+                AsterionDetailMetadata(icon: "eye", value: "\(novel.views ?? "—") views"),
+                AsterionDetailMetadata(
+                    icon: "star.fill",
+                    value: novel.rating.map { String(format: "%.1f rating", $0) } ?? "Not yet rated"
+                ),
+            ]
+        )
     }
 
     private var actions: some View {
