@@ -531,8 +531,6 @@ def show_detail(slug: str) -> Optional[ShowDetail]:
 
     if imdb_id:
         hls_sources = get_hls_sources(imdb_id)
-        streams[:0] = hls_sources
-        # Add clean embed players with proper IDs
         clean_embeds = [
             ("2Embed (JW+Subs)", f"https://www.2embed.cc/embed/{imdb_id}"),
         ]
@@ -544,12 +542,15 @@ def show_detail(slug: str) -> Optional[ShowDetail]:
             ]
         for label, embed_url in clean_embeds:
             if not any(embed_url in s.embed_url for s in streams):
-                streams.insert(len(hls_sources), StreamServer(
+                streams.append(StreamServer(
                     server_id=0,
                     label=label,
                     quality="Direct Player",
                     embed_url=embed_url,
-                ))  # prepend HLS before embed servers
+                ))
+        for hls in hls_sources:
+            if not any(hls.embed_url in s.embed_url for s in streams):
+                streams.append(hls)
     # Renumber sequentially
     for i, s in enumerate(streams):
         s.server_id = i + 1
