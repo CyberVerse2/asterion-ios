@@ -134,141 +134,99 @@ def api_year(year):
 @app.route("/api/show/<path:slug>")
 @_json_or_error
 def api_show(slug):
-    from_db = db.get_movie_by_slug(slug)
-    imdb_id = from_db["imdb_id"] if from_db else None
-    metadata = None
-    streams = []
-
-    # Resolve IMDB ID: scrape detail page, fall back to 2embed search
-    if not imdb_id or not imdb_id.startswith("tt"):
-        try:
-            html = scraper._get(f"{scraper.BASE}/{slug}/")
-            real_imdb = scraper._extract_imdb_id(html)
-            if real_imdb:
-                imdb_id = real_imdb
-                pg = db.get_pg()
-                with pg.cursor() as cur:
-                    cur.execute(
-                        "INSERT INTO movies (imdb_id, title, slug, type, source_domain) "
-                        "VALUES (%s, %s, %s, %s, %s) ON CONFLICT (slug) DO UPDATE SET imdb_id = EXCLUDED.imdb_id",
-                        (imdb_id, slug.replace("-", " ").title(), slug, "movie", scraper.BASE),
-                    )
-        except Exception:
-            pass
-
-        # Fallback: 2embed search using real page title + year from soap2day
-        if not imdb_id or not imdb_id.startswith("tt"):
-            search_query = ""
-            search_year = None
-            try:
-                html = scraper._get(f"{scraper.BASE}/{slug}/")
-                real_imdb = scraper._extract_imdb_id(html)
-                if real_imdb:
-                    imdb_id = real_imdb
-                m = re.search(r'<h1[^>]*>([^<]+)', html)
-                if not m:
-                    m = re.search(r'<title>([^<]+)', html)
-                if m:
-                    title_raw = m.group(1).strip()
-                    title_raw = re.sub(r'\s*(?:soap2day|uk|au|watch free online|hd).*$', '', title_raw, flags=re.I).strip()
-                    search_query = title_raw
-                # Extract year from page
-                ym = re.search(r'href=\"[^\"]*release-year/(\d{4})/', html)
-                if ym:
-                    search_year = ym.group(1)
-            except Exception:
-                pass
-            try:
-                import requests
-                from urllib.parse import quote_plus
-                resp = requests.get(
-                    f"https://api.2embed.cc/search?q={quote_plus(search_query)}",
-                    headers={"User-Agent": "Mozilla/5.0"}, timeout=10,
-                )
-                results = resp.json()
-                if isinstance(results, dict):
-                    results = results.get("results", [])
-                imdb_id = _pick_best_match(results, search_query, "title", search_year)
-                if not imdb_id:
-                    resp2 = requests.get(
-                        f"https://api.2embed.cc/searchtv?q={quote_plus(search_query)}",
-                        headers={"User-Agent": "Mozilla/5.0"}, timeout=10,
-                    )
-                    tv_results = resp2.json()
-                    if isinstance(tv_results, dict):
-                        tv_results = tv_results.get("results", [])
-                    imdb_id = _pick_best_match(tv_results, search_query, "name", search_year)
-            except Exception:
-                pass
-
-    # Fetch metadata + streams using real IMDB ID
-    if imdb_id and imdb_id.startswith("tt"):
-        metadata = db.cache_get(f"metadata:{imdb_id}")
-        if not metadata:
-            enriched = scraper._enrich_from_2embed(imdb_id)
-            if enriched:
-                metadata = enriched
-                db.cache_set(f"metadata:{imdb_id}", enriched, db.REDIS_METADATA_TTL)
-                # Also update DB with 2embed data in background
-                _update_db_from_2embed(imdb_id, slug, enriched)
-
-    if imdb_id and imdb_id.startswith("tt"):
-        stream_data = db.cache_get(f"streams:{imdb_id}")
-        if not stream_data:
-            stream_data = []
-            try:
-                hls = scraper.get_hls_sources(imdb_id)
-                for i, s in enumerate(hls):
-                    stream_data.append({"server_id": i + 1, "label": s.label,
-                                       "quality": s.quality, "embed_url": s.embed_url})
-            except Exception:
-                pass
-            stream_data.append({"server_id": len(stream_data) + 1, "label": "2Embed (JW+Subs)",
-                               "quality": "1080P", "embed_url": f"https://www.2embed.cc/embed/{imdb_id}"})
-            db.cache_set(f"streams:{imdb_id}", stream_data, db.REDIS_STREAMS_TTL)
-        streams = stream_data
-
-    # Build result
     media_type = "tv" if "series/" in slug else "movie"
-    # Clean slug: strip series/ prefix, remove soap2day, remove random suffix like -adpkc
-    base = re.sub(r'^series/', '', slug)
-    base = re.sub(r'-[a-z0-9]{4,8}$', '', base)
-    base = base.replace("-", " ").title().replace("Soap2Day", "").strip()
-    title = base
+    cache_key = f"detail:{slug}"
 
-    if metadata:
-        if metadata.get("title"):
-            title = metadata["title"]
-        if metadata.get("first_air_date") and not metadata.get("release_date"):
-            pass  # TV shows use first_air_date
+    # Check cache first
+    cached = db.cache_get(cache_key)
+    if cached:
+        return cached
 
-    result = {
-        "title": title,
-        "slug": slug,
-        "type": (from_db or {}).get("type", media_type),
-        "image_url": (from_db or {}).get("poster_url") or (metadata or {}).get("poster"),
-        "description": (from_db or {}).get("overview") or (metadata or {}).get("overview"),
-        "imdb_rating": _fmt_rating((from_db or {}).get("imdb_rating") or (metadata or {}).get("vote_average")),
-        "tmdb_rating": _fmt_rating((from_db or {}).get("tmdb_rating") or (metadata or {}).get("vote_average")),
-        "rotten_tomatoes": (from_db or {}).get("rotten_tomatoes"),
-        "metacritic": (from_db or {}).get("metacritic"),
-        "genres": [g["name"] for g in (from_db or {}).get("genres", [])] or [g if isinstance(g, str) else g.get("name", "") for g in (metadata or {}).get("genres", [])],
-        "director": (from_db or {}).get("director") or (metadata or {}).get("director"),
-        "actors": [c["name"] for c in (from_db or {}).get("cast", [])] or (metadata or {}).get("cast", []),
-        "duration": str((from_db or {}).get("runtime", "")) or None,
-        "release_year": (from_db or {}).get("release_year") or (metadata or {}).get("year"),
-        "release_date": (from_db or {}).get("release_date") or (metadata or {}).get("release_date"),
-        "country": (from_db or {}).get("country"),
-        "seasons": [],
-        "streams": _stream_list_for_api(streams),
-    }
+    # Primary: scrape soap2day detail page directly
+    detail = None
+    try:
+        detail = scraper.show_detail(slug)
+    except Exception:
+        pass
 
-    # Strip "soap2day" from title
-    result["title"] = re.sub(r'\s*[-–]\s*soap2day\s*$', '', result["title"], flags=re.IGNORECASE)
-    result["title"] = re.sub(r'\s*soap2day\s*$', '', result["title"], flags=re.IGNORECASE)
-    result["title"] = result["title"].strip()
+    if detail and detail.streams:
+        result = {
+            "title": detail.title,
+            "slug": slug,
+            "type": detail.type or media_type,
+            "image_url": detail.image_url,
+            "description": detail.description,
+            "imdb_rating": _fmt_rating(detail.imdb_rating),
+            "tmdb_rating": _fmt_rating(detail.tmdb_rating),
+            "rotten_tomatoes": detail.rotten_tomatoes,
+            "metacritic": detail.metacritic,
+            "genres": detail.genres,
+            "director": detail.director,
+            "actors": detail.actors,
+            "duration": detail.duration,
+            "release_year": detail.release_year,
+            "release_date": detail.release_date,
+            "country": detail.country,
+            "seasons": detail.seasons,
+            "streams": _stream_list_for_api(detail.streams),
+        }
+        db.cache_set(cache_key, result, 3600)  # 1 hour
+        return result
 
-    return result
+    # Fallback: try 2embed for metadata + embed
+    if detail:
+        title_clean = re.sub(r'\s*(?:soap2day|uk|au|watch free online|hd).*$', '', detail.title, flags=re.I).strip()
+    else:
+        title_clean = re.sub(r'^series/', '', slug).replace('-', ' ').title()
+
+    # Search 2embed for IMDB ID
+    imdb_id = None
+    try:
+        import requests
+        from urllib.parse import quote_plus
+        for endpoint in ["search", "searchtv"]:
+            resp = requests.get(
+                f"https://api.2embed.cc/{endpoint}?q={quote_plus(title_clean)}",
+                headers={"User-Agent": "Mozilla/5.0"}, timeout=10,
+            )
+            data = resp.json()
+            results = data.get("results", []) if isinstance(data, dict) else data
+            if results:
+                imdb_id = results[0].get("imdb_id")
+                if imdb_id:
+                    break
+    except Exception:
+        pass
+
+    if imdb_id and imdb_id.startswith("tt"):
+        result = {
+            "title": title_clean,
+            "slug": slug,
+            "type": media_type,
+            "image_url": detail.image_url if detail else None,
+            "description": detail.description if detail else None,
+            "imdb_rating": _fmt_rating(detail.imdb_rating if detail else None),
+            "tmdb_rating": None,
+            "rotten_tomatoes": None,
+            "metacritic": None,
+            "genres": detail.genres if detail else [],
+            "director": detail.director if detail else None,
+            "actors": detail.actors if detail else [],
+            "duration": detail.duration if detail else None,
+            "release_year": detail.release_year if detail else None,
+            "release_date": detail.release_date if detail else None,
+            "country": detail.country if detail else None,
+            "seasons": detail.seasons if detail else [],
+            "streams": _stream_list_for_api([
+                {"server_id": 1, "label": "2Embed", "quality": "1080P",
+                 "embed_url": f"https://www.2embed.cc/embed/{imdb_id}"}
+            ]),
+        }
+        db.cache_set(cache_key, result, 3600)
+        return result
+
+    # Nothing found
+    return {"error": "Not found"}, 404
 
 
 @app.route("/api/show/<path:slug>/episodes")
