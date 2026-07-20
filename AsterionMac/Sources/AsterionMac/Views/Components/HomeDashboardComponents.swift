@@ -279,13 +279,27 @@ struct HomePosterCard: View {
                     endPoint: .bottom
                 )
 
-                Text(item.subtitle)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.82))
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 11)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(item.badge)
+                        .font(.asterionMono(7, weight: .bold))
+                        .tracking(0.6)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(.ultraThinMaterial, in: Capsule())
+
+                    Text(item.title)
+                        .font(.asterionDisplay(15, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.85)
+
+                    Text(item.subtitle)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.78))
+                        .lineLimit(1)
+                }
+                .padding(12)
             }
             .frame(width: 168, height: 252)
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
