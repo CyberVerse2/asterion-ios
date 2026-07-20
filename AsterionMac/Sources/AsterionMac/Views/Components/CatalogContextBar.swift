@@ -49,6 +49,7 @@ struct CatalogContextBar: View {
                 }
                 .padding(.horizontal, 18)
                 .padding(.vertical, 8)
+                .padding(.top, 10)
             }
         }
         .scrollIndicators(.hidden)

@@ -136,6 +136,10 @@ struct ContentView: View {
 
             responsiveContent
         }
+        .ignoresSafeArea(
+            .container,
+            edges: showsCatalogContextBar ? .top : []
+        )
     }
 
     private var responsiveContent: some View {
