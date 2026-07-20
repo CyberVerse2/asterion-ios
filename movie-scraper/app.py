@@ -101,9 +101,9 @@ def api_popular_tv():
 def api_search():
     q = flask.request.args.get("q", "").strip()
     if not q:
-        return {"results": [], "total": 0}
+        return []
     key = f"discovery:search:{q.lower()}"
-    return _cached_or_scrape(key, lambda: {"results": _search_result_list(scraper.search(q))})
+    return _cached_or_scrape(key, lambda: _search_result_list(scraper.search(q)))
 
 
 @app.route("/api/episodes")
