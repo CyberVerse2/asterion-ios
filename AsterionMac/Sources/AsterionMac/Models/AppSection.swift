@@ -30,14 +30,14 @@ enum AppDestination: String, CaseIterable, Codable, Hashable, Sendable {
     var systemImage: String {
         switch self {
         case .home: "house"
-        case .novels: "books.vertical"
-        case .anime: "sparkles.tv"
-        case .movies: "film.stack"
+        case .novels: "book.closed"
+        case .anime: "play.tv"
+        case .movies: "film"
         case .football: "soccerball"
-        case .continueActivity: "play.circle"
+        case .continueActivity: "play.rectangle"
         case .bookmarks: "bookmark"
-        case .downloads: "arrow.down.circle"
-        case .history: "clock.arrow.circlepath"
+        case .downloads: "arrow.down.to.line"
+        case .history: "clock"
         case .account: "person.crop.circle"
         }
     }

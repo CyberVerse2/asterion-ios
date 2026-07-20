@@ -1,5 +1,24 @@
 import SwiftUI
 
+private struct AsterionDetailPageFrame: ViewModifier {
+    let maxContentWidth: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .frame(maxWidth: maxContentWidth, alignment: .leading)
+            .padding(.horizontal, 46)
+            .padding(.top, 30)
+            .padding(.bottom, 64)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+}
+
+extension View {
+    func asterionDetailPageFrame(maxContentWidth: CGFloat = 1_180) -> some View {
+        modifier(AsterionDetailPageFrame(maxContentWidth: maxContentWidth))
+    }
+}
+
 struct AsterionDetailMetadata: Identifiable {
     let icon: String
     let value: String

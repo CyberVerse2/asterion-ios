@@ -482,7 +482,7 @@ struct AnimeDetailView: View {
                             Color.asterionCard
                         }
                     }
-                    .frame(width: 246, height: 138)
+                    .frame(width: AsterionCardMetrics.episodeWidth, height: AsterionCardMetrics.episodeHeight)
                     .clipped()
 
                     Text(String(episode.number))
@@ -512,7 +512,7 @@ struct AnimeDetailView: View {
             }
             .padding(11)
         }
-        .frame(width: 246)
+        .frame(width: AsterionCardMetrics.episodeWidth)
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay {

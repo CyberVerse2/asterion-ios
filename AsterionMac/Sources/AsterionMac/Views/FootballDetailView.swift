@@ -44,11 +44,7 @@ struct FootballDetailView: View {
                     metadataLine(icon: "antenna.radiowaves.left.and.right", value: sourceDescription(match))
                 }
             }
-            .frame(maxWidth: 980, alignment: .leading)
-            .padding(.horizontal, 48)
-            .padding(.top, 24)
-            .padding(.bottom, 64)
-            .frame(maxWidth: .infinity, alignment: .top)
+            .asterionDetailPageFrame()
         }
         .hidingScrollIndicators()
     }

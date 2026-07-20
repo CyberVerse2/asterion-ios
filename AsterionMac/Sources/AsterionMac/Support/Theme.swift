@@ -1,5 +1,4 @@
 import AppKit
-import CoreText
 import SwiftUI
 
 extension Color {
@@ -9,7 +8,7 @@ extension Color {
     static let asterionSurface = Color(nsColor: .controlBackgroundColor)
     static let asterionCard = Color(nsColor: .underPageBackgroundColor)
     static let asterionText = Color.primary
-    static let asterionAccent = Color(red: 0.612, green: 0.137, blue: 0.208)
+    static let asterionAccent = Color.accentColor
     static let asterionAccentSoft = asterionAccent.opacity(0.14)
     static let asterionMuted = Color.secondary
     static let asterionBorder = Color(nsColor: .separatorColor)
@@ -23,13 +22,11 @@ extension Color {
 
 extension Font {
     static func asterionDisplay(_ size: CGFloat, weight: Weight = .regular) -> Font {
-        .custom("Literata", size: size)
-            .weight(weight)
+        .system(size: size, weight: weight, design: .default)
     }
 
     static func asterionReading(_ size: CGFloat, weight: Weight = .regular) -> Font {
-        .custom("Literata", size: size)
-            .weight(weight)
+        .system(size: size, weight: weight, design: .default)
     }
 
     static func asterionMono(_ size: CGFloat, weight: Weight = .regular) -> Font {
@@ -57,31 +54,6 @@ extension View {
     }
 }
 
-enum AsterionFontRegistry {
-    private static let fontResources = [
-        "Literata-Variable",
-        "Literata-Italic-Variable",
-    ]
-
-    static func registerBundledFonts() {
-        for resource in fontResources {
-            guard let url = Bundle.module.url(
-                forResource: resource,
-                withExtension: "ttf",
-                subdirectory: "Fonts"
-            ) else {
-                preconditionFailure("Missing bundled font: \(resource).ttf")
-            }
-
-            var registrationError: Unmanaged<CFError>?
-            guard CTFontManagerRegisterFontsForURL(url as CFURL, .process, &registrationError) else {
-                let message = registrationError?.takeRetainedValue().localizedDescription
-                    ?? "Unknown Core Text registration error"
-                preconditionFailure("Could not register \(resource).ttf: \(message)")
-            }
-        }
-    }
-}
 
 enum GenreStyle {
     static func color(for genres: [String]?) -> Color {

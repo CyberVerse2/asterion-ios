@@ -72,7 +72,6 @@ struct AsterionApp: App {
     @StateObject private var mediaDownloads = MediaDownloadManager()
 
     init() {
-        AsterionFontRegistry.registerBundledFonts()
         let options = Clerk.Options(
             keychainConfig: .init(service: Self.clerkKeychainService)
         )
@@ -85,6 +84,7 @@ struct AsterionApp: App {
     var body: some Scene {
         WindowGroup("Asterion", id: "main") {
             ContentView()
+                .containerBackground(Color.asterionMediaCanvas, for: .window)
                 .environmentObject(model)
                 .environmentObject(mediaDownloads)
                 .environment(Clerk.shared)

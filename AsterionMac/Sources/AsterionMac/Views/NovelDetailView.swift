@@ -5,6 +5,7 @@ struct NovelDetailView: View {
     @Environment(\.openWindow) private var openWindow
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let novel: Novel
+    let selectNovel: (Novel) -> Void
 
     @State private var chapters: [Chapter] = []
     @State private var progress: ReadingProgress?
@@ -39,18 +40,20 @@ struct NovelDetailView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 34) {
                     hero
-                        .id("detail-top")
                     sourceNotices
 
                     detailSection(title: "Chapters", trailing: chapterCountLabel) {
                         chapterList
                     }
+
+                    if !recommendations.isEmpty {
+                        detailSection(title: "You Might Like") {
+                            recommendationShelf
+                        }
+                    }
                 }
-                .frame(maxWidth: 1_180, alignment: .leading)
-                .padding(.horizontal, 46)
-                .padding(.top, 30)
-                .padding(.bottom, 64)
-                .frame(maxWidth: .infinity, alignment: .top)
+                .asterionDetailPageFrame()
+                .id("detail-top")
             }
             .hidingScrollIndicators()
             .scrollPosition(id: $scrollPosition, anchor: .top)
@@ -94,6 +97,7 @@ struct NovelDetailView: View {
                 endPoint: .bottom
             )
         }
+        .backgroundExtensionEffect()
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
@@ -278,7 +282,7 @@ struct NovelDetailView: View {
            let notice = model.chapterListState(for: novel.id).notice {
             sourceNotice(
                 message: notice,
-                icon: "arrow.down.circle.fill"
+                icon: "arrow.down.to.line"
             )
         }
     }
@@ -420,7 +424,7 @@ struct NovelDetailView: View {
     private var downloadButtonIcon: String {
         if isDownloaded { return "trash" }
         if offlineDownload?.phase == .failed { return "arrow.clockwise.circle" }
-        return "arrow.down.circle"
+        return "arrow.down.to.line"
     }
 
     private var chapterCountLabel: String? {
@@ -464,6 +468,31 @@ struct NovelDetailView: View {
 
     private func open(_ chapter: Chapter) {
         openWindow(value: ReaderRoute(novelID: novel.id, chapterID: chapter.id))
+    }
+
+    private var recommendationShelf: some View {
+        ScrollView(.horizontal) {
+            LazyHStack(spacing: 15) {
+                ForEach(recommendations) { recommendation in
+                    AsterionPosterCard(
+                        imageURL: recommendation.imageURL.flatMap(URL.init(string:)),
+                        badge: "NOVEL",
+                        title: recommendation.title,
+                        subtitle: recommendation.authorDisplayName
+                    ) {
+                        selectNovel(recommendation)
+                    }
+                }
+            }
+            .padding(.vertical, 2)
+            .scrollTargetLayout()
+        }
+        .hidingScrollIndicators()
+        .scrollTargetBehavior(.viewAligned)
+    }
+
+    private var recommendations: [Novel] {
+        Array(model.novels.lazy.filter { $0.id != novel.id }.prefix(10))
     }
 
     private func detailSection<Content: View>(

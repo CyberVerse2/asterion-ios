@@ -10,7 +10,7 @@ enum AsterionClerkTheme {
                 primary: .asterionAccent,
                 background: .asterionSurface,
                 input: .asterionBackground,
-                danger: .asterionAccent,
+                danger: .red,
                 success: Color(red: 0.20, green: 0.46, blue: 0.31),
                 warning: Color(red: 0.68, green: 0.43, blue: 0.16),
                 foreground: .asterionText,

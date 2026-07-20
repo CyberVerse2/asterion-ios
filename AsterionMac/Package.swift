@@ -22,7 +22,6 @@ let package = Package(
             ],
             path: "Sources/AsterionMac",
             resources: [
-                .copy("Resources/Fonts"),
                 .process("Resources/Brand"),
             ]
         ),
