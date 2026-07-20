@@ -33,26 +33,28 @@ struct NovelDetailView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 25) {
-                hero
-                    .id("detail-top")
-                sourceNotices
-                actions
-                Divider()
+        ZStack(alignment: .top) {
+            ambientBackdrop
 
-                detailSection(title: "Chapters", trailing: chapterCountLabel) {
-                    chapterList
+            ScrollView {
+                VStack(alignment: .leading, spacing: 34) {
+                    hero
+                        .id("detail-top")
+                    sourceNotices
+
+                    detailSection(title: "Chapters", trailing: chapterCountLabel) {
+                        chapterList
+                    }
                 }
+                .frame(maxWidth: 1_180, alignment: .leading)
+                .padding(.horizontal, 46)
+                .padding(.top, 30)
+                .padding(.bottom, 64)
+                .frame(maxWidth: .infinity, alignment: .top)
             }
-            .frame(maxWidth: 980, alignment: .leading)
-            .padding(.horizontal, 48)
-            .padding(.top, 24)
-            .padding(.bottom, 64)
-            .frame(maxWidth: .infinity, alignment: .top)
+            .hidingScrollIndicators()
+            .scrollPosition(id: $scrollPosition, anchor: .top)
         }
-        .hidingScrollIndicators()
-        .scrollPosition(id: $scrollPosition, anchor: .top)
         .background(Color.asterionMediaCanvas)
         .safeAreaInset(edge: .bottom) { accountErrorBar }
         .task(id: novel.id) {
@@ -64,26 +66,128 @@ struct NovelDetailView: View {
         }
     }
 
+    private var coverURL: URL? {
+        novel.imageURL.flatMap(URL.init(string:))
+    }
+
+    private var ambientBackdrop: some View {
+        AsyncImage(url: coverURL) { phase in
+            if case .success(let image) = phase {
+                image
+                    .resizable()
+                    .scaledToFill()
+                    .blur(radius: 42)
+                    .saturation(0.78)
+            } else {
+                Color.clear
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 590)
+        .clipped()
+        .opacity(0.38)
+        .overlay(Color.black.opacity(0.38))
+        .mask {
+            LinearGradient(
+                colors: [.black, .black.opacity(0.82), .clear],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
     private var hero: some View {
-        AsterionDetailHero(
-            imageURL: novel.imageURL.flatMap(URL.init(string:)),
-            title: novel.title,
-            subtitle: novel.authorDisplayName,
-            metadata: [
-                AsterionDetailMetadata(icon: "book.closed", value: novel.genres?.first ?? "Fiction"),
-                AsterionDetailMetadata(
-                    icon: "text.page",
-                    value: "\(novel.totalChapters ?? String(chapters.count)) chapters"
-                ),
-                AsterionDetailMetadata(icon: "eye", value: "\(novel.views ?? "—") views"),
-                AsterionDetailMetadata(
-                    icon: "star.fill",
-                    value: novel.rating.map { String(format: "%.1f rating", $0) } ?? "Not yet rated"
-                ),
-            ],
-            summary: cleanSummary,
-            showsFullSummary: $showsFullSynopsis
-        )
+        HStack(alignment: .center, spacing: 38) {
+            AsyncImage(url: coverURL) { phase in
+                if case .success(let image) = phase {
+                    image.resizable().scaledToFill()
+                } else {
+                    Color.asterionCard
+                }
+            }
+            .frame(width: 258, height: 370)
+            .clipped()
+            .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 17, style: .continuous)
+                    .stroke(.white.opacity(0.13))
+            }
+            .shadow(color: .black.opacity(0.34), radius: 24, y: 14)
+
+            VStack(alignment: .leading, spacing: 17) {
+                Text("NOVEL")
+                    .font(.system(size: 11, weight: .bold))
+                    .tracking(1.4)
+                    .foregroundStyle(Color.asterionText.opacity(0.72))
+
+                Text(novel.title)
+                    .font(.system(size: 36, weight: .bold))
+                    .foregroundStyle(Color.asterionText)
+                    .lineLimit(3)
+                    .minimumScaleFactor(0.82)
+                    .textSelection(.enabled)
+
+                Text(novel.authorDisplayName)
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(Color.asterionText.opacity(0.76))
+                    .lineLimit(1)
+
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 16) { metadataItems }
+                    VStack(alignment: .leading, spacing: 8) { metadataItems }
+                }
+
+                if !cleanSummary.isEmpty {
+                    Text(cleanSummary)
+                        .font(.system(size: 15))
+                        .foregroundStyle(Color.asterionText.opacity(0.84))
+                        .lineSpacing(4)
+                        .lineLimit(showsFullSynopsis ? nil : 3)
+                        .frame(maxWidth: 650, alignment: .leading)
+                        .textSelection(.enabled)
+
+                    if cleanSummary.count > 240 {
+                        Button(showsFullSynopsis ? "Show less" : "More") {
+                            showsFullSynopsis.toggle()
+                        }
+                        .buttonStyle(.link)
+                        .font(.caption.weight(.semibold))
+                        .tint(.asterionText)
+                    }
+                }
+
+                actions
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(minHeight: 390)
+    }
+
+    @ViewBuilder
+    private var metadataItems: some View {
+        ForEach(novelMetadata) { item in
+            Label(item.value, systemImage: item.icon)
+                .font(.callout)
+                .foregroundStyle(Color.asterionText.opacity(0.68))
+                .lineLimit(1)
+        }
+    }
+
+    private var novelMetadata: [AsterionDetailMetadata] {
+        [
+            AsterionDetailMetadata(icon: "book.closed", value: novel.genres?.first ?? "Fiction"),
+            AsterionDetailMetadata(
+                icon: "text.page",
+                value: "\(novel.totalChapters ?? String(chapters.count)) chapters"
+            ),
+            AsterionDetailMetadata(icon: "eye", value: "\(novel.views ?? "—") views"),
+            AsterionDetailMetadata(
+                icon: "star.fill",
+                value: novel.rating.map { String(format: "%.1f rating", $0) } ?? "Not yet rated"
+            ),
+        ]
     }
 
     private var actions: some View {
@@ -115,7 +219,7 @@ struct NovelDetailView: View {
         } label: {
             Label(readButtonTitle, systemImage: "book.pages")
                 .lineLimit(1)
-                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 12)
         }
         .layoutPriority(1)
         .buttonStyle(.glassProminent)
@@ -136,6 +240,7 @@ struct NovelDetailView: View {
         .buttonStyle(.glass)
         .buttonBorderShape(.roundedRectangle(radius: 10))
         .controlSize(.large)
+        .tint(Color.asterionText)
         .help(isInLibrary ? "Saved" : "Save to Library")
         .accessibilityLabel(isInLibrary ? "Saved" : "Save to Library")
         .disabled(!model.isSignedIn || model.isUpdatingLibrary)
@@ -152,7 +257,7 @@ struct NovelDetailView: View {
         .buttonStyle(.glass)
         .buttonBorderShape(.roundedRectangle(radius: 10))
         .controlSize(.large)
-        .tint(isDownloaded ? .asterionAccent : nil)
+        .tint(Color.asterionText)
         .help(downloadButtonTitle)
         .accessibilityLabel(downloadButtonTitle)
         .disabled(isDownloading || (!isDownloaded && chapters.isEmpty))
@@ -239,11 +344,11 @@ struct NovelDetailView: View {
                                 .foregroundStyle(Color.asterionMuted)
                                 .frame(width: 34, alignment: .trailing)
                             Text(chapter.title)
-                                .font(.asterionDisplay(14, weight: .medium))
+                                .font(.system(size: 14, weight: .medium))
                                 .foregroundStyle(Color.asterionText)
                                 .lineLimit(1)
                             Spacer()
-                            Image(systemName: "arrow.up.right")
+                            Image(systemName: "chevron.right")
                                 .font(.caption)
                                 .foregroundStyle(Color.asterionMuted)
                         }
@@ -253,6 +358,12 @@ struct NovelDetailView: View {
                     .buttonStyle(.plain)
                     Divider()
                 }
+            }
+            .padding(.horizontal, 14)
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(.white.opacity(0.08))
             }
         }
     }
@@ -362,13 +473,13 @@ struct NovelDetailView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text(title)
-                    .font(.asterionDisplay(20, weight: .semibold))
+                    .font(.system(size: 22, weight: .bold))
                     .foregroundStyle(Color.asterionText)
                 Spacer()
                 if let trailing {
                     Text(trailing)
                         .font(.caption)
-                        .foregroundStyle(Color.asterionAccent)
+                        .foregroundStyle(Color.asterionMuted)
                 }
             }
             content()
