@@ -260,7 +260,7 @@ def proxy_hls():
     if is_m3u8:
         body = resp.text
         base = target.rsplit("/", 1)[0]
-        proxy_base = flask.request.url_root.rstrip("/") + "/proxy/hls?url="
+        proxy_base = "https://asterion-movies.cyberverse.cloud/proxy/hls?url="
         body = re.sub(
             r'^([^#\s][^\s]*\.(?:m3u8|ts|aac|mp4))',
             lambda m: proxy_base + urljoin(base + "/", m.group(1)),
