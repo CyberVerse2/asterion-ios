@@ -149,6 +149,7 @@ struct ContentView: View {
                 selectedGlobalDetail
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .ignoresSafeArea(.container, edges: .top)
     }
 
