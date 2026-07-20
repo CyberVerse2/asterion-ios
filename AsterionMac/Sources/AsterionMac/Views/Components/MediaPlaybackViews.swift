@@ -996,25 +996,18 @@ private struct RestrictedMediaWebView: NSViewRepresentable {
             decidePolicyFor navigationResponse: WKNavigationResponse,
             decisionHandler: @escaping @MainActor @Sendable (WKNavigationResponsePolicy) -> Void
         ) {
-            if navigationResponse.isForMainFrame,
-               let response = navigationResponse.response as? HTTPURLResponse,
+            if let response = navigationResponse.response as? HTTPURLResponse,
+               isPlaybackResponse(navigationResponse),
                !MediaNavigationPolicy.allowsHTTPStatus(response.statusCode) {
                 report("The video page returned HTTP \(response.statusCode).")
                 decisionHandler(.cancel)
                 return
-            }
-            if let response = navigationResponse.response as? HTTPURLResponse,
-               MediaNavigationPolicy.allowsHTTPStatus(response.statusCode) {
-                markResponsive()
             }
             decisionHandler(.allow)
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             navigationState.markInitialNavigationFinished()
-            if !awaitsRemoteFrameResponse {
-                markResponsive()
-            }
         }
 
         func webView(
@@ -1059,6 +1052,17 @@ private struct RestrictedMediaWebView: NSViewRepresentable {
                 Task { @MainActor in onEnded() }
                 return
             }
+            if type == "ready" {
+                markResponsive()
+                return
+            }
+            if type == "error" {
+                report(
+                    payload["message"] as? String
+                        ?? "The embedded video could not be played."
+                )
+                return
+            }
             if type == "playback",
                let sourceID = payload["sourceID"] as? String,
                let isPlaying = payload["isPlaying"] as? Bool {
@@ -1073,6 +1077,7 @@ private struct RestrictedMediaWebView: NSViewRepresentable {
                   position.isFinite,
                   duration.isFinite,
                   position > 0 else { return }
+            markResponsive()
             let sample = MediaPlaybackSample(
                 positionSeconds: position,
                 durationSeconds: duration,
@@ -1116,6 +1121,14 @@ private struct RestrictedMediaWebView: NSViewRepresentable {
             loadTimeoutTask = nil
         }
 
+        private func isPlaybackResponse(_ navigationResponse: WKNavigationResponse) -> Bool {
+            guard let responseURL = navigationResponse.response.url else {
+                return navigationResponse.isForMainFrame
+            }
+            return navigationResponse.isForMainFrame
+                || responseURL.host?.lowercased() == initialURL.host?.lowercased()
+        }
+
         private func report(_ message: String) {
             guard isActive, !hasReportedFailure else { return }
             hasReportedFailure = true
@@ -1140,6 +1153,7 @@ enum EmbeddedMediaProgressScript {
             ?? `player-${Date.now()}-${Math.random().toString(36).slice(2)}`;
           let activePlayer = null;
           let reportedPlaybackActive = false;
+          let reportedMediaReady = false;
           let selectionQueued = false;
 
           const post = payload => {
@@ -1165,6 +1179,31 @@ enum EmbeddedMediaProgressScript {
             if (reportedPlaybackActive === isPlaying) return;
             reportedPlaybackActive = isPlaying;
             post({ type: 'playback', sourceID, isPlaying });
+          };
+
+          const reportMediaReady = player => {
+            if (reportedMediaReady
+                || player.error
+                || player.readyState < HTMLMediaElement.HAVE_METADATA) {
+              return;
+            }
+            reportedMediaReady = true;
+            post({ type: 'ready', sourceID });
+          };
+
+          const reportMediaError = player => {
+            const code = player.error?.code;
+            const messages = {
+              1: 'The embedded video load was aborted.',
+              2: 'The embedded video could not be downloaded.',
+              3: 'The embedded video could not be decoded.',
+              4: 'The embedded video format is not supported.'
+            };
+            post({
+              type: 'error',
+              sourceID,
+              message: messages[code] ?? 'The embedded video could not be played.'
+            });
           };
 
           const visiblePlayingArea = player => {
@@ -1275,10 +1314,22 @@ enum EmbeddedMediaProgressScript {
             const state = stateFor(player);
             player.addEventListener('playing', () => {
               state.hasPlayed = true;
+              reportMediaReady(player);
               scheduleSelection();
             });
-            player.addEventListener('loadedmetadata', scheduleSelection);
-            player.addEventListener('durationchange', scheduleSelection);
+            player.addEventListener('loadedmetadata', () => {
+              reportMediaReady(player);
+              scheduleSelection();
+            });
+            player.addEventListener('canplay', () => {
+              reportMediaReady(player);
+              scheduleSelection();
+            });
+            player.addEventListener('durationchange', () => {
+              reportMediaReady(player);
+              scheduleSelection();
+            });
+            player.addEventListener('error', () => reportMediaError(player));
             player.addEventListener('timeupdate', () => reportIfSelected(player, false));
             player.addEventListener('pause', () => {
               if (activePlayer === player) emit(player, true);
@@ -1294,6 +1345,7 @@ enum EmbeddedMediaProgressScript {
             if (!player.paused && !player.ended) {
               state.hasPlayed = true;
             }
+            reportMediaReady(player);
             scheduleSelection();
           };
 
