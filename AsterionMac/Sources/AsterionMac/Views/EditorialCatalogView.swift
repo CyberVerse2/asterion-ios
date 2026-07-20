@@ -65,8 +65,7 @@ struct EditorialCatalogView: View {
                 .hidingScrollIndicators()
             }
         }
-        .background(.background)
-        .navigationTitle(section.title)
+        .background(Color.asterionMediaCanvas)
     }
 
     private func shelf(
@@ -152,7 +151,7 @@ struct EditorialCatalogView: View {
             Text("Try a different title, author, or genre.")
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.background)
+        .background(Color.asterionMediaCanvas)
     }
 }
 
@@ -181,9 +180,16 @@ private struct EditorialBookTile: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(alignment: .leading, spacing: 8) {
-                ZStack(alignment: .topLeading) {
+            VStack(alignment: .leading, spacing: 0) {
+                ZStack(alignment: .bottomLeading) {
                     CoverView(novel: novel, width: 128, height: 184)
+
+                    LinearGradient(
+                        colors: [.clear, .clear, .black.opacity(0.88)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+
                     if let rank {
                         Text("#\(rank)")
                             .font(.caption2.monospacedDigit().weight(.semibold))
@@ -191,26 +197,27 @@ private struct EditorialBookTile: View {
                             .padding(.horizontal, 7)
                             .padding(.vertical, 4)
                             .background(Color.asterionAccent, in: Capsule())
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                             .padding(7)
                     }
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(novel.title)
+                            .font(.asterionDisplay(14, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .lineLimit(2)
+                        Text(novel.authorDisplayName)
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.white.opacity(0.78))
+                            .lineLimit(1)
+                    }
+                    .padding(10)
                 }
                 .padding(4)
                 .overlay {
                     RoundedRectangle(cornerRadius: 11, style: .continuous)
                         .stroke(isSelected ? Color.asterionAccent : .clear, lineWidth: 2)
                 }
-
-                Text(novel.title)
-                    .font(.asterionDisplay(15, weight: .medium))
-                    .foregroundStyle(Color.asterionText)
-                    .lineLimit(2)
-                    .frame(maxWidth: 136, alignment: .leading)
-
-                Text(novel.authorDisplayName)
-                    .font(.caption)
-                    .foregroundStyle(Color.asterionMuted)
-                    .lineLimit(1)
-                    .frame(maxWidth: 136, alignment: .leading)
             }
             .contentShape(Rectangle())
         }

@@ -84,8 +84,7 @@ struct AnimeCatalogView: View {
                 .hidingScrollIndicators()
             }
         }
-        .background(.background)
-        .navigationTitle(section.title)
+        .background(Color.asterionMediaCanvas)
         .task(id: "\(section.rawValue):\(normalizedQuery)") {
             featuredIndex = 0
             if !normalizedQuery.isEmpty {
@@ -386,7 +385,7 @@ struct AnimeCatalogView: View {
             Text("Try a different title or category.")
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.background)
+        .background(Color.asterionMediaCanvas)
     }
 
     private var scheduleContent: some View {
@@ -688,9 +687,15 @@ private struct AnimeTitleTile: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 0) {
                 ZStack(alignment: .bottomLeading) {
                     MediaCoverView(url: title.imageURL, width: 128, height: 184)
+
+                    LinearGradient(
+                        colors: [.clear, .clear, .black.opacity(0.88)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
 
                     if let episodeLabel = title.episodeLabel {
                         Text(episodeLabel)
@@ -699,6 +704,7 @@ private struct AnimeTitleTile: View {
                             .padding(.horizontal, 7)
                             .padding(.vertical, 4)
                             .background(Color.asterionAccent, in: Capsule())
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                             .padding(7)
                     }
 
@@ -709,28 +715,28 @@ private struct AnimeTitleTile: View {
                             .padding(.horizontal, 7)
                             .padding(.vertical, 4)
                             .background(Color.orange, in: Capsule())
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                             .padding(7)
                     }
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(title.displayTitle)
+                            .font(.asterionDisplay(14, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .lineLimit(2)
+                        if !usesDiscoverBadges {
+                            Text(title.type ?? "Anime")
+                                .font(.caption2.weight(.medium))
+                                .foregroundStyle(.white.opacity(0.78))
+                                .lineLimit(1)
+                        }
+                    }
+                    .padding(10)
                 }
                 .padding(4)
                 .overlay {
                     RoundedRectangle(cornerRadius: 11, style: .continuous)
                         .stroke(isSelected ? Color.asterionAccent : .clear, lineWidth: 2)
-                }
-
-                Text(title.displayTitle)
-                    .font(.asterionDisplay(15, weight: .medium))
-                    .foregroundStyle(Color.asterionText)
-                    .lineLimit(2)
-                    .frame(maxWidth: 136, alignment: .leading)
-
-                if !usesDiscoverBadges {
-                    Text(title.type ?? "Anime")
-                        .font(.caption)
-                        .foregroundStyle(Color.asterionMuted)
-                        .lineLimit(1)
-                        .frame(maxWidth: 136, alignment: .leading)
                 }
             }
             .contentShape(Rectangle())

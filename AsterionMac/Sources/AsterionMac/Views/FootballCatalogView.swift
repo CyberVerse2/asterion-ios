@@ -70,8 +70,7 @@ struct FootballCatalogView: View {
                 .hidingScrollIndicators()
             }
         }
-        .background(.background)
-        .navigationTitle(section.title)
+        .background(Color.asterionMediaCanvas)
         .task(id: section) {
             await store.refresh(section: section)
             while !Task.isCancelled {
@@ -127,7 +126,7 @@ struct FootballCatalogView: View {
             .textCase(.uppercase)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 8)
-            .background(.background)
+            .background(Color.asterionMediaCanvas)
     }
 
     private var emptyTitle: String {
