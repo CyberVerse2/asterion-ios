@@ -164,14 +164,14 @@ _retry_policy = Retry(
 _session.mount("https://", HTTPAdapter(max_retries=_retry_policy))
 
 
-def _get(url: str) -> str:
+def _get(url: str, timeout: int = 30) -> str:
     url = _use_mirror(url)
-    resp = _session.get(url, timeout=30)
+    resp = _session.get(url, timeout=timeout)
     if resp.status_code == 403:
         # Domain rotation handles Cloudflare - proxy helps with IP rate limits
         _switch_domain()
         url = _use_mirror(url)
-        kwargs = {"timeout": 30}
+        kwargs = {"timeout": timeout}
         if PROXY_URL:
             kwargs["proxies"] = {"http": PROXY_URL, "https": PROXY_URL}
         resp = _session.get(url, **kwargs)
@@ -508,6 +508,10 @@ def show_detail(slug: str) -> Optional[ShowDetail]:
             internal = _parse_vidapi_internal(first_server.embed_url, len(streams) + 1)
             streams.extend(internal)
 
+    # Enrich: extract direct .m3u8/.mp4 URLs from native embed pages
+    if streams:
+        streams = _enrich_native_streams(streams)
+
     # Fetch direct HLS/m3u8 sources via xpass.top
     imdb_id = _extract_imdb_id(html)
     tmdb_id = _extract_tmdb_id(html)
@@ -701,6 +705,58 @@ def get_hls_sources(imdb_id: str) -> list[StreamServer]:
                 ))
                 server_idx += 1
     return servers
+
+
+def _extract_stream_urls_from_embed(embed_url: str, timeout: int = 10) -> list[str]:
+    """Fetch an embed page and extract direct .m3u8/.mp4 stream URLs from HTML/JS."""
+    try:
+        html = _get(embed_url, timeout=timeout)
+    except Exception:
+        return []
+    urls: list[str] = []
+    for m in re.finditer(r'https?://[^\s"\'<>]+\.(?:m3u8|mp4|mkv|webm)[^\s"\'<>]*', html, re.I):
+        url = m.group(0)
+        url = url.rstrip("\\")
+        if url not in urls:
+            urls.append(url)
+    return urls
+
+
+def _enrich_native_streams(native_streams: list[StreamServer]) -> list[StreamServer]:
+    """For each native soap2day embed, try extracting direct stream URLs."""
+    import concurrent.futures
+    enriched: list[StreamServer] = []
+    direct_by_index: dict[int, list[str]] = {}
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(8, len(native_streams))) as executor:
+        future_to_index = {
+            executor.submit(_extract_stream_urls_from_embed, s.embed_url): i
+            for i, s in enumerate(native_streams)
+        }
+        for future in concurrent.futures.as_completed(future_to_index):
+            idx = future_to_index[future]
+            try:
+                urls = future.result()
+            except Exception:
+                urls = []
+            if urls:
+                direct_by_index[idx] = urls
+
+    for i, s in enumerate(native_streams):
+        enriched.append(s)
+        if i in direct_by_index:
+            for url in direct_by_index[i]:
+                label = s.label.replace("Server", "Direct")
+                if label == s.label:
+                    label = f"{s.label} (Direct)"
+                enriched.append(StreamServer(
+                    server_id=0,
+                    label=label,
+                    quality=s.quality or "Direct",
+                    embed_url=url,
+                ))
+
+    return enriched
 
 
 # ---------------------------------------------------------------------------
