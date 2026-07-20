@@ -156,11 +156,24 @@ def api_show(slug):
         except Exception:
             pass
 
-        # Fallback: search 2embed by title extracted from slug
+        # Fallback: 2embed search using real page title from soap2day
         if not imdb_id or not imdb_id.startswith("tt"):
-            clean = slug.replace("series/", "").replace("soap2day", "")
-            clean = re.sub(r'-[a-z0-9]{4,8}$', '', clean)
-            search_query = clean.replace("-", " ").strip()
+            search_query = ""
+            try:
+                html = scraper._get(f"{scraper.BASE}/{slug}/")
+                real_imdb = scraper._extract_imdb_id(html)
+                if real_imdb:
+                    imdb_id = real_imdb
+                # Also extract real page title for search fallback
+                m = re.search(r'<h1[^>]*>([^<]+)', html)
+                if not m:
+                    m = re.search(r'<title>([^<]+)', html)
+                if m:
+                    title_raw = m.group(1).strip()
+                    title_raw = re.sub(r'\s*(?:soap2day|uk|au|watch free online|hd).*$', '', title_raw, flags=re.I).strip()
+                    search_query = title_raw
+            except Exception:
+                pass
             try:
                 import requests
                 from urllib.parse import quote_plus
