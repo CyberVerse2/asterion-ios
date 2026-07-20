@@ -130,7 +130,7 @@ def api_year(year):
     return _cached_or_scrape(key, lambda: _search_result_list(scraper.by_release_year(year, page)))
 
 
-@app.route("/api/show/<slug>")
+@app.route("/api/show/<path:slug>")
 @_json_or_error
 def api_show(slug):
     from_db = db.get_movie_by_slug(slug)
@@ -250,7 +250,7 @@ def api_show(slug):
     return result
 
 
-@app.route("/api/show/<slug>/episodes")
+@app.route("/api/show/<path:slug>/episodes")
 @_json_or_error
 def api_show_episodes(slug):
     eps = scraper.series_episodes(slug)
