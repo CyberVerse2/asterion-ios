@@ -157,11 +157,13 @@ def api_show(slug):
 
         # Fallback: search 2embed by title extracted from slug
         if not imdb_id or not imdb_id.startswith("tt"):
-            title_from_slug = slug.replace("-", " ").replace("soap2day", "").strip()
+            # Clean slug: strip series/ prefix, remove soap2day, replace dashes
+            clean = slug.replace("series/", "").replace("soap2day", "").replace("-", " ").strip()
             try:
                 import requests
+                from urllib.parse import quote_plus
                 resp = requests.get(
-                    f"https://api.2embed.cc/search?q={title_from_slug}",
+                    f"https://api.2embed.cc/search?q={quote_plus(clean)}",
                     headers={"User-Agent": "Mozilla/5.0"}, timeout=10,
                 )
                 results = resp.json()
@@ -170,9 +172,8 @@ def api_show(slug):
                 if results:
                     imdb_id = results[0].get("imdb_id")
                 if not imdb_id:
-                    # Try TV search
                     resp2 = requests.get(
-                        f"https://api.2embed.cc/searchtv?q={title_from_slug}",
+                        f"https://api.2embed.cc/searchtv?q={quote_plus(clean)}",
                         headers={"User-Agent": "Mozilla/5.0"}, timeout=10,
                     )
                     tv_results = resp2.json()
