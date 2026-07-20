@@ -53,6 +53,7 @@ struct CatalogContextBar: View {
             }
         }
         .scrollIndicators(.hidden)
+        .fixedSize(horizontal: false, vertical: true)
         .background(.bar)
         .overlay(alignment: .bottom) { Divider() }
     }
