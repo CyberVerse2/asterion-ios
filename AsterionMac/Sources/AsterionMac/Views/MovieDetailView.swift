@@ -99,10 +99,11 @@ struct MovieDetailView: View {
                         }
                     }
                     .frame(
-                        width: min(1_180, max(0, geometry.size.width - 92)),
+                        width: min(1_180, max(0, geometry.size.width - 138)),
                         alignment: .leading
                     )
-                    .padding(.horizontal, 46)
+                    .padding(.leading, 46)
+                    .padding(.trailing, 92)
                     .padding(.top, 30)
                     .padding(.bottom, 64)
                     .frame(maxWidth: .infinity, alignment: .top)
@@ -204,6 +205,7 @@ struct MovieDetailView: View {
                         .lineSpacing(4)
                         .lineLimit(showsFullSynopsis ? nil : 3)
                         .frame(maxWidth: 650, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
                         .textSelection(.enabled)
 
                     if summary.count > 240 {
