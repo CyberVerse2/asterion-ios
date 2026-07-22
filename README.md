@@ -2,7 +2,7 @@
   <img src="AsterionMac/Sources/AsterionMac/Resources/Brand/AsterionMark.png" alt="Asterion logo" width="72">
   <h1>Asterion</h1>
   <p><strong>Stories that transcend time.</strong></p>
-  <p>A native Apple app for reading novels and enjoying anime, movies, television, and live football.</p>
+  <p>A native Apple entertainment hub for novels, anime, movies, television, and live football.</p>
   <p>
     <a href="https://github.com/CyberVerse2/asterion-ios/releases/latest/download/Asterion.dmg">
       <img src="docs/design/download-macos.svg" alt="Download Asterion for macOS" width="280">
@@ -10,18 +10,29 @@
   </p>
 </div>
 
-![Asterion movie discovery on macOS](docs/design/asterion-movies-discover.png)
+![Asterion Home on macOS with featured entertainment, Continue progress, and football](docs/design/asterion-home-current.png)
 
 ## The experience
 
-Asterion brings discovery, playback, reading, downloads, and progress tracking into a focused Apple-native experience. The macOS app is the complete product; the iPhone and iPad app is a dedicated novel reader designed for reading on the move.
+Asterion brings discovery, native playback, immersive reading, offline downloads, and progress tracking into one focused Apple-native experience. Move between media without losing your place: Home combines featured picks, Continue progress, football, and seasonal catalogs, while dedicated sections provide deeper browsing for each format.
+
+### Highlights
+
+- Discover novels, anime, movies, TV shows, and popular football fixtures from one Home screen.
+- Continue reading or watching across formats with saved progress and viewing history.
+- Browse large anime libraries with searchable 100-episode ranges designed for long-running series.
+- Download novels, anime episodes, movies, and TV episodes for offline use, with progress shown in Downloads.
+- Open readers and media players in dedicated windows without leaving the main catalog.
+- Search the full catalog or narrow results using format-specific categories, genres, schedules, and types.
+
+The macOS app is the complete entertainment product. The iPhone and iPad app is a dedicated novel reader for reading on the move.
 
 | Experience | What it includes |
 | --- | --- |
-| macOS | Novels, anime, movies, TV shows, live football, downloads, bookmarks, viewing history, and separate reader and player windows |
+| macOS | Unified Home, novels, anime, movies, TV shows, football fixtures and live matches, offline downloads, bookmarks, viewing history, and separate reader and player windows |
 | iPhone and iPad | Novel discovery, rankings, library, an immersive reader, offline chapters, synced progress, a Home Screen widget, Siri shortcuts, and download Live Activities |
 
-Sign-in is powered by Clerk. Account data, bookmarks, reading progress, and viewing progress sync through the Asterion API. Work completed while offline is saved locally and uploaded when the app reconnects.
+Sign-in is powered by Clerk. Account data, bookmarks, reading progress, and viewing progress sync through the Asterion API. Offline reading and viewing stay on the Mac, while progress recorded without a connection is saved locally and uploaded when the app reconnects.
 
 ## Run Asterion
 
