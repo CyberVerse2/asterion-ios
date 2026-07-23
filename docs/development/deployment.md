@@ -14,5 +14,7 @@ settings:
 Runtime secrets belong in Dokploy's environment settings. Do not pass them as
 Docker build arguments or copy local `.env` files into images.
 
-The anime service requires `MEDIA_PROXY_SIGNING_KEY`. The core API requires
+The anime service requires `MEDIA_PROXY_SIGNING_KEY` and `REDIS_URL`. Redis
+caches upstream catalog, detail, episode, and season responses and coordinates
+concurrent cache misses across the Gunicorn workers. The core API requires
 production PostgreSQL and Clerk values documented in its `.env.example`.

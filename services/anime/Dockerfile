@@ -12,7 +12,7 @@ RUN groupadd --system asterion \
 COPY requirements.txt ./
 RUN pip install --no-cache-dir --requirement requirements.txt
 
-COPY app.py animixplay.py nineanime.py ./
+COPY app.py anime_cache.py animixplay.py nineanime.py ./
 
 USER asterion
 

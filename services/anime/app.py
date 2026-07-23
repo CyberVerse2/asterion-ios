@@ -20,6 +20,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 import flask
 import nineanime
 import animixplay
+from anime_cache import AnimeCacheError, anime_cache
 from werkzeug.exceptions import HTTPException
 
 app = flask.Flask(__name__)
@@ -43,6 +44,12 @@ ALLOWED_VIDEO_HOST_SUFFIXES = (
 )
 MAXIMUM_SUBTITLE_SIZE = 5 * 1024 * 1024
 MEDIA_PROXY_TOKEN_TTL_SECONDS = 6 * 60 * 60
+CATALOG_CACHE_TTL_SECONDS = 5 * 60
+SEARCH_CACHE_TTL_SECONDS = 2 * 60
+SHOW_CACHE_TTL_SECONDS = 24 * 60 * 60
+AIRING_EPISODES_CACHE_TTL_SECONDS = 10 * 60
+COMPLETED_EPISODES_CACHE_TTL_SECONDS = 24 * 60 * 60
+RELATED_SEASONS_CACHE_TTL_SECONDS = 24 * 60 * 60
 
 
 def _is_allowed_video_url(value):
@@ -240,10 +247,36 @@ def _json_or_error(fn):
             return flask.jsonify(fn(*args, **kwargs))
         except HTTPException:
             raise
+        except AnimeCacheError as error:
+            app.logger.exception("Anime cache request failed")
+            return flask.jsonify({"error": str(error)}), 503
         except Exception:
             app.logger.exception("Anime scraper request failed")
             return flask.jsonify({"error": "The anime source request failed."}), 502
     return wrapper
+
+
+def _cache_key(namespace, identifier):
+    return f"{namespace}:{identifier}"
+
+
+def _request_cache_key(namespace):
+    query = flask.request.query_string.decode("utf-8", errors="strict")
+    suffix = f"?{query}" if query else ""
+    return _cache_key(namespace, f"{flask.request.path}{suffix}")
+
+
+def _cached_catalog(loader, ttl_seconds=CATALOG_CACHE_TTL_SECONDS):
+    return anime_cache().get_or_load(
+        _request_cache_key("catalog"),
+        ttl_seconds,
+        loader,
+    )
+
+
+def _is_completed_status(status):
+    normalized = (status or "").strip().lower().replace("-", " ")
+    return normalized in {"completed", "finished", "finished airing"}
 
 
 @app.after_request
@@ -256,7 +289,11 @@ def add_security_headers(response):
 
 @app.route("/api/health")
 def api_health():
-    return {"status": "ok"}
+    try:
+        anime_cache().ping()
+    except AnimeCacheError as error:
+        return {"status": "error", "redis": "unavailable", "error": str(error)}, 503
+    return {"status": "ok", "redis": "ok"}
 
 
 @app.route("/api/recent")
@@ -366,25 +403,34 @@ def api_amp_search():
     q = flask.request.args.get("q", "").strip()
     if not q:
         return []
-    return [r.__dict__ for r in animixplay.search(q, page=_positive_page_arg())]
+    return _cached_catalog(
+        lambda: [r.__dict__ for r in animixplay.search(q, page=_positive_page_arg())],
+        ttl_seconds=SEARCH_CACHE_TTL_SECONDS,
+    )
 
 
 @app.route("/api/amp/popular")
 @_json_or_error
 def api_amp_popular():
-    return [r.__dict__ for r in animixplay.popular(page=_positive_page_arg())]
+    return _cached_catalog(
+        lambda: [r.__dict__ for r in animixplay.popular(page=_positive_page_arg())]
+    )
 
 
 @app.route("/api/amp/latest")
 @_json_or_error
 def api_amp_latest():
-    return [r.__dict__ for r in animixplay.latest_updated(page=_positive_page_arg())]
+    return _cached_catalog(
+        lambda: [r.__dict__ for r in animixplay.latest_updated(page=_positive_page_arg())]
+    )
 
 
 @app.route("/api/amp/releases")
 @_json_or_error
 def api_amp_releases():
-    return [r.__dict__ for r in animixplay.new_releases(page=_positive_page_arg())]
+    return _cached_catalog(
+        lambda: [r.__dict__ for r in animixplay.new_releases(page=_positive_page_arg())]
+    )
 
 
 @app.route("/api/amp/genre/<genre>")
@@ -392,7 +438,12 @@ def api_amp_releases():
 def api_amp_genre(genre):
     if genre not in animixplay.ALL_GENRES:
         return flask.abort(404)
-    return [r.__dict__ for r in animixplay.by_genre(genre, page=_positive_page_arg())]
+    return _cached_catalog(
+        lambda: [
+            r.__dict__
+            for r in animixplay.by_genre(genre, page=_positive_page_arg())
+        ]
+    )
 
 
 @app.route("/api/amp/season")
@@ -409,14 +460,16 @@ def api_amp_season():
     if not 1900 <= year <= 2100:
         return flask.abort(400, description="year must be between 1900 and 2100")
 
-    return [
-        result.__dict__
-        for result in animixplay.by_season(
-            season=season,
-            year=year,
-            page=_positive_page_arg(),
-        )
-    ]
+    return _cached_catalog(
+        lambda: [
+            result.__dict__
+            for result in animixplay.by_season(
+                season=season,
+                year=year,
+                page=_positive_page_arg(),
+            )
+        ]
+    )
 
 
 @app.route("/api/amp/type/<anime_type>")
@@ -425,10 +478,15 @@ def api_amp_type(anime_type):
     anime_type = anime_type.strip().lower()
     if anime_type not in animixplay.ALL_TYPES:
         return flask.abort(404)
-    return [
-        result.__dict__
-        for result in animixplay.by_type(anime_type, page=_positive_page_arg())
-    ]
+    return _cached_catalog(
+        lambda: [
+            result.__dict__
+            for result in animixplay.by_type(
+                anime_type,
+                page=_positive_page_arg(),
+            )
+        ]
+    )
 
 
 @app.route("/api/amp/status/<status>")
@@ -437,10 +495,15 @@ def api_amp_status(status):
     status = status.strip().lower()
     if status not in animixplay.ALL_STATUSES:
         return flask.abort(404)
-    return [
-        result.__dict__
-        for result in animixplay.by_status(status, page=_positive_page_arg())
-    ]
+    return _cached_catalog(
+        lambda: [
+            result.__dict__
+            for result in animixplay.by_status(
+                status,
+                page=_positive_page_arg(),
+            )
+        ]
+    )
 
 
 @app.route("/api/amp/schedule")
@@ -453,13 +516,16 @@ def api_amp_schedule():
     if not -12 <= timezone_hours <= 14:
         return flask.abort(400, description="tz must be between -12 and 14")
 
-    return [
-        {
-            "label": day.label,
-            "entries": [entry.__dict__ for entry in day.entries],
-        }
-        for day in animixplay.weekly_schedule(timezone_hours)
-    ]
+    return _cached_catalog(
+        lambda: [
+            {
+                "label": day.label,
+                "entries": [entry.__dict__ for entry in day.entries],
+            }
+            for day in animixplay.weekly_schedule(timezone_hours)
+        ],
+        ttl_seconds=60,
+    )
 
 
 @app.route("/api/amp/genres")
@@ -470,23 +536,57 @@ def api_amp_genres():
 @app.route("/api/amp/show/<slug>")
 @_json_or_error
 def api_amp_show(slug):
-    return animixplay.show_detail(slug).__dict__
+    cache = anime_cache()
+    payload = cache.get_or_load(
+        _cache_key("show", slug),
+        SHOW_CACHE_TTL_SECONDS,
+        lambda: animixplay.show_detail(slug).__dict__,
+    )
+    anime_id = payload.get("id")
+    if anime_id:
+        cache.set_json(
+            _cache_key("status", anime_id),
+            payload.get("status"),
+            SHOW_CACHE_TTL_SECONDS,
+        )
+    return payload
 
 
 @app.route("/api/amp/episodes/<anime_id>")
 @_json_or_error
 def api_amp_episodes(anime_id):
-    eps = animixplay.get_episodes(anime_id)
-    return [
-        {"id": f"{anime_id}:{e.number}", "anime_id": anime_id, "number": e.number}
-        for e in eps
-    ]
+    cache = anime_cache()
+    status = cache.get_json(_cache_key("status", anime_id))
+    ttl_seconds = (
+        COMPLETED_EPISODES_CACHE_TTL_SECONDS
+        if _is_completed_status(status)
+        else AIRING_EPISODES_CACHE_TTL_SECONDS
+    )
+
+    def load():
+        return [
+            {"id": f"{anime_id}:{e.number}", "anime_id": anime_id, "number": e.number}
+            for e in animixplay.get_episodes(anime_id)
+        ]
+
+    return cache.get_or_load(
+        _cache_key("episodes", anime_id),
+        ttl_seconds,
+        load,
+    )
 
 
 @app.route("/api/amp/seasons/<anime_id>")
 @_json_or_error
 def api_amp_seasons(anime_id):
-    return [season.__dict__ for season in animixplay.related_seasons(anime_id)]
+    return anime_cache().get_or_load(
+        _cache_key("seasons", anime_id),
+        RELATED_SEASONS_CACHE_TTL_SECONDS,
+        lambda: [
+            season.__dict__
+            for season in animixplay.related_seasons(anime_id)
+        ],
+    )
 
 
 @app.route("/api/amp/stream/<anime_id>/<int:episode>")
