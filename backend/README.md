@@ -16,19 +16,21 @@ Node + Fastify + Drizzle API for user data persistence.
 Healthcheck:
 - `GET /health`
 
-## Railway deploy
+## Dokploy deploy
 
-1. Create Railway project and attach a Postgres service.
-2. Set env vars from `.env.railway.example`.
-3. Deploy this `backend/` directory.
-4. Railway uses `railway.json` to run:
-   - builder: `RAILPACK`
-   - build: `npm install && npm run build`
-   - start: `npm run db:migrate:deploy && npm run start`
+1. Create an application from this repository.
+2. Set the build context to `backend`.
+3. Select Dockerfile as the build type and use `Dockerfile`.
+4. Set the runtime variables from `.env.example`, with production values for
+   PostgreSQL and Clerk.
+5. Expose container port `3001` and use `/health` for health checks.
+
+The image compiles the API during the build. On startup it applies pending
+database migrations before accepting traffic.
 
 ## Smoke test
 
 - Start backend, then run:
   - `npm run smoke`
 - Optional remote target:
-  - `SMOKE_BASE_URL=https://your-api.up.railway.app npm run smoke`
+  - `SMOKE_BASE_URL=https://api.example.com npm run smoke`

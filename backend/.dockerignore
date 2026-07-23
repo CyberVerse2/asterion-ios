@@ -1,0 +1,11 @@
+.env
+.env.*
+!.env.example
+.git
+.gitignore
+dist
+node_modules
+npm-debug.log*
+test
+test-page.html
+*.md
