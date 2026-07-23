@@ -231,6 +231,17 @@ struct AnimeStreamSource: Codable, Hashable, Sendable {
     let directURL: URL?
     let tracks: [AnimeSubtitleTrack]
 
+    var directRequestHeaders: [String: String] {
+        var headers = [
+            "Referer": embedURL.absoluteString,
+            "User-Agent": "Mozilla/5.0",
+        ]
+        if let origin = embedURL.webOrigin {
+            headers["Origin"] = origin
+        }
+        return headers
+    }
+
     private enum CodingKeys: String, CodingKey {
         case server, quality, tracks
         case embedURL = "url"
@@ -302,6 +313,7 @@ struct AnimePlaybackOption: Identifiable, Hashable, Sendable {
     let server: String
     let variant: AnimePlaybackVariant?
     let subtitleTracks: [AnimeSubtitleTrack]
+    let requestHeaders: [String: String]
 
     var title: String {
         let format = kind == .direct ? "Direct" : "Web"
@@ -325,7 +337,8 @@ struct AnimePlaybackOption: Identifiable, Hashable, Sendable {
                         quality: source.quality,
                         server: source.server,
                         variant: AnimePlaybackVariant(streamURL: source.embedURL),
-                        subtitleTracks: source.tracks
+                        subtitleTracks: source.tracks,
+                        requestHeaders: source.directRequestHeaders
                     )
                 )
             }
@@ -337,11 +350,23 @@ struct AnimePlaybackOption: Identifiable, Hashable, Sendable {
                     quality: source.quality,
                     server: source.server,
                     variant: AnimePlaybackVariant(streamURL: source.embedURL),
-                    subtitleTracks: []
+                    subtitleTracks: [],
+                    requestHeaders: [:]
                 )
             )
             return options
         }
+    }
+}
+
+private extension URL {
+    var webOrigin: String? {
+        guard let scheme, let host else { return nil }
+        var components = URLComponents()
+        components.scheme = scheme
+        components.host = host
+        components.port = port
+        return components.url?.absoluteString
     }
 }
 

@@ -115,7 +115,8 @@ final class AnimePlayerStore: ObservableObject {
                 quality: nil,
                 server: "Downloaded",
                 variant: nil,
-                subtitleTracks: record.subtitleTracks
+                subtitleTracks: record.subtitleTracks,
+                requestHeaders: [:]
             )
             playbackOptions = [option]
             selectedPlaybackOption = option
@@ -168,6 +169,12 @@ final class AnimePlayerStore: ObservableObject {
     func choosePlaybackOption(_ option: AnimePlaybackOption) {
         guard playbackOptions.contains(option) else { return }
         selectedPlaybackOption = option
+        streamError = nil
+    }
+
+    func reportPlaybackFailure(_ message: String, for option: AnimePlaybackOption) {
+        guard selectedPlaybackOption == option else { return }
+        streamError = "\(option.title) failed. Choose another source.\n\(message)"
     }
 
     private func adjacentEpisode(offset: Int) -> AnimeEpisode? {
@@ -203,7 +210,8 @@ final class AnimePlayerStore: ObservableObject {
             quality: nil,
             server: "Downloaded",
             variant: nil,
-            subtitleTracks: record.subtitleTracks
+            subtitleTracks: record.subtitleTracks,
+            requestHeaders: [:]
         )
         playbackOptions = [option]
         selectedPlaybackOption = option

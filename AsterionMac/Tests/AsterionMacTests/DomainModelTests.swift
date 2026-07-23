@@ -398,6 +398,24 @@ struct DomainModelTests {
         #expect(!track.isDefault)
     }
 
+    @Test func animeDirectPlaybackUsesHeadersFromItsProviderPage() throws {
+        let source = AnimeStreamSource(
+            server: "Vidstream-2",
+            embedURL: URL(string: "https://megaplay.buzz/stream/s-2/735790/sub")!,
+            quality: "HD",
+            directURL: URL(string: "https://cdn.mewstream.buzz/anime/title/master.m3u8")!,
+            tracks: []
+        )
+
+        let option = try #require(
+            AnimePlaybackOption.options(from: [source]).first { $0.kind == .direct }
+        )
+
+        #expect(option.requestHeaders["Referer"] == source.embedURL.absoluteString)
+        #expect(option.requestHeaders["Origin"] == "https://megaplay.buzz")
+        #expect(option.requestHeaders["User-Agent"] == "Mozilla/5.0")
+    }
+
     @Test func animePlayerRouteRoundTripsThroughWindowState() throws {
         let route = AnimePlayerRoute(
             slug: "naruto-abc12",

@@ -6,6 +6,7 @@ import WebKit
 struct MediaDirectPlayer: View {
     let url: URL
     let subtitleTracks: [AnimeSubtitleTrack]
+    let requestHeaders: [String: String]
     let initialPosition: Double
     let autoplays: Bool
     let onProgress: @MainActor @Sendable (MediaPlaybackSample) -> Void
@@ -19,6 +20,7 @@ struct MediaDirectPlayer: View {
     init(
         url: URL,
         subtitleTracks: [AnimeSubtitleTrack] = [],
+        requestHeaders: [String: String] = [:],
         initialPosition: Double = 0,
         autoplays: Bool = true,
         onProgress: @escaping @MainActor @Sendable (MediaPlaybackSample) -> Void = { _ in },
@@ -28,6 +30,7 @@ struct MediaDirectPlayer: View {
     ) {
         self.url = url
         self.subtitleTracks = subtitleTracks
+        self.requestHeaders = requestHeaders
         self.initialPosition = initialPosition
         self.autoplays = autoplays
         self.onProgress = onProgress
@@ -37,6 +40,7 @@ struct MediaDirectPlayer: View {
         _controller = StateObject(
             wrappedValue: DirectMediaPlaybackController(
                 url: url,
+                requestHeaders: requestHeaders,
                 localSubtitleTracks: url.isFileURL ? subtitleTracks : []
             )
         )
@@ -113,6 +117,7 @@ struct MediaDirectPlayer: View {
                 CaptionedMediaPlayer(
                     url: url,
                     subtitleTracks: subtitleTracks,
+                    requestHeaders: requestHeaders,
                     initialPosition: initialPosition,
                     onProgress: onProgress,
                     onEnded: onEnded,
@@ -195,8 +200,20 @@ private final class DirectMediaPlaybackController: ObservableObject {
     private var isLifecyclePlaying = false
     private var wasNativePlaybackActive = false
 
-    init(url: URL, localSubtitleTracks: [AnimeSubtitleTrack]) {
-        player = AVPlayer(url: url)
+    init(
+        url: URL,
+        requestHeaders: [String: String],
+        localSubtitleTracks: [AnimeSubtitleTrack]
+    ) {
+        if requestHeaders.isEmpty {
+            player = AVPlayer(url: url)
+        } else {
+            let asset = AVURLAsset(
+                url: url,
+                options: ["AVURLAssetHTTPHeaderFieldsKey": requestHeaders]
+            )
+            player = AVPlayer(playerItem: AVPlayerItem(asset: asset))
+        }
         if let track = localSubtitleTracks.first(where: \.isDefault)
             ?? localSubtitleTracks.first {
             do {
@@ -492,6 +509,7 @@ private struct CaptionedMediaPlayer: View {
 
     let url: URL
     let subtitleTracks: [AnimeSubtitleTrack]
+    let requestHeaders: [String: String]
     let initialPosition: Double
     let onProgress: @MainActor @Sendable (MediaPlaybackSample) -> Void
     let onEnded: @MainActor @Sendable () -> Void
@@ -514,6 +532,7 @@ private struct CaptionedMediaPlayer: View {
                 CaptionedMediaWebView(
                     url: url,
                     subtitleTracks: loadedTracks,
+                    requestHeaders: requestHeaders,
                     initialPosition: initialPosition,
                     onProgress: onProgress,
                     onEnded: onEnded,
@@ -689,6 +708,7 @@ private struct PlayerFailureView: View {
 private struct CaptionedMediaWebView: NSViewRepresentable {
     let url: URL
     let subtitleTracks: [AnimeSubtitleTrack]
+    let requestHeaders: [String: String]
     let initialPosition: Double
     let onProgress: @MainActor @Sendable (MediaPlaybackSample) -> Void
     let onEnded: @MainActor @Sendable () -> Void
@@ -748,7 +768,11 @@ private struct CaptionedMediaWebView: NSViewRepresentable {
             tracks: subtitleTracks,
             initialPosition: initialPosition
         )
-        webView.loadHTMLString(html, baseURL: url.deletingLastPathComponent())
+        let providerPage = requestHeaders["Referer"].flatMap(URL.init(string:))
+        webView.loadHTMLString(
+            html,
+            baseURL: providerPage ?? url.deletingLastPathComponent()
+        )
     }
 
     final class Coordinator: NSObject, WKScriptMessageHandler {

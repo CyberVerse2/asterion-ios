@@ -468,6 +468,7 @@ struct AnimePlayerView: View {
                     MediaDirectPlayer(
                         url: option.url,
                         subtitleTracks: option.subtitleTracks,
+                        requestHeaders: option.requestHeaders,
                         initialPosition: playbackResumePosition,
                         onProgress: { sample in
                             Task {
@@ -478,7 +479,10 @@ struct AnimePlayerView: View {
                                 )
                             }
                         },
-                        onEnded: autoplayNextEpisode
+                        onEnded: autoplayNextEpisode,
+                        onFailure: {
+                            store.reportPlaybackFailure($0, for: option)
+                        }
                     )
                         .id(option.id)
                 case .embed:
@@ -494,7 +498,10 @@ struct AnimePlayerView: View {
                                 )
                             }
                         },
-                        onEnded: autoplayNextEpisode
+                        onEnded: autoplayNextEpisode,
+                        onFailure: {
+                            store.reportPlaybackFailure($0, for: option)
+                        }
                     )
                         .id(option.id)
                 }
