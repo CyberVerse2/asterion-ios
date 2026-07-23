@@ -18,7 +18,7 @@ A native macOS 26+ port of Asterion for reading novels and watching anime. It is
 ## Build and run
 
 ```sh
-cd AsterionMac
+cd apps/macos
 ./script/build_and_run.sh
 ```
 

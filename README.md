@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="AsterionMac/Sources/AsterionMac/Resources/Brand/AsterionMark.png" alt="Asterion logo" width="72">
+  <img src="apps/macos/Sources/AsterionMac/Resources/Brand/AsterionMark.png" alt="Asterion logo" width="72">
   <h1>Asterion</h1>
   <p><strong>Stories that transcend time.</strong></p>
   <p>A native Apple entertainment hub for novels, anime, movies, television, and live football.</p>
@@ -43,26 +43,26 @@ The clients use Asterion's deployed services by default, so you can work on eith
 You need macOS 26 or later, Swift 6.2 tooling, and a valid Apple code-signing identity. Signing keeps Clerk's Keychain access trusted between builds.
 
 ```sh
-cd AsterionMac
+cd apps/macos
 ./script/build_and_run.sh --verify
 ```
 
-The script builds the Swift package, creates `AsterionMac/dist/Asterion.app`, signs it, launches it, and checks that it stays running.
+The script builds the Swift package, creates `apps/macos/dist/Asterion.app`, signs it, launches it, and checks that it stays running.
 
 Run the macOS test suite with:
 
 ```sh
-cd AsterionMac
+cd apps/macos
 swift test
 ```
 
-See [AsterionMac/README.md](AsterionMac/README.md) for debugging, telemetry, DMG packaging, and release-signing options.
+See [apps/macos/README.md](apps/macos/README.md) for debugging, telemetry, DMG packaging, and release-signing options.
 
 ### iPhone and iPad
 
 You need an Apple development environment that can build the iOS 18 deployment target.
 
-1. Open `Asterion.xcodeproj`.
+1. Open `apps/ios/Asterion.xcodeproj`.
 2. Select the `Asterion` scheme and an iPhone or iPad destination.
 3. Choose your development team under Signing & Capabilities.
 4. Use app and widget bundle identifiers, plus an App Group, that belong to your team.
@@ -71,22 +71,22 @@ You need an Apple development environment that can build the iOS 18 deployment t
 For a connected device, the repository also includes a repeatable build-install-launch command:
 
 ```sh
-ASTERION_DEVICE_ID="YOUR_DEVICE_IDENTIFIER" ./scripts/build-install-launch-iphone.sh
+ASTERION_DEVICE_ID="YOUR_DEVICE_IDENTIFIER" ./tooling/ios/build-install-launch-iphone.sh
 ```
 
-Use `./scripts/build-install-launch-ipad.sh` for the iPad build path.
+Use `./tooling/ios/build-install-launch-ipad.sh` for the iPad build path.
 
 ## Run the API locally
 
 The shared API stores accounts, libraries, bookmarks, reading progress, viewing progress, and content data. It requires Node.js 20 or later, PostgreSQL, and a Clerk application.
 
 ```sh
-cd backend
+cd services/core-api
 npm install
 cp .env.example .env
 ```
 
-Set the PostgreSQL and Clerk values in `backend/.env`, then prepare the database and start the development server:
+Set the PostgreSQL and Clerk values in `services/core-api/.env`, then prepare the database and start the development server:
 
 ```sh
 npm run db:push
@@ -96,23 +96,26 @@ npm run dev
 The API listens on `http://localhost:3001` by default. Verify the database connection with `GET /health`, or run the smoke test from another terminal:
 
 ```sh
-cd backend
+cd services/core-api
 npm run smoke
 ```
 
-The Apple clients compile their service origins into their API clients. To point them at local services, change the relevant base URLs in `Services/APIClient.swift` and `AsterionMac/Sources/AsterionMac/Services/`.
+The Apple clients compile their service origins into their API clients. To point them at local services, change the relevant base URLs in `apps/ios/Services/APIClient.swift` and `apps/macos/Sources/AsterionMac/Services/`.
 
-## Service map
+## Workspace map
 
 | Path | Responsibility | Runtime |
 | --- | --- | --- |
-| `AsterionMac/` | Full native macOS app | SwiftUI and Swift Package Manager |
-| `AppStore/`, `Models/`, `Services/`, `Views/`, `Widgets/`, `Intents/` | Native iPhone and iPad reader | SwiftUI and Xcode |
-| `backend/` | Accounts, content, library state, and cross-device progress | Fastify, Drizzle, and PostgreSQL |
-| `anime-scraper/` | Anime catalog, episode, subtitle, and playback service | Flask and Gunicorn |
-| `movie-scraper/` | Movie and TV catalog and playback service | Flask and Gunicorn |
-| `football-scraper/` | Match schedule and live stream service | Flask and Gunicorn |
-| `docs/` | Design references, implementation snapshots, and learning notes | Markdown, HTML, and images |
+| `apps/macos/` | Full native macOS app | SwiftUI and Swift Package Manager |
+| `apps/ios/` | Native iPhone and iPad reader, widget, intents, and tests | SwiftUI and Xcode |
+| `services/core-api/` | Accounts, content, library state, and cross-device progress | Fastify, Drizzle, and PostgreSQL |
+| `services/anime/` | Anime catalog, episode, subtitle, and playback service | Flask and Gunicorn |
+| `services/movies/` | Movie and TV catalog and playback service | Flask and Gunicorn |
+| `services/football/` | Match schedule and live stream service | Flask and Gunicorn |
+| `tooling/` | Device builds and release packaging | Shell |
+| `docs/` | Product, design, implementation, and learning material | Markdown, HTML, and images |
+
+Each deployable product owns its source, tests, configuration examples, and build instructions. Generated packages go under `.artifacts/` and remain outside version control.
 
 Each scraper service has a `Dockerfile`, a health endpoint at `/api/health`, and focused parser tests. Run a service locally from its directory with:
 
@@ -135,14 +138,14 @@ Run its tests with `python -m unittest` from the same directory.
 Create and validate a development-signed DMG with:
 
 ```sh
-cd AsterionMac
+cd apps/macos
 ./script/build_and_run.sh --package-development
 ```
 
 For a public release, provide a production Clerk key and a Developer ID Application identity:
 
 ```sh
-cd AsterionMac
+cd apps/macos
 ASTERION_CLERK_PUBLISHABLE_KEY="pk_live_..." \
 ASTERION_CODE_SIGN_IDENTITY="Developer ID Application: …" \
 ./script/build_and_run.sh --package

@@ -1,10 +1,14 @@
 # Xcode and packaging output
 /.build/
 /build/
+/.artifacts/
 *.ipa
 *.dmg
 __pycache__/
 *.py[cod]
+**/.DS_Store
+**/xcuserdata/
+buildServer.json
 
 # Generated export artifacts
 /output/

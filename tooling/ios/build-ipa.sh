@@ -1,12 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROJECT_PATH="Asterion.xcodeproj"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+IOS_ROOT="$WORKSPACE_ROOT/apps/ios"
+ARTIFACTS_ROOT="${ASTERION_ARTIFACTS_PATH:-$WORKSPACE_ROOT/.artifacts/ios}"
+PROJECT_PATH="$IOS_ROOT/Asterion.xcodeproj"
 SCHEME="Asterion"
 CONFIG="${ASTERION_CONFIG:-Debug}"
-ARCHIVE_PATH=".build/Asterion.xcarchive"
-IPA_NAME="${ASTERION_IPA_NAME:-Asterion.ipa}"
-EXPORT_PLIST=".build/exportOptions.plist"
+ARCHIVE_PATH="$ARTIFACTS_ROOT/Asterion.xcarchive"
+IPA_PATH="${ASTERION_IPA_PATH:-$ARTIFACTS_ROOT/Asterion.ipa}"
+EXPORT_PATH="$ARTIFACTS_ROOT/export"
+EXPORT_PLIST="$ARTIFACTS_ROOT/exportOptions.plist"
+
+mkdir -p "$ARTIFACTS_ROOT"
 
 echo "==> Archiving Asterion (${CONFIG})..."
 
@@ -42,13 +49,13 @@ echo "==> Exporting IPA..."
 xcodebuild \
   -exportArchive \
   -archivePath "${ARCHIVE_PATH}" \
-  -exportPath ".build" \
+  -exportPath "${EXPORT_PATH}" \
   -exportOptionsPlist "${EXPORT_PLIST}" \
   -allowProvisioningUpdates
 
-mv ".build/Asterion.ipa" "${IPA_NAME}"
+mv "${EXPORT_PATH}/Asterion.ipa" "${IPA_PATH}"
 
-rm -rf "${ARCHIVE_PATH}" "${EXPORT_PLIST}"
+rm -rf "${ARCHIVE_PATH}" "${EXPORT_PATH}" "${EXPORT_PLIST}"
 
-echo "==> IPA ready: ${IPA_NAME}"
+echo "==> IPA ready: ${IPA_PATH}"
 echo "    Open in SideStore to install."
