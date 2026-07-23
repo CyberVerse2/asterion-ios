@@ -14,9 +14,6 @@ struct MediaDirectPlayer: View {
     let onFailure: @MainActor @Sendable (String) -> Void
     let onLifecycleEvent: @MainActor @Sendable (MediaPlaybackLifecycleEvent) -> Void
 
-    @StateObject private var controller: DirectMediaPlaybackController
-    @State private var captionCharacterScale = CaptionSizing.systemRelativeCharacterSize
-
     init(
         url: URL,
         subtitleTracks: [AnimeSubtitleTrack] = [],
@@ -37,82 +34,22 @@ struct MediaDirectPlayer: View {
         self.onEnded = onEnded
         self.onFailure = onFailure
         self.onLifecycleEvent = onLifecycleEvent
-        _controller = StateObject(
-            wrappedValue: DirectMediaPlaybackController(
-                url: url,
-                requestHeaders: requestHeaders,
-                localSubtitleTracks: url.isFileURL ? subtitleTracks : []
-            )
-        )
     }
 
     var body: some View {
         Group {
             if subtitleTracks.isEmpty || url.isFileURL {
-                ZStack {
-                    NativeMediaPlayerView(player: controller.player)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                    if let caption = controller.activeCaption {
-                        GeometryReader { geometry in
-                            VStack {
-                                Spacer()
-                                Text(caption)
-                                    .font(
-                                        .system(
-                                            size: CaptionSizing.fontSize(
-                                                containerSize: geometry.size,
-                                                relativeCharacterSize: captionCharacterScale
-                                            ),
-                                            weight: .semibold
-                                        )
-                                    )
-                                    .multilineTextAlignment(.center)
-                                    .foregroundStyle(.white)
-                                    .shadow(color: .black, radius: 2, x: 0, y: 1)
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 7)
-                                    .background(.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 7))
-                                    .padding(.horizontal, 36)
-                                    .padding(.bottom, 32)
-                            }
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        }
-                        .allowsHitTesting(false)
-                        .accessibilityLabel("Subtitles: \(caption)")
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .onAppear {
-                    captionCharacterScale = CaptionSizing.systemRelativeCharacterSize
-                    controller.start(
-                        initialPosition: initialPosition,
-                        autoplays: autoplays,
-                        onProgress: onProgress,
-                        onEnded: onEnded,
-                        onFailure: onFailure,
-                        onLifecycleEvent: onLifecycleEvent
-                    )
-                }
-                .onDisappear { controller.stop() }
-                .onReceive(
-                    NotificationCenter.default.publisher(
-                        for: CaptionSizing.settingsDidChangeNotification
-                    )
-                ) { _ in
-                    captionCharacterScale = CaptionSizing.systemRelativeCharacterSize
-                }
-                .overlay(alignment: .top) {
-                    if let captionError = controller.captionError {
-                        Label(captionError, systemImage: "captions.bubble.fill")
-                            .font(.caption)
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 7)
-                            .background(.red.opacity(0.82), in: Capsule())
-                            .padding(.top, 12)
-                    }
-                }
+                NativeDirectMediaPlayer(
+                    url: url,
+                    subtitleTracks: url.isFileURL ? subtitleTracks : [],
+                    requestHeaders: requestHeaders,
+                    initialPosition: initialPosition,
+                    autoplays: autoplays,
+                    onProgress: onProgress,
+                    onEnded: onEnded,
+                    onFailure: onFailure,
+                    onLifecycleEvent: onLifecycleEvent
+                )
             } else {
                 CaptionedMediaPlayer(
                     url: url,
@@ -128,6 +65,111 @@ struct MediaDirectPlayer: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.black)
+    }
+}
+
+private struct NativeDirectMediaPlayer: View {
+    let initialPosition: Double
+    let autoplays: Bool
+    let onProgress: @MainActor @Sendable (MediaPlaybackSample) -> Void
+    let onEnded: @MainActor @Sendable () -> Void
+    let onFailure: @MainActor @Sendable (String) -> Void
+    let onLifecycleEvent: @MainActor @Sendable (MediaPlaybackLifecycleEvent) -> Void
+
+    @StateObject private var controller: DirectMediaPlaybackController
+    @State private var captionCharacterScale = CaptionSizing.systemRelativeCharacterSize
+
+    init(
+        url: URL,
+        subtitleTracks: [AnimeSubtitleTrack],
+        requestHeaders: [String: String],
+        initialPosition: Double,
+        autoplays: Bool,
+        onProgress: @escaping @MainActor @Sendable (MediaPlaybackSample) -> Void,
+        onEnded: @escaping @MainActor @Sendable () -> Void,
+        onFailure: @escaping @MainActor @Sendable (String) -> Void,
+        onLifecycleEvent: @escaping @MainActor @Sendable (MediaPlaybackLifecycleEvent) -> Void
+    ) {
+        self.initialPosition = initialPosition
+        self.autoplays = autoplays
+        self.onProgress = onProgress
+        self.onEnded = onEnded
+        self.onFailure = onFailure
+        self.onLifecycleEvent = onLifecycleEvent
+        _controller = StateObject(
+            wrappedValue: DirectMediaPlaybackController(
+                url: url,
+                requestHeaders: requestHeaders,
+                localSubtitleTracks: subtitleTracks
+            )
+        )
+    }
+
+    var body: some View {
+        ZStack {
+            NativeMediaPlayerView(player: controller.player)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            if let caption = controller.activeCaption {
+                GeometryReader { geometry in
+                    VStack {
+                        Spacer()
+                        Text(caption)
+                            .font(
+                                .system(
+                                    size: CaptionSizing.fontSize(
+                                        containerSize: geometry.size,
+                                        relativeCharacterSize: captionCharacterScale
+                                    ),
+                                    weight: .semibold
+                                )
+                            )
+                            .multilineTextAlignment(.center)
+                            .foregroundStyle(.white)
+                            .shadow(color: .black, radius: 2, x: 0, y: 1)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 7)
+                            .background(.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 7))
+                            .padding(.horizontal, 36)
+                            .padding(.bottom, 32)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+                .allowsHitTesting(false)
+                .accessibilityLabel("Subtitles: \(caption)")
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear {
+            captionCharacterScale = CaptionSizing.systemRelativeCharacterSize
+            controller.start(
+                initialPosition: initialPosition,
+                autoplays: autoplays,
+                onProgress: onProgress,
+                onEnded: onEnded,
+                onFailure: onFailure,
+                onLifecycleEvent: onLifecycleEvent
+            )
+        }
+        .onDisappear { controller.stop() }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: CaptionSizing.settingsDidChangeNotification
+            )
+        ) { _ in
+            captionCharacterScale = CaptionSizing.systemRelativeCharacterSize
+        }
+        .overlay(alignment: .top) {
+            if let captionError = controller.captionError {
+                Label(captionError, systemImage: "captions.bubble.fill")
+                    .font(.caption)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .background(.red.opacity(0.82), in: Capsule())
+                    .padding(.top, 12)
+            }
+        }
     }
 }
 
@@ -529,17 +571,19 @@ private struct CaptionedMediaPlayer: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(.black)
             case .ready(let loadedTracks):
-                CaptionedMediaWebView(
+                NativeDirectMediaPlayer(
                     url: url,
                     subtitleTracks: loadedTracks,
                     requestHeaders: requestHeaders,
                     initialPosition: initialPosition,
+                    autoplays: true,
                     onProgress: onProgress,
                     onEnded: onEnded,
-                    onError: {
+                    onFailure: {
                         phase = .failure($0)
                         onFailure($0)
-                    }
+                    },
+                    onLifecycleEvent: { _ in }
                 )
                 .overlay(alignment: .topTrailing) {
                     if let subtitleWarning {

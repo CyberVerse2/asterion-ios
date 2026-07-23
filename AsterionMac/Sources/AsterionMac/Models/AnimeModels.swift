@@ -232,13 +232,14 @@ struct AnimeStreamSource: Codable, Hashable, Sendable {
     let tracks: [AnimeSubtitleTrack]
 
     var directRequestHeaders: [String: String] {
-        var headers = [
-            "Referer": embedURL.absoluteString,
+        guard let origin = embedURL.webOrigin else {
+            return ["User-Agent": "Mozilla/5.0"]
+        }
+        let headers = [
+            "Referer": "\(origin)/",
+            "Origin": origin,
             "User-Agent": "Mozilla/5.0",
         ]
-        if let origin = embedURL.webOrigin {
-            headers["Origin"] = origin
-        }
         return headers
     }
 

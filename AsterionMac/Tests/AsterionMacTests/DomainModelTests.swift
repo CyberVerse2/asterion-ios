@@ -411,7 +411,7 @@ struct DomainModelTests {
             AnimePlaybackOption.options(from: [source]).first { $0.kind == .direct }
         )
 
-        #expect(option.requestHeaders["Referer"] == source.embedURL.absoluteString)
+        #expect(option.requestHeaders["Referer"] == "https://megaplay.buzz/")
         #expect(option.requestHeaders["Origin"] == "https://megaplay.buzz")
         #expect(option.requestHeaders["User-Agent"] == "Mozilla/5.0")
     }
