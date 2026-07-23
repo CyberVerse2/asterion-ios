@@ -437,6 +437,19 @@ struct DomainModelTests {
         #expect(novel.numericRank == 17)
     }
 
+    @Test func longNovelChapterListsSplitIntoSearchableHundredChapterRanges() {
+        let chapters = (1...250).reversed().map {
+            Chapter(id: "chapter-\($0)", chapterNumber: $0, title: "Chapter \($0)", content: nil, url: nil)
+        }
+
+        let ranges = NovelChapterRange.pages(for: chapters)
+
+        #expect(ranges.map(\.label) == ["1–100", "101–200", "201–250"])
+        #expect(ranges[1].chapters.count == 100)
+        #expect(ranges[2].contains(chapterID: "chapter-250"))
+        #expect(!ranges[0].contains(chapterID: "chapter-250"))
+    }
+
     @Test func chapterConvertsHTMLIntoReadableParagraphs() throws {
         let data = Data(
             #"{"_id":"chapter-1","chapterNumber":1,"title":"Arrival","content":"<p>First &amp; foremost.</p><p>Second line.<br/>Still second.</p>"}"#.utf8

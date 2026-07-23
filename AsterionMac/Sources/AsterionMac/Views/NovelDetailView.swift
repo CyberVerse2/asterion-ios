@@ -14,6 +14,8 @@ struct NovelDetailView: View {
     @State private var downloadRequestError: String?
     @State private var scrollPosition: String?
     @State private var showsFullSynopsis = false
+    @State private var selectedChapterRange = 0
+    @State private var chapterSearch = ""
 
     private var isInLibrary: Bool {
         model.libraryNovelIDs.contains(novel.id)
@@ -28,10 +30,6 @@ struct NovelDetailView: View {
     }
 
     private var offlineDownload: OfflineDownload? { model.offlineDownload(for: novel.id) }
-
-    private var visibleChapters: [Chapter] {
-        Array(chapters.suffix(5).reversed())
-    }
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -62,6 +60,8 @@ struct NovelDetailView: View {
         .safeAreaInset(edge: .bottom) { accountErrorBar }
         .task(id: novel.id) {
             showsFullSynopsis = false
+            chapterSearch = ""
+            selectedChapterRange = 0
             scrollPosition = nil
             await load()
             await Task.yield()
@@ -338,39 +338,150 @@ struct NovelDetailView: View {
         } else if chapters.isEmpty {
             ContentUnavailableView("No chapters", systemImage: "text.page")
         } else {
-            LazyVStack(spacing: 0) {
-                ForEach(visibleChapters) { chapter in
-                    Button {
-                        open(chapter)
-                    } label: {
-                        HStack(spacing: 14) {
-                            Text(String(chapter.chapterNumber))
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(Color.asterionMuted)
-                                .frame(width: 34, alignment: .trailing)
-                            Text(chapter.title)
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundStyle(Color.asterionText)
-                                .lineLimit(1)
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.caption)
-                                .foregroundStyle(Color.asterionMuted)
+            VStack(alignment: .leading, spacing: 14) {
+                chapterBrowserControls
+
+                if displayedChapters.isEmpty {
+                    ContentUnavailableView.search(text: chapterSearch)
+                        .frame(maxWidth: .infinity, minHeight: 180)
+                } else {
+                    LazyVGrid(
+                        columns: [GridItem(.adaptive(minimum: 250, maximum: 420), spacing: 12)],
+                        spacing: 12
+                    ) {
+                        ForEach(displayedChapters) { chapter in
+                            chapterCard(chapter)
                         }
-                        .padding(.vertical, 11)
-                        .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
-                    Divider()
                 }
             }
-            .padding(.horizontal, 14)
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(.white.opacity(0.08))
+        }
+    }
+
+    private var chapterBrowserControls: some View {
+        HStack(spacing: 10) {
+            Menu {
+                ForEach(Array(chapterRanges.enumerated()), id: \.element.id) { index, range in
+                    Button("Chapters \(range.label)") {
+                        selectedChapterRange = index
+                        chapterSearch = ""
+                    }
+                }
+            } label: {
+                Label(currentChapterRange.map { "Chapters \($0.label)" } ?? "Chapters", systemImage: "rectangle.grid.2x2")
+                    .font(.system(size: 13, weight: .semibold).monospacedDigit())
+                    .frame(minWidth: 152)
+            }
+            .menuStyle(.borderlessButton)
+
+            Button {
+                selectedChapterRange -= 1
+                chapterSearch = ""
+            } label: {
+                Image(systemName: "chevron.left")
+            }
+            .disabled(selectedChapterRange == 0)
+            .help("Previous \(NovelChapterRange.pageSize) chapters")
+
+            Button {
+                selectedChapterRange += 1
+                chapterSearch = ""
+            } label: {
+                Image(systemName: "chevron.right")
+            }
+            .disabled(selectedChapterRange >= chapterRanges.count - 1)
+            .help("Next \(NovelChapterRange.pageSize) chapters")
+
+            Button {
+                selectedChapterRange = max(chapterRanges.count - 1, 0)
+                chapterSearch = ""
+            } label: {
+                Label("Latest", systemImage: "arrow.up.to.line")
+            }
+            .disabled(selectedChapterRange == chapterRanges.count - 1 && chapterSearch.isEmpty)
+
+            Spacer(minLength: 12)
+
+            TextField("Find chapter or title", text: $chapterSearch)
+                .textFieldStyle(.roundedBorder)
+                .frame(minWidth: 180, idealWidth: 240, maxWidth: 300)
+                .onSubmit(openExactChapterMatch)
+                .accessibilityLabel("Find chapter number or title")
+        }
+        .buttonStyle(.borderless)
+        .controlSize(.regular)
+    }
+
+    private func chapterCard(_ chapter: Chapter) -> some View {
+        Button {
+            open(chapter)
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: progress?.chapterId == chapter.id ? "book.fill" : "book.closed")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(progress?.chapterId == chapter.id ? Color.asterionAccent : Color.asterionMuted)
+                    .frame(width: 22)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Chapter \(chapter.chapterNumber)")
+                        .font(.system(size: 13, weight: .semibold).monospacedDigit())
+                        .foregroundStyle(Color.asterionText)
+                    Text(chapter.displayTitle)
+                        .font(.caption)
+                        .foregroundStyle(Color.asterionMuted)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 0)
+
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.asterionMuted)
+            }
+            .padding(.horizontal, 13)
+            .frame(height: 62)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(.white.opacity(0.08))
+        }
+    }
+
+    private var chapterRanges: [NovelChapterRange] {
+        NovelChapterRange.pages(for: chapters)
+    }
+
+    private var currentChapterRange: NovelChapterRange? {
+        guard chapterRanges.indices.contains(selectedChapterRange) else { return chapterRanges.last }
+        return chapterRanges[selectedChapterRange]
+    }
+
+    private var displayedChapters: [Chapter] {
+        let query = chapterSearch.trimmingCharacters(in: .whitespacesAndNewlines)
+        let matches: [Chapter]
+        if query.isEmpty {
+            matches = currentChapterRange?.chapters ?? []
+        } else if let number = Int(query) {
+            matches = chapters.filter { String($0.chapterNumber).contains(String(number)) }
+        } else {
+            matches = chapters.filter {
+                $0.displayTitle.localizedCaseInsensitiveContains(query)
+                    || $0.title.localizedCaseInsensitiveContains(query)
             }
         }
+        return matches.sorted { $0.chapterNumber > $1.chapterNumber }
+    }
+
+    private func openExactChapterMatch() {
+        let query = chapterSearch.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let number = Int(query),
+              let chapter = chapters.first(where: { $0.chapterNumber == number }) else {
+            return
+        }
+        open(chapter)
     }
 
     @ViewBuilder
@@ -439,6 +550,7 @@ struct NovelDetailView: View {
             async let progressRequest = model.fetchProgress(novelID: novel.id)
             chapters = try await chapterRequest
             progress = try await progressRequest
+            selectInitialChapterRange()
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
@@ -468,6 +580,15 @@ struct NovelDetailView: View {
 
     private func open(_ chapter: Chapter) {
         openWindow(value: ReaderRoute(novelID: novel.id, chapterID: chapter.id))
+    }
+
+    private func selectInitialChapterRange() {
+        if let progress,
+           let progressRange = chapterRanges.firstIndex(where: { $0.contains(chapterID: progress.chapterId) }) {
+            selectedChapterRange = progressRange
+        } else {
+            selectedChapterRange = max(chapterRanges.count - 1, 0)
+        }
     }
 
     private var recommendationShelf: some View {
