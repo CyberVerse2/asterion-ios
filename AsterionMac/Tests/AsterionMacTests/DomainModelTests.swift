@@ -222,6 +222,50 @@ struct DomainModelTests {
         #expect(html.contains("default-src 'none'"))
     }
 
+    @Test func webVTTParserSkipsZeroDurationCuesWithoutDiscardingValidCaptions() throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("vtt")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        try Data(
+            """
+            WEBVTT
+
+            00:00.000 --> 00:00.000
+            Provider placeholder
+
+            00:01.000 --> 00:03.000
+            The actual caption
+            """.utf8
+        ).write(to: fileURL)
+
+        let cues = try WebVTTParser.parse(fileURL: fileURL)
+
+        #expect(cues.count == 1)
+        #expect(cues.first?.startTime == 1)
+        #expect(cues.first?.endTime == 3)
+        #expect(cues.first?.text == "The actual caption")
+    }
+
+    @Test func webVTTParserStillRejectsReversedCueTimes() throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("vtt")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        try Data(
+            """
+            WEBVTT
+
+            00:03.000 --> 00:01.000
+            Broken caption
+            """.utf8
+        ).write(to: fileURL)
+
+        #expect(throws: WebVTTParserError.self) {
+            try WebVTTParser.parse(fileURL: fileURL)
+        }
+    }
+
     @Test func animeSubtitleLoaderSendsProviderHeadersAndSurfacesHTTPFailures() async throws {
         let trackURL = try #require(URL(string: "https://media.example/English.vtt"))
         let track = AnimeSubtitleTrack(

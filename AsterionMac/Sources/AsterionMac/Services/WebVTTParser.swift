@@ -76,8 +76,13 @@ enum WebVTTParser {
                 .first
                 .map(String.init) ?? ""
             guard let startTime = parseTime(startToken),
-                  let endTime = parseTime(endToken),
-                  endTime > startTime else {
+                  let endTime = parseTime(endToken) else {
+                throw WebVTTParserError.invalidTiming(timing)
+            }
+            if endTime == startTime {
+                continue
+            }
+            guard endTime > startTime else {
                 throw WebVTTParserError.invalidTiming(timing)
             }
 
