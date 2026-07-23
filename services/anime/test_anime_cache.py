@@ -122,6 +122,29 @@ class AnimeEndpointCacheTests(unittest.TestCase):
             app.COMPLETED_EPISODES_CACHE_TTL_SECONDS,
         )
 
+    def test_airing_show_episodes_use_two_hour_cache_lifetime(self):
+        self.cache.set_json(
+            "status:7457",
+            "Currently Airing",
+            app.SHOW_CACHE_TTL_SECONDS,
+        )
+        episode = SimpleNamespace(number=1)
+
+        with patch.object(app, "anime_cache", return_value=self.cache), \
+                patch.object(app.animixplay, "get_episodes", return_value=[episode]):
+            response = self.client_app.get("/api/amp/episodes/7457")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            self.client.ttls["asterion:anime:v1:episodes:7457"],
+            2 * 60 * 60,
+        )
+
+    def test_catalog_and_search_cache_for_twenty_four_hours(self):
+        self.assertEqual(app.CATALOG_CACHE_TTL_SECONDS, 24 * 60 * 60)
+        self.assertEqual(app.SEARCH_CACHE_TTL_SECONDS, 24 * 60 * 60)
+        self.assertEqual(app.RELATED_SEASONS_CACHE_TTL_SECONDS, 24 * 60 * 60)
+
     def test_health_reports_redis_readiness(self):
         with patch.object(app, "anime_cache", return_value=self.cache):
             response = self.client_app.get("/api/health")
