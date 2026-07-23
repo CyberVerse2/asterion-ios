@@ -225,6 +225,12 @@ struct ReaderView: View {
                                 recordVisibleLine(from: $0)
                             }
                             .background(palette.background)
+                            .background {
+                                SinglePageChapterOverscrollBridge(
+                                    canAdvance: currentIndex < chapters.count - 1,
+                                    onAdvance: { navigate(by: 1) }
+                                )
+                            }
                         }
                     }
                     .onChange(of: chapter.id) {
