@@ -39,6 +39,16 @@ struct Chapter: Identifiable, Codable, Hashable, Sendable {
     }
 }
 
+struct ChapterPage: Equatable, Sendable {
+    let chapters: [Chapter]
+    let total: Int
+    let limit: Int
+    let offset: Int
+
+    var pageIndex: Int { limit > 0 ? offset / limit : 0 }
+    var pageCount: Int { total == 0 ? 0 : Int(ceil(Double(total) / Double(limit))) }
+}
+
 struct NovelChapterRange: Identifiable, Equatable, Sendable {
     static let pageSize = 100
 

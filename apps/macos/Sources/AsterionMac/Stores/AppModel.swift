@@ -326,6 +326,27 @@ final class AppModel: ObservableObject {
         chapterListStateByNovelID[novelID] ?? .idle
     }
 
+    func chapterPage(
+        for novelID: String,
+        offset: Int,
+        search: String? = nil
+    ) async throws -> ChapterPage {
+        let page = try await api.fetchChapterPage(
+            novelID: novelID,
+            offset: offset,
+            search: search
+        )
+        cacheChapterContent(page.chapters)
+        chapterListStateByNovelID[novelID] = .remote
+        return page
+    }
+
+    func chapter(novelID: String, number: Int) async throws -> Chapter {
+        let chapter = try await api.fetchChapter(novelID: novelID, chapterNumber: number)
+        chapterByID[chapter.id] = chapter
+        return chapter
+    }
+
     func chapter(id: String) async throws -> Chapter {
         if let cached = chapterByID[id], cached.content?.isEmpty == false {
             return cached

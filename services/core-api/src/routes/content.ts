@@ -152,6 +152,7 @@ export const contentRoutes: FastifyPluginAsync = async (app) => {
     const result = await listChaptersByNovelId(params.data.id, {
       limit: options.limit,
       offset: options.offset,
+      ...(query.data.search ? { search: query.data.search } : {}),
     });
 
     return {

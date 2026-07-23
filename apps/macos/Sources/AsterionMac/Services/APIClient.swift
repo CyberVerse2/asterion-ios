@@ -82,6 +82,8 @@ actor APIClient {
         struct Metadata: Decodable, Sendable {
             let total: Int?
             let count: Int?
+            let limit: Int?
+            let offset: Int?
         }
     }
 
@@ -160,6 +162,39 @@ actor APIClient {
             }
             offset += pageSize
         }
+    }
+
+    func fetchChapterPage(
+        novelID: String,
+        limit: Int = NovelChapterRange.pageSize,
+        offset: Int,
+        search: String? = nil
+    ) async throws -> ChapterPage {
+        var query = [
+            URLQueryItem(name: "limit", value: String(limit)),
+            URLQueryItem(name: "offset", value: String(offset)),
+        ]
+        if let search, !search.isEmpty {
+            query.append(URLQueryItem(name: "search", value: search))
+        }
+
+        let page: Page<Chapter> = try await request(
+            path: "/novels/\(novelID)/chapters",
+            query: query
+        )
+        return ChapterPage(
+            chapters: page.data.deduplicatedByID(),
+            total: page.meta?.total ?? page.data.count,
+            limit: page.meta?.limit ?? limit,
+            offset: page.meta?.offset ?? offset
+        )
+    }
+
+    func fetchChapter(novelID: String, chapterNumber: Int) async throws -> Chapter {
+        let envelope: DataEnvelope<Chapter> = try await request(
+            path: "/novels/\(novelID)/chapters/\(chapterNumber)"
+        )
+        return envelope.data
     }
 
     func fetchChapter(id: String) async throws -> Chapter {

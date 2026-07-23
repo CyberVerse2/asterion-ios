@@ -40,6 +40,34 @@ struct CatalogRequestTests {
         }
     }
 
+    @Test func chapterPageFetchesOnlyTheRequestedRangeAndSearch() async throws {
+        let data = try Self.chapterPage(numbers: [1201, 1202], total: 2_400, offset: 1_200)
+        CatalogURLProtocol.install { request in
+            let components = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)
+            let query = Dictionary(
+                uniqueKeysWithValues: (components?.queryItems ?? []).map { ($0.name, $0.value) }
+            )
+            #expect(request.url?.path == "/novels/42/chapters")
+            #expect(query["limit"] == "100")
+            #expect(query["offset"] == "1200")
+            #expect(query["search"] == "dragon")
+            return (Self.successResponse(for: request), data)
+        }
+        defer { CatalogURLProtocol.reset() }
+
+        let client = APIClient(session: Self.stubbedSession())
+        let page = try await client.fetchChapterPage(
+            novelID: "42",
+            offset: 1_200,
+            search: "dragon"
+        )
+
+        #expect(page.chapters.map(\.chapterNumber) == [1201, 1202])
+        #expect(page.total == 2_400)
+        #expect(page.pageIndex == 12)
+        #expect(page.pageCount == 24)
+    }
+
     @Test @MainActor func animeCatalogDeduplicatesEveryPageAndSurfacesARepeat() async {
         let first = Self.animeTitle("anime-1")
         let second = Self.animeTitle("anime-2")
@@ -239,6 +267,26 @@ struct CatalogRequestTests {
             withJSONObject: [
                 "data": ids.map { ["_id": $0, "title": "Title \($0)"] },
                 "meta": ["total": total],
+            ]
+        )
+    }
+
+    private static func chapterPage(numbers: [Int], total: Int, offset: Int) throws -> Data {
+        try JSONSerialization.data(
+            withJSONObject: [
+                "data": numbers.map {
+                    [
+                        "_id": "chapter-\($0)",
+                        "chapterNumber": $0,
+                        "title": "Chapter \($0)",
+                    ] as [String: Any]
+                },
+                "meta": [
+                    "total": total,
+                    "count": numbers.count,
+                    "limit": 100,
+                    "offset": offset,
+                ],
             ]
         )
     }

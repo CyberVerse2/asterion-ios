@@ -8,9 +8,15 @@ struct NovelDetailView: View {
     let selectNovel: (Novel) -> Void
 
     @State private var chapters: [Chapter] = []
+    @State private var chapterSearchResults: [Chapter] = []
+    @State private var totalChapterCount = 0
+    @State private var firstChapter: Chapter?
+    @State private var progressChapter: Chapter?
     @State private var progress: ReadingProgress?
     @State private var isLoading = false
+    @State private var isLoadingChapterPage = false
     @State private var errorMessage: String?
+    @State private var chapterSearchError: String?
     @State private var downloadRequestError: String?
     @State private var scrollPosition: String?
     @State private var showsFullSynopsis = false
@@ -66,6 +72,9 @@ struct NovelDetailView: View {
             await load()
             await Task.yield()
             scrollPosition = "detail-top"
+        }
+        .task(id: chapterSearch) {
+            await searchChapters()
         }
     }
 
@@ -185,7 +194,7 @@ struct NovelDetailView: View {
             AsterionDetailMetadata(icon: "book.closed", value: novel.genres?.first ?? "Fiction"),
             AsterionDetailMetadata(
                 icon: "text.page",
-                value: "\(novel.totalChapters ?? String(chapters.count)) chapters"
+                value: "\(novel.totalChapters ?? String(totalChapterCount)) chapters"
             ),
             AsterionDetailMetadata(icon: "eye", value: "\(novel.views ?? "—") views"),
             AsterionDetailMetadata(
@@ -232,7 +241,7 @@ struct NovelDetailView: View {
         .controlSize(.large)
         .tint(.asterionAccent)
         .keyboardShortcut(.return, modifiers: .command)
-        .disabled(chapters.isEmpty)
+        .disabled(totalChapterCount == 0)
     }
 
     private var saveAction: some View {
@@ -265,7 +274,7 @@ struct NovelDetailView: View {
         .tint(Color.asterionText)
         .help(downloadButtonTitle)
         .accessibilityLabel(downloadButtonTitle)
-        .disabled(isDownloading || (!isDownloaded && chapters.isEmpty))
+        .disabled(isDownloading || (!isDownloaded && totalChapterCount == 0))
         .animation(reduceMotion ? nil : AsterionMotion.hover, value: isDownloaded)
     }
 
@@ -324,7 +333,7 @@ struct NovelDetailView: View {
 
     @ViewBuilder
     private var chapterList: some View {
-        if isLoading {
+        if isLoading || isLoadingChapterPage {
             ProgressView("Loading chapters…")
                 .frame(maxWidth: .infinity, minHeight: 100)
         } else if let errorMessage {
@@ -335,13 +344,20 @@ struct NovelDetailView: View {
             } actions: {
                 Button("Try Again") { Task { await load() } }
             }
-        } else if chapters.isEmpty {
+        } else if totalChapterCount == 0 {
             ContentUnavailableView("No chapters", systemImage: "text.page")
         } else {
             VStack(alignment: .leading, spacing: 14) {
                 chapterBrowserControls
 
-                if displayedChapters.isEmpty {
+                if let chapterSearchError {
+                    ContentUnavailableView {
+                        Label("Search unavailable", systemImage: "exclamationmark.magnifyingglass")
+                    } description: {
+                        Text(chapterSearchError)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 180)
+                } else if displayedChapters.isEmpty {
                     ContentUnavailableView.search(text: chapterSearch)
                         .frame(maxWidth: .infinity, minHeight: 180)
                 } else {
@@ -361,22 +377,20 @@ struct NovelDetailView: View {
     private var chapterBrowserControls: some View {
         HStack(spacing: 10) {
             Menu {
-                ForEach(Array(chapterRanges.enumerated()), id: \.element.id) { index, range in
-                    Button("Chapters \(range.label)") {
-                        selectedChapterRange = index
-                        chapterSearch = ""
+                ForEach(0..<chapterPageCount, id: \.self) { index in
+                    Button("Chapters \(chapterRangeLabel(index))") {
+                        Task { await selectChapterRange(index) }
                     }
                 }
             } label: {
-                Label(currentChapterRange.map { "Chapters \($0.label)" } ?? "Chapters", systemImage: "rectangle.grid.2x2")
+                Label("Chapters \(chapterRangeLabel(selectedChapterRange))", systemImage: "rectangle.grid.2x2")
                     .font(.system(size: 13, weight: .semibold).monospacedDigit())
                     .frame(minWidth: 152)
             }
             .menuStyle(.borderlessButton)
 
             Button {
-                selectedChapterRange -= 1
-                chapterSearch = ""
+                Task { await selectChapterRange(selectedChapterRange - 1) }
             } label: {
                 Image(systemName: "chevron.left")
             }
@@ -384,21 +398,19 @@ struct NovelDetailView: View {
             .help("Previous \(NovelChapterRange.pageSize) chapters")
 
             Button {
-                selectedChapterRange += 1
-                chapterSearch = ""
+                Task { await selectChapterRange(selectedChapterRange + 1) }
             } label: {
                 Image(systemName: "chevron.right")
             }
-            .disabled(selectedChapterRange >= chapterRanges.count - 1)
+            .disabled(selectedChapterRange >= chapterPageCount - 1)
             .help("Next \(NovelChapterRange.pageSize) chapters")
 
             Button {
-                selectedChapterRange = max(chapterRanges.count - 1, 0)
-                chapterSearch = ""
+                Task { await selectChapterRange(max(chapterPageCount - 1, 0)) }
             } label: {
                 Label("Latest", systemImage: "arrow.up.to.line")
             }
-            .disabled(selectedChapterRange == chapterRanges.count - 1 && chapterSearch.isEmpty)
+            .disabled(selectedChapterRange == chapterPageCount - 1 && chapterSearch.isEmpty)
 
             Spacer(minLength: 12)
 
@@ -450,38 +462,20 @@ struct NovelDetailView: View {
         }
     }
 
-    private var chapterRanges: [NovelChapterRange] {
-        NovelChapterRange.pages(for: chapters)
-    }
-
-    private var currentChapterRange: NovelChapterRange? {
-        guard chapterRanges.indices.contains(selectedChapterRange) else { return chapterRanges.last }
-        return chapterRanges[selectedChapterRange]
-    }
-
     private var displayedChapters: [Chapter] {
         let query = chapterSearch.trimmingCharacters(in: .whitespacesAndNewlines)
-        let matches: [Chapter]
-        if query.isEmpty {
-            matches = currentChapterRange?.chapters ?? []
-        } else if let number = Int(query) {
-            matches = chapters.filter { String($0.chapterNumber).contains(String(number)) }
-        } else {
-            matches = chapters.filter {
-                $0.displayTitle.localizedCaseInsensitiveContains(query)
-                    || $0.title.localizedCaseInsensitiveContains(query)
-            }
-        }
+        let matches = query.isEmpty ? chapters : chapterSearchResults
         return matches.sorted { $0.chapterNumber > $1.chapterNumber }
     }
 
     private func openExactChapterMatch() {
         let query = chapterSearch.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let number = Int(query),
-              let chapter = chapters.first(where: { $0.chapterNumber == number }) else {
-            return
+        guard let number = Int(query) else { return }
+        Task {
+            if let chapter = try? await model.chapter(novelID: novel.id, number: number) {
+                open(chapter)
+            }
         }
-        open(chapter)
     }
 
     @ViewBuilder
@@ -515,8 +509,8 @@ struct NovelDetailView: View {
     }
 
     private var readButtonTitle: String {
-        guard let progress else { return "Start Reading" }
-        guard let chapter = chapters.first(where: { $0.id == progress.chapterId }) else {
+        guard progress != nil else { return "Start Reading" }
+        guard let chapter = progressChapter else {
             return "Continue Reading"
         }
         return "Continue Reading · Chapter \(chapter.chapterNumber)"
@@ -539,18 +533,39 @@ struct NovelDetailView: View {
     }
 
     private var chapterCountLabel: String? {
-        chapters.isEmpty ? nil : "\(chapters.count) chapters"
+        totalChapterCount == 0 ? nil : "\(totalChapterCount) chapters"
     }
 
     private func load() async {
         isLoading = true
         defer { isLoading = false }
         do {
-            async let chapterRequest = model.chapters(for: novel.id)
+            async let chapterRequest = model.chapterPage(for: novel.id, offset: 0)
             async let progressRequest = model.fetchProgress(novelID: novel.id)
-            chapters = try await chapterRequest
+            let firstPage = try await chapterRequest
             progress = try await progressRequest
-            selectInitialChapterRange()
+            totalChapterCount = firstPage.total
+            firstChapter = firstPage.chapters.first
+
+            if let progress {
+                progressChapter = try? await model.chapter(id: progress.chapterId)
+            } else {
+                progressChapter = nil
+            }
+
+            let targetRange = progressChapter.map {
+                max(($0.chapterNumber - 1) / NovelChapterRange.pageSize, 0)
+            } ?? max(firstPage.pageCount - 1, 0)
+            selectedChapterRange = min(targetRange, max(firstPage.pageCount - 1, 0))
+            if selectedChapterRange == 0 {
+                chapters = firstPage.chapters
+            } else {
+                let page = try await model.chapterPage(
+                    for: novel.id,
+                    offset: selectedChapterRange * NovelChapterRange.pageSize
+                )
+                chapters = page.chapters
+            }
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
@@ -572,22 +587,76 @@ struct NovelDetailView: View {
     }
 
     private func openPreferredChapter() {
-        let preferred = progress.flatMap { saved in
-            chapters.first { $0.id == saved.chapterId }
-        } ?? chapters.first
-        if let preferred { open(preferred) }
+        if let progressChapter {
+            open(progressChapter)
+            return
+        }
+
+        if let firstChapter {
+            open(firstChapter)
+        }
     }
 
     private func open(_ chapter: Chapter) {
         openWindow(value: ReaderRoute(novelID: novel.id, chapterID: chapter.id))
     }
 
-    private func selectInitialChapterRange() {
-        if let progress,
-           let progressRange = chapterRanges.firstIndex(where: { $0.contains(chapterID: progress.chapterId) }) {
-            selectedChapterRange = progressRange
-        } else {
-            selectedChapterRange = max(chapterRanges.count - 1, 0)
+    private var chapterPageCount: Int {
+        totalChapterCount == 0
+            ? 0
+            : Int(ceil(Double(totalChapterCount) / Double(NovelChapterRange.pageSize)))
+    }
+
+    private func chapterRangeLabel(_ index: Int) -> String {
+        guard totalChapterCount > 0 else { return "—" }
+        let start = index * NovelChapterRange.pageSize + 1
+        let end = min(start + NovelChapterRange.pageSize - 1, totalChapterCount)
+        return "\(start)–\(end)"
+    }
+
+    private func selectChapterRange(_ index: Int) async {
+        guard index >= 0, index < chapterPageCount else { return }
+        chapterSearch = ""
+        isLoadingChapterPage = true
+        defer { isLoadingChapterPage = false }
+        do {
+            let page = try await model.chapterPage(
+                for: novel.id,
+                offset: index * NovelChapterRange.pageSize
+            )
+            chapters = page.chapters
+            selectedChapterRange = index
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func searchChapters() async {
+        let query = chapterSearch.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else {
+            chapterSearchResults = []
+            chapterSearchError = nil
+            return
+        }
+
+        chapterSearchResults = []
+        chapterSearchError = nil
+        try? await Task.sleep(for: .milliseconds(300))
+        guard !Task.isCancelled else { return }
+        do {
+            let page = try await model.chapterPage(
+                for: novel.id,
+                offset: 0,
+                search: query
+            )
+            guard !Task.isCancelled else { return }
+            chapterSearchResults = page.chapters
+            chapterSearchError = nil
+        } catch is CancellationError {
+            return
+        } catch {
+            chapterSearchError = error.localizedDescription
         }
     }
 

@@ -227,17 +227,23 @@ export async function getNovelById(novelId: number): Promise<ContentNovel | null
 
 export async function listChaptersByNovelId(
   novelId: number,
-  options: { limit?: number; offset?: number }
+  options: { limit?: number; offset?: number; search?: string }
 ): Promise<PaginatedResult<ContentChapterListItem>> {
   await ensureContentSchema();
 
-  const values: number[] = [novelId];
+  const values: Array<number | string> = [novelId];
+  let searchClause = "";
+  if (options.search) {
+    values.push(options.search, `%${options.search}%`);
+    searchClause = `AND (chapter_number::TEXT = $${values.length - 1} OR title ILIKE $${values.length})`;
+  }
 
   const countResult = await pool.query<{ total: string }>(
     `
       SELECT COUNT(*)::BIGINT AS total
       FROM chapters
       WHERE novel_id = $1
+      ${searchClause}
     `,
     values
   );
@@ -260,6 +266,7 @@ export async function listChaptersByNovelId(
       SELECT id, novel_id, chapter_number, url, title, created_at, updated_at
       FROM chapters
       WHERE novel_id = $1
+      ${searchClause}
       ORDER BY chapter_number ASC
       ${limitClause}
       ${offsetClause}
