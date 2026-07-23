@@ -258,7 +258,16 @@ struct DomainModelTests {
             #expect(error == .http(label: "English", statusCode: 403))
         }
 
+        let rejectedURL = try #require(URL(string: "https://media.example/French.vtt"))
+        let rejectedTrack = AnimeSubtitleTrack(
+            fileURL: rejectedURL,
+            label: "French",
+            kind: "captions",
+            languageCode: "fr",
+            isDefault: false
+        )
         SubtitleURLProtocol.install { request in
+            let isWorkingTrack = request.url == trackURL
             guard request.value(forHTTPHeaderField: "Accept")
                 == "text/vtt,text/plain;q=0.9,*/*;q=0.1" else {
                 throw SubtitleProtocolError.invalidHeader("Accept")
@@ -269,16 +278,28 @@ struct DomainModelTests {
             let response = try #require(
                 HTTPURLResponse(
                     url: request.url!,
-                    statusCode: 200,
+                    statusCode: isWorkingTrack ? 200 : 403,
                     httpVersion: "HTTP/1.1",
                     headerFields: ["Content-Type": "text/vtt"]
                 )
             )
-            return (response, Data("WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nHello".utf8))
+            let data = isWorkingTrack
+                ? Data("WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nHello".utf8)
+                : Data()
+            return (response, data)
         }
 
         let loadedTracks = try await AnimeSubtitleLoader.load([track], session: session)
         #expect(loadedTracks.first?.fileURL.scheme == "data")
+
+        let partialResult = await AnimeSubtitleLoader.loadAvailable(
+            [track, rejectedTrack],
+            session: session
+        )
+        #expect(partialResult.tracks.map(\.label) == ["English"])
+        #expect(partialResult.failures == [
+            "The French subtitle track returned HTTP 403.",
+        ])
 
         let insecureTrack = AnimeSubtitleTrack(
             fileURL: try #require(URL(string: "http://media.example/English.vtt")),

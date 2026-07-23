@@ -499,6 +499,7 @@ private struct CaptionedMediaPlayer: View {
 
     @State private var phase: Phase = .loading
     @State private var attempt = 0
+    @State private var subtitleWarning: String?
 
     var body: some View {
         Group {
@@ -521,6 +522,18 @@ private struct CaptionedMediaPlayer: View {
                         onFailure($0)
                     }
                 )
+                .overlay(alignment: .topTrailing) {
+                    if let subtitleWarning {
+                        Label(subtitleWarning, systemImage: "captions.bubble.fill")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 9)
+                            .background(.regularMaterial, in: Capsule())
+                            .padding(16)
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                    }
+                }
             case .failure(let message):
                 PlayerFailureView(message: message) {
                     attempt += 1
@@ -529,18 +542,18 @@ private struct CaptionedMediaPlayer: View {
         }
         .task(id: attempt) {
             phase = .loading
-            do {
-                let loadedTracks = try await AnimeSubtitleLoader.load(
-                    subtitleTracks,
-                    allowsLocalFiles: url.isFileURL
-                )
-                try Task.checkCancellation()
-                phase = .ready(loadedTracks)
-            } catch is CancellationError {
-                return
-            } catch {
-                phase = .failure(error.localizedDescription)
+            subtitleWarning = nil
+            let result = await AnimeSubtitleLoader.loadAvailable(
+                subtitleTracks,
+                allowsLocalFiles: url.isFileURL
+            )
+            guard !Task.isCancelled else { return }
+            if !result.failures.isEmpty {
+                subtitleWarning = result.tracks.isEmpty
+                    ? "Captions unavailable"
+                    : "Some captions unavailable"
             }
+            phase = .ready(result.tracks)
         }
     }
 }

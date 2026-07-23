@@ -30,6 +30,7 @@ ALLOWED_VIDEO_HOSTS = frozenset({
 })
 ALLOWED_VIDEO_HOST_SUFFIXES = (
     ".anivideo.sbs",
+    ".kotocdn.site",
     ".lostproject.club",
     ".nekostream.site",
     ".watching.onl",

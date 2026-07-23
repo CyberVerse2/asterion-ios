@@ -23,8 +23,18 @@ enum AnimeSubtitleLoadError: LocalizedError, Equatable {
     }
 }
 
+struct AnimeSubtitleLoadResult: Sendable {
+    let tracks: [AnimeSubtitleTrack]
+    let failures: [String]
+}
+
 enum AnimeSubtitleLoader {
     private static let maximumTrackSize = 5 * 1_024 * 1_024
+
+    private enum TrackLoadOutcome: Sendable {
+        case loaded(index: Int, track: AnimeSubtitleTrack)
+        case failed(index: Int, message: String)
+    }
 
     static func load(
         _ tracks: [AnimeSubtitleTrack],
@@ -68,6 +78,56 @@ enum AnimeSubtitleLoader {
             throw AnimeSubtitleLoadError.invalidPayload(label: label)
         }
         return url
+    }
+
+    static func loadAvailable(
+        _ tracks: [AnimeSubtitleTrack],
+        allowsLocalFiles: Bool = false,
+        session: URLSession = .shared
+    ) async -> AnimeSubtitleLoadResult {
+        await withTaskGroup(
+            of: TrackLoadOutcome.self,
+            returning: AnimeSubtitleLoadResult.self
+        ) { group in
+            for (index, track) in tracks.enumerated() {
+                group.addTask {
+                    do {
+                        return .loaded(
+                            index: index,
+                            track: try await load(
+                                track,
+                                allowsLocalFiles: allowsLocalFiles,
+                                session: session
+                            )
+                        )
+                    } catch is CancellationError {
+                        return .failed(index: index, message: "")
+                    } catch {
+                        return .failed(
+                            index: index,
+                            message: error.localizedDescription
+                        )
+                    }
+                }
+            }
+
+            var loaded: [(Int, AnimeSubtitleTrack)] = []
+            var failures: [(Int, String)] = []
+            for await outcome in group {
+                switch outcome {
+                case .loaded(let index, let track):
+                    loaded.append((index, track))
+                case .failed(let index, let message) where !message.isEmpty:
+                    failures.append((index, message))
+                case .failed:
+                    break
+                }
+            }
+            return AnimeSubtitleLoadResult(
+                tracks: loaded.sorted { $0.0 < $1.0 }.map(\.1),
+                failures: failures.sorted { $0.0 < $1.0 }.map(\.1)
+            )
+        }
     }
 
     private static func load(
