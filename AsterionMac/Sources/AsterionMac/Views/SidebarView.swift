@@ -1,7 +1,9 @@
 import SwiftUI
 
 struct SidebarView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var mediaDownloads: MediaDownloadManager
 
     @Binding var selection: AppDestination
 
@@ -18,6 +20,11 @@ struct SidebarView: View {
         .downloads,
         .history,
     ]
+
+    private var activeDownloadCount: Int {
+        model.offlineDownloads.count(where: \.isDownloading)
+            + mediaDownloads.activeCount
+    }
 
     var body: some View {
         List {
@@ -53,6 +60,17 @@ struct SidebarView: View {
                     .frame(width: 18)
                 Text(destination.title)
                 Spacer(minLength: 0)
+                if destination == .downloads, activeDownloadCount > 0 {
+                    Text(activeDownloadCount, format: .number)
+                        .font(.system(size: 12, weight: .semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 2)
+                        .background(.quaternary, in: Capsule())
+                        .transition(.scale.combined(with: .opacity))
+                        .accessibilityHidden(true)
+                }
             }
             .padding(.horizontal, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -65,8 +83,28 @@ struct SidebarView: View {
                 .fill(Color.primary.opacity(isSelected ? 0.10 : 0))
                 .padding(.horizontal, 8)
         )
-        .help(destination.title)
+        .animation(
+            reduceMotion ? nil : AsterionMotion.sidebar,
+            value: activeDownloadCount
+        )
+        .help(destinationHelp(destination))
+        .accessibilityLabel(destinationAccessibilityLabel(destination))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private func destinationHelp(_ destination: AppDestination) -> String {
+        guard destination == .downloads, activeDownloadCount > 0 else {
+            return destination.title
+        }
+        return "\(destination.title) · \(activeDownloadCount) active"
+    }
+
+    private func destinationAccessibilityLabel(_ destination: AppDestination) -> String {
+        guard destination == .downloads, activeDownloadCount > 0 else {
+            return destination.title
+        }
+        let item = activeDownloadCount == 1 ? "download" : "downloads"
+        return "\(destination.title), \(activeDownloadCount) active \(item)"
     }
 
     private var accountButton: some View {
