@@ -337,7 +337,7 @@ struct ReaderView: View {
 
     private func readerHeader(_ chapter: Chapter) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(novel?.title.uppercased() ?? "ASTERION")
+            Text("CHAPTER \(chapter.chapterNumber)")
                 .font(.caption.weight(.medium))
                 .tracking(1.5)
                 .foregroundStyle(palette.faint)
