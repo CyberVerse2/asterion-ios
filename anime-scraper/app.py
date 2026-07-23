@@ -5,9 +5,13 @@ Run:     python app.py
 Open:    http://localhost:8080
 """
 
+import hashlib
+import hmac
+import ipaddress
 import logging
 import os
 import re
+import time
 from functools import wraps
 from urllib.error import HTTPError
 from urllib.parse import quote, urljoin, urlparse
@@ -38,11 +42,7 @@ ALLOWED_VIDEO_HOST_SUFFIXES = (
     ".cloudbuzz.lol",
 )
 MAXIMUM_SUBTITLE_SIZE = 5 * 1024 * 1024
-ALLOWED_PROVIDER_ORIGINS = frozenset({
-    "https://megaplay.buzz",
-    "https://vidtube.site",
-    "https://vidwish.live",
-})
+MEDIA_PROXY_TOKEN_TTL_SECONDS = 6 * 60 * 60
 
 
 def _is_allowed_video_url(value):
@@ -65,7 +65,7 @@ def _is_allowed_video_url(value):
 
 class _RestrictedRedirectHandler(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
-        if not _is_allowed_video_url(newurl):
+        if not _is_safe_signed_target(newurl):
             raise HTTPError(newurl, 502, "Blocked video redirect", headers, fp)
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
@@ -73,18 +73,43 @@ class _RestrictedRedirectHandler(HTTPRedirectHandler):
 video_opener = build_opener(_RestrictedRedirectHandler())
 
 
+def _is_safe_signed_target(value):
+    try:
+        parsed = urlparse(value)
+        is_valid = (
+            parsed.scheme == "https"
+            and parsed.hostname is not None
+            and parsed.username is None
+            and parsed.password is None
+            and parsed.port in (None, 443)
+        )
+    except ValueError:
+        return False
+    if not is_valid:
+        return False
+    hostname = parsed.hostname.lower().rstrip(".")
+    if hostname == "localhost" or hostname.endswith((".local", ".internal")):
+        return False
+    try:
+        return ipaddress.ip_address(hostname).is_global
+    except ValueError:
+        return True
+
+
 def _provider_origin(provider_url):
     try:
         parsed = urlparse(provider_url)
     except ValueError:
         return None
+    if not _is_safe_signed_target(provider_url):
+        return None
     origin = f"{parsed.scheme}://{parsed.netloc}"
-    return origin if origin in ALLOWED_PROVIDER_ORIGINS else None
+    return origin
 
 
 def _hls_request_headers(provider_origin):
-    if provider_origin not in ALLOWED_PROVIDER_ORIGINS:
-        raise ValueError("Untrusted HLS provider")
+    if _provider_origin(provider_origin) != provider_origin:
+        raise ValueError("Invalid HLS provider origin")
     return {
         "User-Agent": "Mozilla/5.0",
         "Origin": provider_origin,
@@ -92,12 +117,92 @@ def _hls_request_headers(provider_origin):
     }
 
 
-def _proxied_hls_path(resource_url, provider_origin):
-    endpoint = "/proxy/m3u8" if ".m3u8" in resource_url.lower() else "/proxy/ts"
+def _media_proxy_signing_key():
+    value = os.environ.get("MEDIA_PROXY_SIGNING_KEY", "")
+    if len(value) < 32:
+        raise RuntimeError(
+            "MEDIA_PROXY_SIGNING_KEY must contain at least 32 characters."
+        )
+    return value.encode("utf-8")
+
+
+def _proxy_signature(endpoint, resource_url, provider_origin, expires):
+    payload = "\n".join((
+        "asterion-media-proxy-v1",
+        endpoint,
+        resource_url,
+        provider_origin,
+        str(expires),
+    )).encode("utf-8")
+    return hmac.new(
+        _media_proxy_signing_key(),
+        payload,
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def _signed_proxy_path(
+    resource_url,
+    provider_origin,
+    endpoint=None,
+    expires=None,
+):
+    if not _is_safe_signed_target(resource_url):
+        raise ValueError("Invalid media proxy target")
+    if _provider_origin(provider_origin) != provider_origin:
+        raise ValueError("Invalid media provider origin")
+    if endpoint is None:
+        endpoint = (
+            "/proxy/m3u8"
+            if ".m3u8" in resource_url.lower()
+            else "/proxy/ts"
+        )
+    if endpoint not in {"/proxy/m3u8", "/proxy/ts", "/proxy/subtitle"}:
+        raise ValueError("Invalid media proxy endpoint")
+    expires = expires or int(time.time()) + MEDIA_PROXY_TOKEN_TTL_SECONDS
+    signature = _proxy_signature(
+        endpoint,
+        resource_url,
+        provider_origin,
+        expires,
+    )
     return (
         f"{endpoint}?url={quote(resource_url, safe='')}"
         f"&provider={quote(provider_origin, safe='')}"
+        f"&expires={expires}&signature={signature}"
     )
+
+
+def _verified_proxy_request(endpoint, now=None):
+    resource_url = flask.request.args.get("url", "")
+    provider_origin = flask.request.args.get("provider", "")
+    expires_value = flask.request.args.get("expires", "")
+    supplied_signature = flask.request.args.get("signature", "")
+    try:
+        expires = int(expires_value)
+    except ValueError:
+        return None
+    now = int(time.time()) if now is None else now
+    if (
+        expires < now
+        or expires > now + MEDIA_PROXY_TOKEN_TTL_SECONDS
+        or not _is_safe_signed_target(resource_url)
+        or _provider_origin(provider_origin) != provider_origin
+    ):
+        return None
+    expected_signature = _proxy_signature(
+        endpoint,
+        resource_url,
+        provider_origin,
+        expires,
+    )
+    if not hmac.compare_digest(supplied_signature, expected_signature):
+        return None
+    return resource_url, provider_origin
+
+
+def _proxied_hls_path(resource_url, provider_origin):
+    return _signed_proxy_path(resource_url, provider_origin)
 
 
 def _rewrite_hls_attribute_urls(line, playlist_url, provider_origin):
@@ -113,11 +218,13 @@ def _proxied_subtitle_tracks(tracks, provider_origin):
     for track in tracks:
         item = dict(track)
         source = item.get("file", "")
-        if _is_allowed_video_url(source):
-            item["file"] = (
-                f"/proxy/subtitle?url={quote(source, safe='')}"
-                f"&provider={quote(provider_origin, safe='')}"
-            )
+        if not _is_safe_signed_target(source):
+            continue
+        item["file"] = _signed_proxy_path(
+            source,
+            provider_origin,
+            endpoint="/proxy/subtitle",
+        )
         proxied.append(item)
     return proxied
 
@@ -456,13 +563,10 @@ def proxy_video():
 @app.route("/proxy/m3u8")
 def proxy_m3u8():
     """Proxy HLS M3U8 playlists — rewrites segment URLs."""
-    target = flask.request.args.get("url", "")
-    if not target or not _is_allowed_video_url(target):
-        return "invalid url", 400
-
-    provider_origin = flask.request.args.get("provider")
-    if provider_origin not in ALLOWED_PROVIDER_ORIGINS:
-        return "invalid provider", 400
+    verified = _verified_proxy_request("/proxy/m3u8")
+    if not verified:
+        return "invalid or expired proxy token", 403
+    target, provider_origin = verified
     request_headers = _hls_request_headers(provider_origin)
     req = Request(target, headers=request_headers)
     try:
@@ -490,13 +594,10 @@ def proxy_m3u8():
 @app.route("/proxy/ts")
 def proxy_ts():
     """Proxy HLS .ts segments."""
-    target = flask.request.args.get("url", "")
-    if not target or not _is_allowed_video_url(target):
-        return "invalid url", 400
-
-    provider_origin = flask.request.args.get("provider")
-    if provider_origin not in ALLOWED_PROVIDER_ORIGINS:
-        return "invalid provider", 400
+    verified = _verified_proxy_request("/proxy/ts")
+    if not verified:
+        return "invalid or expired proxy token", 403
+    target, provider_origin = verified
     req = Request(target, headers=_hls_request_headers(provider_origin))
     try:
         resp = video_opener.open(req, timeout=15)
@@ -512,13 +613,10 @@ def proxy_ts():
 @app.route("/proxy/subtitle")
 def proxy_subtitle():
     """Proxy provider-protected WebVTT subtitles through the API origin."""
-    target = flask.request.args.get("url", "")
-    if not target or not _is_allowed_video_url(target):
-        return "invalid subtitle url", 400
-
-    provider_origin = flask.request.args.get("provider")
-    if provider_origin not in ALLOWED_PROVIDER_ORIGINS:
-        return "invalid provider", 400
+    verified = _verified_proxy_request("/proxy/subtitle")
+    if not verified:
+        return "invalid or expired proxy token", 403
+    target, provider_origin = verified
     req = Request(target, headers=_hls_request_headers(provider_origin))
     try:
         with video_opener.open(req, timeout=15) as resp:

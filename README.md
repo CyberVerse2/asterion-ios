@@ -123,6 +123,11 @@ pip install -r requirements.txt
 python app.py
 ```
 
+The anime service requires `MEDIA_PROXY_SIGNING_KEY` in every environment. Use
+at least 32 cryptographically random characters and store the value in the
+hosting provider's secret manager. The service uses it to sign short-lived
+playlist, segment, and subtitle URLs; do not commit the real value.
+
 Run its tests with `python -m unittest` from the same directory.
 
 ## Package the macOS app
