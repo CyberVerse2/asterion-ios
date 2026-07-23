@@ -209,6 +209,9 @@ struct ReaderView: View {
                                         .padding(.bottom, 24)
 
                                     singlePageParagraphs(chapter.paragraphs)
+
+                                    singlePageChapterNavigation
+                                        .padding(.top, 28)
                                 }
                                 .frame(maxWidth: columnWidth, alignment: .leading)
                                 .padding(.horizontal, 48)
@@ -343,6 +346,42 @@ struct ReaderView: View {
         ForEach(Array(paragraphs.enumerated()), id: \.offset) { index, paragraph in
             paragraphText(paragraph, index: index)
         }
+    }
+
+    private var singlePageChapterNavigation: some View {
+        VStack(spacing: 18) {
+            Divider()
+                .overlay(palette.faint.opacity(0.35))
+
+            HStack(spacing: 14) {
+                Button {
+                    navigate(by: -1)
+                } label: {
+                    Label("Previous Chapter", systemImage: "chevron.left")
+                }
+                .disabled(currentIndex <= 0)
+
+                Spacer(minLength: 20)
+
+                Text("End of chapter")
+                    .font(.caption)
+                    .foregroundStyle(palette.faint)
+
+                Spacer(minLength: 20)
+
+                Button {
+                    navigate(by: 1)
+                } label: {
+                    Label("Next Chapter", systemImage: "chevron.right")
+                        .labelStyle(.titleAndIcon)
+                }
+                .disabled(currentIndex >= chapters.count - 1)
+                .keyboardShortcut(.rightArrow, modifiers: [.command])
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+        }
+        .accessibilityElement(children: .contain)
     }
 
     private func paragraphText(_ paragraph: String, index: Int) -> some View {
