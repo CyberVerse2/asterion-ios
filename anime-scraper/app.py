@@ -77,6 +77,8 @@ def _hls_request_headers(target):
         provider_origin = "https://vidtube.site"
     elif (
         hostname == "megaplay.buzz"
+        or hostname == "mewstream.buzz"
+        or hostname.endswith(".mewstream.buzz")
         or hostname == "p16-ad-sg.ibyteimg.com"
         or hostname.endswith(".lostproject.club")
         or hostname.endswith(".nekostream.site")
