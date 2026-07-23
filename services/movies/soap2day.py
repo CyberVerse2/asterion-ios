@@ -723,7 +723,7 @@ def _extract_stream_urls_from_embed(embed_url: str, timeout: int = 10) -> list[s
 
 
 def _enrich_native_streams(native_streams: list[StreamServer]) -> list[StreamServer]:
-    """For each native soap2day embed, try extracting direct stream URLs."""
+    """For each native soap2day embed, try extracting direct stream URLs via HTTP scraping."""
     import concurrent.futures
     enriched: list[StreamServer] = []
     direct_by_index: dict[int, list[str]] = {}

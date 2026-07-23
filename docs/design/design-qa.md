@@ -1,132 +1,113 @@
-# Asterion macOS Editorial Redesign QA
+# Design QA: Apple TV-style Asterion Home
 
-- Source visual truth: `docs/design/selected-option-2.png`
-- Implementation screenshot: `docs/design/implementation-final-discover.png`
-- Combined comparison: `docs/design/design-qa-comparison.png`
-- Reader screenshot: `docs/design/reader-final.png`
-- Viewport: 1411 × 964 points (2822 × 1928 Retina capture)
-- State: Discover, guest session, first Featured novel selected
+- Source visual truth: `design-qa-assets/reference-apple-tv.png`
+- Implementation screenshot: `design-qa-assets/implementation-home.jpeg`
+- Combined comparison: `design-qa-assets/reference-vs-implementation.png`
+- Comparison viewport: 1156 × 692 pixels per side
+- State: dark appearance, Home selected, dashboard at the top
 
 ## Full-view comparison evidence
 
-The implementation matches the source’s three-region composition: restrained sidebar, cover-led editorial catalog, and inspector-width novel detail. Both use warm paper surfaces, dark serif editorial type, oxblood selection and primary action, real cover imagery, lightweight metadata, a readable synopsis, and a five-row chapter preview.
-
-The source mock shows an authenticated profile and a Continue Reading shelf. The captured implementation is intentionally a guest session, so those server-backed states are not shown. The production view renders Continue Reading only from authenticated progress records; no mock or alternate data path was introduced for QA.
+The reference was cropped from the left edge to the implementation aspect ratio, then both images were scaled to 1156 × 692 and placed side by side. The implementation matches the reference's major structure: one native sidebar, one calm content canvas, compact section headings, five portrait cards plus a partial sixth, vertically stacked horizontal shelves, and a visible vertical scroll position without horizontal scrollbar chrome.
 
 ## Focused-region comparison evidence
 
-A separate crop was not needed because the original-resolution combined comparison keeps sidebar icons, cover crops, button treatment, synopsis typography, dividers, and chapter-row alignment readable. The reader was inspected separately because it is a distinct window and state.
+No additional crop was needed. At the normalized viewport, the sidebar rows, section headings, poster corners, poster metadata, shelf spacing, and edge-peeking card are all readable in the combined comparison.
 
-## Required fidelity surfaces
+## Fidelity review
 
-- Fonts and typography: Literary content uses the system serif family with native sans-serif controls. Hierarchy, wrapping, optical weights, and reader measure match the concept’s editorial intent.
-- Spacing and layout rhythm: Sidebar and detail proportions match after constraining the detail column. Shelves maintain a four-cover row at the captured width and reduce responsively without orphan rows or horizontal scrollbars.
-- Colors and visual tokens: Paper, surface, ink, muted metadata, border, progress, soft selection, and oxblood action tokens consistently map to the source.
-- Image quality and asset fidelity: All visible books use live catalog cover art with correct portrait crops, subtle borders, and restrained shadows. No placeholder art or code-drawn image substitutes are visible.
-- Copy and content: Section labels and supporting copy are concise and product-native. Dynamic title, author, synopsis, progress, and chapter content come from the live API.
-- Icons and affordances: SF Symbols provide one consistent native icon family. Primary, secondary, selected, disabled, search, and navigation states are visually distinct.
-- Accessibility and behavior: Sidebar items, covers, search, chapter rows, reader navigation, text sizing, and export are keyboard/accessibility actions. Text remains selectable in detail and reader surfaces.
-
-## Comparison history
-
-### Pass 1 — blocked
-
-- [P1] The detail pane occupied too much width, compressing the cover shelves and changing the source’s primary hierarchy.
-- [P2] Horizontal shelf scrollbars and wrapped orphan tiles made the catalog feel more utilitarian than editorial.
-- [P0] Reader opened cached chapter metadata without full chapter text.
-
-Fixes:
-
-- Constrained the detail column to a 400–520 point inspector-like width.
-- Replaced scrolling grids with responsive three/four-cover rows.
-- Changed the chapter cache to satisfy reader requests only when full content is present.
-
-### Pass 2 — passed
-
-- Post-fix evidence: `docs/design/implementation-final-discover.png`
-- The catalog regained the four-cover rhythm, the detail pane matches the selected concept’s proportion, shelf scrollbars are gone, and the reader displays full live chapter text.
+- Fonts and typography: Sidebar and section headings use native system typography. Asterion retains its serif brand face inside Continue cards; this is an intentional product distinction.
+- Spacing and layout rhythm: Sidebar proportion, 32-point shelf inset, 18-point card gap, 42-point section gap, and five-card density match the reference closely.
+- Colors and visual tokens: The detail canvas uses a softer charcoal token while the sidebar remains system-rendered Liquid Glass.
+- Image quality and asset fidelity: All media artwork comes from Asterion's real catalog. Images keep a 2:3 crop with no placeholder or generated replacement.
+- Copy and content: Labels reflect Asterion's destinations and catalog rather than copying Apple TV product names.
 
 ## Interaction checks
 
-- Discover and Rankings sidebar navigation
-- Search for “Shadow Slave” and single-result state
-- Featured selection updates the detail pane
-- Start Reading opens an independent reader window
-- Reader loads complete chapter content
-- Previous/next chapter, text-size, and export controls are exposed
-- Signed bundle launches and presents a visible main window
+- Native sidebar selection successfully moved from Home to Movies and back to Home.
+- Home content and catalog data remained intact after navigation.
+- Horizontal shelves are native SwiftUI scroll views with stable item identity and no persistent horizontal scrollbar chrome.
+- The automation surface could not synthesize a horizontal trackpad gesture after indicators were set to `never`; physical trackpad momentum remains a manual verification gap.
+
+## Comparison history
+
+### Pass 1
+
+- P1: Posters were roughly 25% too large, reducing visible density to four cards.
+- P2: Horizontal scrollbars appeared under every shelf.
+- P2: The content canvas was darker than the reference.
+
+### Fixes
+
+- Reduced poster cards to 168 × 252 points.
+- Changed horizontal indicator visibility from `hidden` to `never`.
+- Added a dedicated soft-charcoal media canvas token.
+- Reduced section heading size and increased the shelf leading inset.
+
+### Pass 2
+
+The implementation shows five full posters plus an edge-peeking sixth, no horizontal scrollbar chrome, and a canvas/sidebar balance close to the supplied reference. No actionable P0, P1, or P2 visual differences remain. The landscape Continue cards are intentional because they carry playback progress and episode metadata.
 
 ## Follow-up polish
 
-- [P3] Capture the authenticated Continue Reading and profile-footer states when a test account is available.
+- P3: Confirm horizontal trackpad momentum on physical hardware.
+- P3: The Computer Use capture overlays a purple remote-control indicator over the traffic-light area; accessibility inspection confirms the native close, minimize, and full-screen controls remain present.
 
-## Anime Discover and Detail QA — July 18, 2026
+final result: passed
 
-- Source visuals: the supplied Anime Discover, feature-card, and detail-header screenshots in this task
-- Implementation screenshot: `docs/design/anime-discover-final.jpeg`
-- Viewport: 1042 × 768 points
-- State: Anime → Discover, live catalog data, selected title with available episodes
+---
 
-### Full-view comparison evidence
+# Design QA: Ambient Theater Detail Page
 
-Anime Discover now follows the supplied storefront hierarchy: a featured watch surface comes first, followed by a dense Recently Updated poster shelf with episode and SUB/DUB badges. The native app keeps Asterion’s existing sidebar, serif typography, oxblood accent, and three-column proportions instead of importing the source website’s unrelated navigation and announcement banner.
+- Source visual truth: `/Users/thecyberverse/.codex/generated_images/019f7ea3-4252-7a21-af23-367ca1b1205f/exec-d77fa8c2-2f3b-4080-92c0-05203dbc0b1f.png`
+- Implementation screenshot: `/private/tmp/asterion-detail-option2-final.png`
+- Combined comparison: `/private/tmp/asterion-detail-option2-final-comparison.png`
+- Viewport: 1137 × 752 pixels per side
+- State: dark appearance, Home-selected detail route, Mushoku Tensei Season 3, four episodes
 
-The service supplies portrait posters rather than landscape backdrops. The feature card therefore treats the live poster as a sharp inset over an atmospheric crop of the same real artwork. This preserves image quality and produces a deliberate composition without stretching the poster or adding an unrelated asset source.
+## Full-view comparison evidence
 
-### Focused-region comparison evidence
+The selected design and implementation were normalized to the same viewport and placed side by side. The implementation keeps the chosen composition: native sidebar, poster-derived ambient hero, portrait key art, compact title and metadata block, one red primary action, neutral supporting actions, and a horizontal episode shelf.
 
-- Feature card: the former oversized color footer, truncated secondary line, and accidental blurred side fill were replaced with a compact editorial card. The title, episode/type badges, carousel controls, poster, and Watch action all remain readable at the 527-point catalog-column width.
-- Detail header: the Anime title scale changed from 28 to 22 points, the poster from 156 × 224 to 138 × 198 points, and the horizontal gap from 24 to 20 points. Long titles now remain visually connected to season, studio, status, and episode metadata.
-- Catalog density: covers retain the same size and shelf rhythm as Novels while Discover adds the overlay badges from the supplied Anime reference.
+## Focused-region comparison evidence
 
-### Data and interaction checks
+No separate crop was needed because the normalized full view keeps the hero controls and episode-card controls readable. The episode shelf starts on the first item, shows an edge-peeking final item, and has no visible horizontal scrollbar.
 
-- The live `/api/amp/latest`, `/api/amp/popular`, `/api/amp/releases`, and `/api/amp/genre/<genre>` endpoints support paged shelves.
-- Discover, Popular, New Releases, Genres, and search request additional pages when the final visible card appears.
-- Page results remove duplicate IDs; a failed page shows an explicit retry action.
-- Search uses `/api/amp/search`; a live Naruto query returns the full franchise result set instead of only current-season titles.
-- Carousel dots change the featured title, Watch now opens the title and starts its latest episode, and detail episode rows start playback.
-- Release season is shown from the API’s `season` field. No unsupported franchise-season relationship is inferred.
+## Fidelity review
 
-### Comparison history
+- Fonts and typography: The implementation uses macOS system typography throughout the detail page, preserving the selected design's hierarchy and avoiding the previous serif episode treatment.
+- Spacing and layout rhythm: Poster, title, actions, and episode shelf form one compact reading path with no large dead area or full-width call-to-action bar.
+- Colors and visual tokens: Red is reserved for Watch. Back, bookmark, download, episode counts, and episode states use neutral high-contrast foregrounds.
+- Image quality and asset fidelity: The real catalog poster supplies the hero, ambient backdrop, and episode-card crops. No placeholder artwork is used.
+- Copy and content: Existing Asterion metadata and watch-target behavior are preserved. Episode controls retain their downloaded, downloading, retry, and available states.
 
-#### Pass 1 — needs revision
+## Interaction checks
 
-- [P1] Discover stopped at the API convenience endpoint’s first batch.
-- [P1] The feature card forced portrait art into a landscape-and-footer composition and truncated long titles.
-- [P1] The detail title inherited a Novel scale that was too large for long Anime names.
+- Opened the title from Home and confirmed the detail route loaded.
+- Confirmed Watch, Save, collection Download, each episode, and each episode download state remain exposed to accessibility.
+- Confirmed the episode shelf resets to Episode 1 and hides scrollbar chrome.
+- The app built, signed, launched, and remained running through the project run script.
 
-#### Pass 2 — passed
+## Comparison history
 
-- Catalog browsing now continues through paged filter results.
-- The feature card uses a compact live-art composition with functional carousel and playback controls.
-- The detail header remains readable at the minimum supported window width.
-- No P0, P1, or P2 visual issues remain in the final comparison.
+### Pass 1
 
-### Anime Player window
+- P2: The episode shelf restored at its trailing edge, leaving Episode 1 clipped.
+- P2: Red on small secondary controls and counts had weak contrast on the charcoal/glass surfaces.
+- P2: Per-episode download controls read as heavy rectangular buttons.
 
-- Player screenshot: `docs/design/anime-player-final.jpeg`
-- Long-episode screenshot: `docs/design/anime-player-long-episodes-final.jpeg`
-- Long-episode source comparison: `docs/design/anime-player-long-episodes-comparison.png`
-- Viewport: 1080 × 700 points
-- State: live direct stream, Naruto: Shippuden episode 86 selected from 500 episodes
+### Fixes
 
-Watching now opens a separate task window, matching the Novel reader’s behavior. The catalog remains available behind the player instead of expanding and displacing the detail page.
+- Reset the shelf to its first episode after the content loads.
+- Reserved red for the primary Watch action and moved secondary controls to neutral foregrounds.
+- Replaced rectangular episode download buttons with compact circular state controls.
 
-The video is the dominant surface. A low-contrast 44-point control strip exposes only the episode position, episode-list toggle, previous/next actions, and source menu. The episode sidebar is closed by default. Short shows use the original compact 250-point list; shows with more than 40 episodes open a 410-point number grid based on the supplied reference.
+### Pass 2
 
-The focused source comparison confirms the long-show navigator preserves the reference’s strongest behaviors: 100-episode ranges, backward/forward range controls, dense number tiles, exact-number lookup, and a clear current-episode state. The implementation keeps the grid inside a restrained player drawer so it does not compete with the video, uses Asterion’s oxblood selection instead of importing the reference site’s blue, and scrolls the chosen episode into view.
+The first episode is fully visible, scrollbar chrome is absent, secondary controls are legible, and the page retains the selected Ambient Theater hierarchy. No actionable P0, P1, or P2 differences remain.
 
-Interaction checks:
+## Follow-up polish
 
-- The requested episode begins automatically from Discover, the detail Watch action, or an episode row.
-- The complete available episode list opens from the top-left toggle and remains selectable in the player.
-- Long shows divide episodes into 100-item ranges; the menu and arrow controls move between those ranges.
-- Entering an exact episode number changes to the correct range, starts that episode, and keeps its selected tile visible.
-- Previous is enabled when an earlier episode exists; Next disables at the final episode.
-- Direct playback, alternate source selection, native video controls, and fullscreen remain available.
-- The episode sidebar starts hidden and can be reopened with one button.
-- Window-route state survives SwiftUI scene encoding; the route round-trip is covered by the macOS test suite.
-- A 500-episode live show and the 001–100 → episode 86 search path were checked in the signed app. The range model is covered by the macOS test suite.
+- P3: Real episode thumbnails can replace poster-derived crops if the anime source adds episode artwork later.
 
 final result: passed
