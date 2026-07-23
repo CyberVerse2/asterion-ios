@@ -87,16 +87,7 @@ final class OverscrollTrackingView: NSView {
     func connectToScrollViewIfNeeded() {
         guard trackedScrollView == nil else { return }
 
-        var ancestor = superview
-        var enclosingScrollView: NSScrollView?
-        while let view = ancestor {
-            if let scrollView = view as? NSScrollView {
-                enclosingScrollView = scrollView
-                break
-            }
-            ancestor = view.superview
-        }
-        guard let scrollView = enclosingScrollView else { return }
+        guard let scrollView = enclosingOrOverlappingScrollView() else { return }
 
         trackedScrollView = scrollView
         scrollView.contentView.postsBoundsChangedNotifications = true
@@ -114,6 +105,29 @@ final class OverscrollTrackingView: NSView {
             return event
         }
         updateBottomState()
+    }
+
+    private func enclosingOrOverlappingScrollView() -> NSScrollView? {
+        var ancestor = superview
+        while let view = ancestor {
+            if let scrollView = view as? NSScrollView {
+                return scrollView
+            }
+            ancestor = view.superview
+        }
+
+        guard let contentView = window?.contentView else { return nil }
+        let markerRect = convert(bounds, to: nil)
+        let markerCenter = NSPoint(x: markerRect.midX, y: markerRect.midY)
+        return contentView
+            .descendantScrollViews()
+            .filter { !$0.isHidden && $0.alphaValue > 0 }
+            .filter { $0.convert($0.bounds, to: nil).contains(markerCenter) }
+            .min {
+                let left = $0.convert($0.bounds, to: nil)
+                let right = $1.convert($1.bounds, to: nil)
+                return left.width * left.height < right.width * right.height
+            }
     }
 
     func disconnect() {
@@ -158,6 +172,15 @@ final class OverscrollTrackingView: NSView {
             timestamp: event.timestamp
         ) {
             onAdvance()
+        }
+    }
+}
+
+private extension NSView {
+    func descendantScrollViews() -> [NSScrollView] {
+        subviews.flatMap { view in
+            let current = (view as? NSScrollView).map { [$0] } ?? []
+            return current + view.descendantScrollViews()
         }
     }
 }
