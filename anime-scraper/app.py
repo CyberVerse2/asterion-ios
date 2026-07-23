@@ -38,6 +38,11 @@ ALLOWED_VIDEO_HOST_SUFFIXES = (
     ".cloudbuzz.lol",
 )
 MAXIMUM_SUBTITLE_SIZE = 5 * 1024 * 1024
+ALLOWED_PROVIDER_ORIGINS = frozenset({
+    "https://megaplay.buzz",
+    "https://vidtube.site",
+    "https://vidwish.live",
+})
 
 
 def _is_allowed_video_url(value):
@@ -68,9 +73,13 @@ class _RestrictedRedirectHandler(HTTPRedirectHandler):
 video_opener = build_opener(_RestrictedRedirectHandler())
 
 
-def _hls_request_headers(target):
+def _hls_request_headers(target, provider_origin=None):
+    if provider_origin not in ALLOWED_PROVIDER_ORIGINS:
+        provider_origin = None
     hostname = (urlparse(target).hostname or "").lower()
-    if hostname == "vidwish.live" or hostname.endswith(
+    if provider_origin:
+        pass
+    elif hostname == "vidwish.live" or hostname.endswith(
         (".anivideo.sbs", ".watching.onl", ".cloudbuzz.lol")
     ):
         provider_origin = "https://vidwish.live"
@@ -95,15 +104,18 @@ def _hls_request_headers(target):
     }
 
 
-def _proxied_hls_path(resource_url):
+def _proxied_hls_path(resource_url, provider_origin):
     endpoint = "/proxy/m3u8" if ".m3u8" in resource_url.lower() else "/proxy/ts"
-    return f"{endpoint}?url={quote(resource_url, safe='')}"
+    return (
+        f"{endpoint}?url={quote(resource_url, safe='')}"
+        f"&provider={quote(provider_origin, safe='')}"
+    )
 
 
-def _rewrite_hls_attribute_urls(line, playlist_url):
+def _rewrite_hls_attribute_urls(line, playlist_url, provider_origin):
     def replace_uri(match):
         resource_url = urljoin(playlist_url, match.group(1))
-        return f'URI="{_proxied_hls_path(resource_url)}"'
+        return f'URI="{_proxied_hls_path(resource_url, provider_origin)}"'
 
     return re.sub(r'URI="([^"]+)"', replace_uri, line)
 
@@ -450,7 +462,10 @@ def proxy_m3u8():
     if not target or not _is_allowed_video_url(target):
         return "invalid url", 400
 
-    req = Request(target, headers=_hls_request_headers(target))
+    provider_origin = flask.request.args.get("provider")
+    request_headers = _hls_request_headers(target, provider_origin)
+    provider_origin = request_headers["Origin"]
+    req = Request(target, headers=request_headers)
     try:
         resp = video_opener.open(req, timeout=15)
         content = resp.read().decode("utf-8", errors="replace")
@@ -461,9 +476,9 @@ def proxy_m3u8():
     for line in content.splitlines():
         s = line.strip()
         if s.startswith("#"):
-            line = _rewrite_hls_attribute_urls(line, target)
+            line = _rewrite_hls_attribute_urls(line, target, provider_origin)
         elif s:
-            line = _proxied_hls_path(urljoin(target, s))
+            line = _proxied_hls_path(urljoin(target, s), provider_origin)
         lines.append(line)
 
     rv = flask.Response("\n".join(lines))
@@ -480,7 +495,8 @@ def proxy_ts():
     if not target or not _is_allowed_video_url(target):
         return "invalid url", 400
 
-    req = Request(target, headers=_hls_request_headers(target))
+    provider_origin = flask.request.args.get("provider")
+    req = Request(target, headers=_hls_request_headers(target, provider_origin))
     try:
         resp = video_opener.open(req, timeout=15)
         rv = flask.Response(flask.stream_with_context(iter(lambda: resp.read(65536), b"")))

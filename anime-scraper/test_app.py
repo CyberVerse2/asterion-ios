@@ -35,6 +35,29 @@ class SubtitleProxyTests(unittest.TestCase):
         self.assertEqual(headers["Origin"], "https://megaplay.buzz")
         self.assertEqual(headers["Referer"], "https://megaplay.buzz/")
 
+    def test_megaplay_context_is_preserved_in_rewritten_segments(self):
+        proxied_url = app._proxied_hls_path(
+            "https://x5y0d.cloudbuzz.lol/anime/title/segment.jpg",
+            "https://megaplay.buzz",
+        )
+        query = parse_qs(urlparse(proxied_url).query)
+
+        self.assertEqual(query["provider"], ["https://megaplay.buzz"])
+        headers = app._hls_request_headers(
+            query["url"][0],
+            query["provider"][0],
+        )
+        self.assertEqual(headers["Origin"], "https://megaplay.buzz")
+        self.assertEqual(headers["Referer"], "https://megaplay.buzz/")
+
+    def test_untrusted_provider_context_is_ignored(self):
+        headers = app._hls_request_headers(
+            "https://x5y0d.cloudbuzz.lol/anime/title/segment.jpg",
+            "https://attacker.example",
+        )
+
+        self.assertEqual(headers["Origin"], "https://vidwish.live")
+
     def test_untrusted_subtitle_hosts_are_not_proxied(self):
         source = "https://example.com/subtitles/English.vtt"
 
