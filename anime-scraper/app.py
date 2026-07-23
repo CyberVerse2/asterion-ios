@@ -73,30 +73,18 @@ class _RestrictedRedirectHandler(HTTPRedirectHandler):
 video_opener = build_opener(_RestrictedRedirectHandler())
 
 
-def _hls_request_headers(target, provider_origin=None):
-    if provider_origin not in ALLOWED_PROVIDER_ORIGINS:
-        provider_origin = None
-    hostname = (urlparse(target).hostname or "").lower()
-    if provider_origin:
-        pass
-    elif hostname == "vidwish.live" or hostname.endswith(
-        (".anivideo.sbs", ".watching.onl", ".cloudbuzz.lol")
-    ):
-        provider_origin = "https://vidwish.live"
-    elif hostname == "mt.nekostream.site":
-        provider_origin = "https://vidtube.site"
-    elif (
-        hostname == "megaplay.buzz"
-        or hostname == "mewstream.buzz"
-        or hostname.endswith(".mewstream.buzz")
-        or hostname == "p16-ad-sg.ibyteimg.com"
-        or hostname.endswith(".lostproject.club")
-        or hostname.endswith(".nekostream.site")
-    ):
-        provider_origin = "https://megaplay.buzz"
-    else:
-        provider_origin = "https://vidtube.site"
+def _provider_origin(provider_url):
+    try:
+        parsed = urlparse(provider_url)
+    except ValueError:
+        return None
+    origin = f"{parsed.scheme}://{parsed.netloc}"
+    return origin if origin in ALLOWED_PROVIDER_ORIGINS else None
 
+
+def _hls_request_headers(provider_origin):
+    if provider_origin not in ALLOWED_PROVIDER_ORIGINS:
+        raise ValueError("Untrusted HLS provider")
     return {
         "User-Agent": "Mozilla/5.0",
         "Origin": provider_origin,
@@ -120,13 +108,16 @@ def _rewrite_hls_attribute_urls(line, playlist_url, provider_origin):
     return re.sub(r'URI="([^"]+)"', replace_uri, line)
 
 
-def _proxied_subtitle_tracks(tracks):
+def _proxied_subtitle_tracks(tracks, provider_origin):
     proxied = []
     for track in tracks:
         item = dict(track)
         source = item.get("file", "")
         if _is_allowed_video_url(source):
-            item["file"] = f"/proxy/subtitle?url={quote(source, safe='')}"
+            item["file"] = (
+                f"/proxy/subtitle?url={quote(source, safe='')}"
+                f"&provider={quote(provider_origin, safe='')}"
+            )
         proxied.append(item)
     return proxied
 
@@ -398,12 +389,19 @@ def api_amp_stream(anime_id, episode):
     result = []
     for s in sources:
         full = animixplay.resolve_source_full(s.url) or {}
+        provider_origin = _provider_origin(s.url)
+        direct_source = full.get("source")
+        if direct_source and provider_origin:
+            direct_source = _proxied_hls_path(direct_source, provider_origin)
         result.append({
             "server": s.server,
             "url": s.url,
             "quality": s.quality,
-            "source": full.get("source"),
-            "tracks": _proxied_subtitle_tracks(full.get("tracks", [])),
+            "source": direct_source,
+            "tracks": _proxied_subtitle_tracks(
+                full.get("tracks", []),
+                provider_origin,
+            ) if provider_origin else [],
         })
     return result
 
@@ -463,8 +461,9 @@ def proxy_m3u8():
         return "invalid url", 400
 
     provider_origin = flask.request.args.get("provider")
-    request_headers = _hls_request_headers(target, provider_origin)
-    provider_origin = request_headers["Origin"]
+    if provider_origin not in ALLOWED_PROVIDER_ORIGINS:
+        return "invalid provider", 400
+    request_headers = _hls_request_headers(provider_origin)
     req = Request(target, headers=request_headers)
     try:
         resp = video_opener.open(req, timeout=15)
@@ -496,7 +495,9 @@ def proxy_ts():
         return "invalid url", 400
 
     provider_origin = flask.request.args.get("provider")
-    req = Request(target, headers=_hls_request_headers(target, provider_origin))
+    if provider_origin not in ALLOWED_PROVIDER_ORIGINS:
+        return "invalid provider", 400
+    req = Request(target, headers=_hls_request_headers(provider_origin))
     try:
         resp = video_opener.open(req, timeout=15)
         rv = flask.Response(flask.stream_with_context(iter(lambda: resp.read(65536), b"")))
@@ -515,7 +516,10 @@ def proxy_subtitle():
     if not target or not _is_allowed_video_url(target):
         return "invalid subtitle url", 400
 
-    req = Request(target, headers=_hls_request_headers(target))
+    provider_origin = flask.request.args.get("provider")
+    if provider_origin not in ALLOWED_PROVIDER_ORIGINS:
+        return "invalid provider", 400
+    req = Request(target, headers=_hls_request_headers(provider_origin))
     try:
         with video_opener.open(req, timeout=15) as resp:
             content_length = resp.headers.get("Content-Length")
@@ -856,7 +860,7 @@ function showAmpPlayer(idx) {
     $('#player-video').style.display = 'block';
 
     if (hls) { hls.destroy(); hls = null; }
-    const m3u8Url = '/proxy/m3u8?url=' + encodeURIComponent(src.source);
+    const m3u8Url = src.source;
     hls = new Hls({ enableWorker: false });
 
     // Clear existing tracks
