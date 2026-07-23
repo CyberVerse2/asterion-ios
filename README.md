@@ -156,3 +156,7 @@ The release command creates the app and DMG, enables the hardened runtime, verif
 ## Project status
 
 Asterion is under active development. Catalog and playback services depend on external content providers, so operators are responsible for confirming that their use and distribution of content comply with provider terms and applicable law.
+
+## License
+
+Asterion is available under the [MIT License](LICENSE).
