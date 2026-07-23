@@ -32,6 +32,7 @@ ALLOWED_VIDEO_HOST_SUFFIXES = (
     ".anivideo.sbs",
     ".kotocdn.site",
     ".lostproject.club",
+    ".mewstream.buzz",
     ".nekostream.site",
     ".watching.onl",
     ".cloudbuzz.lol",

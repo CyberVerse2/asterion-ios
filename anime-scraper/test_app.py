@@ -28,10 +28,10 @@ class SubtitleProxyTests(unittest.TestCase):
         self.assertEqual(headers["Referer"], "https://vidtube.site/")
 
     def test_mewstream_uses_the_megaplay_provider_context(self):
-        headers = app._hls_request_headers(
-            "https://cdn.mewstream.buzz/anime/title/master.m3u8"
-        )
+        source = "https://cdn.mewstream.buzz/anime/title/master.m3u8"
+        headers = app._hls_request_headers(source)
 
+        self.assertTrue(app._is_allowed_video_url(source))
         self.assertEqual(headers["Origin"], "https://megaplay.buzz")
         self.assertEqual(headers["Referer"], "https://megaplay.buzz/")
 
