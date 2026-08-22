@@ -6,8 +6,10 @@ RC4 crypto for AJAX endpoints.
 import re
 import json
 import base64
+import time
 from html import unescape
 from html.parser import HTMLParser
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from urllib.parse import quote_plus, quote, urlencode, urlparse
 from dataclasses import dataclass, field
@@ -255,18 +257,50 @@ class _ScheduleParser(HTMLParser):
 # HTTP helpers
 # ---------------------------------------------------------------------------
 
+_RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+
+
+def _read_http_error(error: HTTPError) -> None:
+    try:
+        error.read()
+    except Exception:
+        pass
+
+
+def _open(url: str, headers: dict, decode):
+    last_error: Exception | None = None
+    for attempt in range(3):
+        req = Request(url, headers=headers)
+        try:
+            with urlopen(req, timeout=15) as resp:
+                return decode(resp.read())
+        except HTTPError as error:
+            _read_http_error(error)
+            last_error = error
+            if error.code not in _RETRYABLE_STATUS_CODES or attempt == 2:
+                raise
+        except (URLError, TimeoutError, OSError) as error:
+            last_error = error
+            if attempt == 2:
+                raise
+        time.sleep(0.4 * (attempt + 1))
+    raise last_error
+
+
 def _get(url: str, extra_headers: dict = None) -> str:
-    h = {**HEADERS, **(extra_headers or {})}
-    req = Request(url, headers=h)
-    with urlopen(req, timeout=15) as resp:
-        return resp.read().decode("utf-8", errors="replace")
+    return _open(
+        url,
+        {**HEADERS, **(extra_headers or {})},
+        lambda body: body.decode("utf-8", errors="replace"),
+    )
 
 
 def _get_json(url: str, extra_headers: dict = None) -> dict:
-    h = {**AJAX_HEADERS, **(extra_headers or {})}
-    req = Request(url, headers=h)
-    with urlopen(req, timeout=15) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+    return _open(
+        url,
+        {**AJAX_HEADERS, **(extra_headers or {})},
+        lambda body: json.loads(body.decode("utf-8")),
+    )
 
 
 def _re_first(pattern: str, text: str, group: int = 1) -> Optional[str]:

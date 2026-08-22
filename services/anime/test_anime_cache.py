@@ -36,6 +36,11 @@ class FakeRedis:
         self.values[key] = value
         self.ttls[key] = ttl
 
+    def ttl(self, key):
+        if key not in self.values:
+            return -2
+        return self.ttls.get(key, -1)
+
     def lock(self, key, timeout, blocking_timeout):
         return FakeLock()
 
@@ -61,9 +66,28 @@ class AnimeCacheTests(unittest.TestCase):
         self.assertEqual(second, {"id": "123"})
         self.assertEqual(calls, ["loaded"])
         self.assertEqual(
-            client.ttls["asterion:anime:v1:show:test"],
+            client.ttls["asterion:anime:v1:show:test:fresh"],
             300,
         )
+        self.assertEqual(
+            client.ttls["asterion:anime:v1:show:test"],
+            max(300 * 7, 300 + 24 * 60 * 60),
+        )
+
+    def test_stale_catalog_is_served_when_refresh_fails(self):
+        client = FakeRedis()
+        cache = AnimeCache(client)
+        cache.set_json("catalog:season", [{"title": "Cached"}], 10_000)
+
+        with patch.object(AnimeCache, "_schedule_refresh", side_effect=lambda work: work()):
+            payload = cache.get_or_load(
+                "catalog:season",
+                300,
+                lambda: (_ for _ in ()).throw(RuntimeError("animixplay down")),
+            )
+
+        self.assertEqual(payload, [{"title": "Cached"}])
+        self.assertNotIn("asterion:anime:v1:catalog:season:fresh", client.values)
 
     def test_invalid_cached_json_is_reported(self):
         client = FakeRedis()
@@ -100,6 +124,10 @@ class AnimeEndpointCacheTests(unittest.TestCase):
             "asterion:anime:v1:status:7457"
         ]
         self.assertEqual(json.loads(status_payload), "Finished Airing")
+        self.assertEqual(
+            self.client.ttls["asterion:anime:v1:show:sample:fresh"],
+            app.SHOW_CACHE_TTL_SECONDS,
+        )
 
     def test_completed_show_episodes_use_long_cache_lifetime(self):
         self.cache.set_json(
@@ -118,7 +146,7 @@ class AnimeEndpointCacheTests(unittest.TestCase):
         self.assertEqual(second.status_code, 200)
         self.assertEqual(loader.call_count, 1)
         self.assertEqual(
-            self.client.ttls["asterion:anime:v1:episodes:7457"],
+            self.client.ttls["asterion:anime:v1:episodes:7457:fresh"],
             app.COMPLETED_EPISODES_CACHE_TTL_SECONDS,
         )
 
@@ -136,7 +164,7 @@ class AnimeEndpointCacheTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
-            self.client.ttls["asterion:anime:v1:episodes:7457"],
+            self.client.ttls["asterion:anime:v1:episodes:7457:fresh"],
             2 * 60 * 60,
         )
 
@@ -144,6 +172,29 @@ class AnimeEndpointCacheTests(unittest.TestCase):
         self.assertEqual(app.CATALOG_CACHE_TTL_SECONDS, 24 * 60 * 60)
         self.assertEqual(app.SEARCH_CACHE_TTL_SECONDS, 24 * 60 * 60)
         self.assertEqual(app.RELATED_SEASONS_CACHE_TTL_SECONDS, 24 * 60 * 60)
+
+    def test_latest_catalog_returns_stale_data_when_source_fails(self):
+        self.cache.set_json(
+            "catalog:/api/amp/latest?page=1",
+            [{"slug": "cached", "title": "Cached"}],
+            10_000,
+        )
+
+        with patch.object(app, "anime_cache", return_value=self.cache), \
+                patch.object(
+                    AnimeCache,
+                    "_schedule_refresh",
+                    side_effect=lambda work: work(),
+                ), \
+                patch.object(
+                    app.animixplay,
+                    "latest_updated",
+                    side_effect=RuntimeError("down"),
+                ):
+            response = self.client_app.get("/api/amp/latest?page=1")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json(), [{"slug": "cached", "title": "Cached"}])
 
     def test_health_reports_redis_readiness(self):
         with patch.object(app, "anime_cache", return_value=self.cache):

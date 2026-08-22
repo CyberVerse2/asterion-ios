@@ -1,3 +1,7 @@
+from io import BytesIO
+from unittest.mock import patch
+from urllib.error import HTTPError
+
 import unittest
 
 import animixplay
@@ -36,6 +40,41 @@ class ListingParsingTests(unittest.TestCase):
     def test_missing_listing_content_surfaces_markup_change(self):
         with self.assertRaisesRegex(ValueError, "listing content was not found"):
             animixplay._listing_content("<main><p>No listing here</p></main>")
+
+
+class ListingFetchTests(unittest.TestCase):
+    @patch("animixplay.time.sleep")
+    @patch("animixplay.urlopen")
+    def test_get_retries_a_temporary_502(self, urlopen, sleep):
+        html = b"<aside class=\"content\">ok</aside>"
+        error = HTTPError(
+            "https://animixplay.cz/latest-updated",
+            502,
+            "Bad Gateway",
+            hdrs=None,
+            fp=BytesIO(b"error code: 502"),
+        )
+        urlopen.side_effect = [error, error, _FakeHTTPResponse(html)]
+
+        body = animixplay._get("https://animixplay.cz/latest-updated")
+
+        self.assertEqual(body, '<aside class="content">ok</aside>')
+        self.assertEqual(urlopen.call_count, 3)
+        self.assertEqual(sleep.call_count, 2)
+
+
+class _FakeHTTPResponse:
+    def __init__(self, body):
+        self._body = body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def read(self):
+        return self._body
 
 
 if __name__ == "__main__":

@@ -403,8 +403,9 @@ def api_amp_search():
     q = flask.request.args.get("q", "").strip()
     if not q:
         return []
+    page = _positive_page_arg()
     return _cached_catalog(
-        lambda: [r.__dict__ for r in animixplay.search(q, page=_positive_page_arg())],
+        lambda: [r.__dict__ for r in animixplay.search(q, page=page)],
         ttl_seconds=SEARCH_CACHE_TTL_SECONDS,
     )
 
@@ -412,24 +413,27 @@ def api_amp_search():
 @app.route("/api/amp/popular")
 @_json_or_error
 def api_amp_popular():
+    page = _positive_page_arg()
     return _cached_catalog(
-        lambda: [r.__dict__ for r in animixplay.popular(page=_positive_page_arg())]
+        lambda: [r.__dict__ for r in animixplay.popular(page=page)]
     )
 
 
 @app.route("/api/amp/latest")
 @_json_or_error
 def api_amp_latest():
+    page = _positive_page_arg()
     return _cached_catalog(
-        lambda: [r.__dict__ for r in animixplay.latest_updated(page=_positive_page_arg())]
+        lambda: [r.__dict__ for r in animixplay.latest_updated(page=page)]
     )
 
 
 @app.route("/api/amp/releases")
 @_json_or_error
 def api_amp_releases():
+    page = _positive_page_arg()
     return _cached_catalog(
-        lambda: [r.__dict__ for r in animixplay.new_releases(page=_positive_page_arg())]
+        lambda: [r.__dict__ for r in animixplay.new_releases(page=page)]
     )
 
 
@@ -438,10 +442,11 @@ def api_amp_releases():
 def api_amp_genre(genre):
     if genre not in animixplay.ALL_GENRES:
         return flask.abort(404)
+    page = _positive_page_arg()
     return _cached_catalog(
         lambda: [
             r.__dict__
-            for r in animixplay.by_genre(genre, page=_positive_page_arg())
+            for r in animixplay.by_genre(genre, page=page)
         ]
     )
 
@@ -460,13 +465,14 @@ def api_amp_season():
     if not 1900 <= year <= 2100:
         return flask.abort(400, description="year must be between 1900 and 2100")
 
+    page = _positive_page_arg()
     return _cached_catalog(
         lambda: [
             result.__dict__
             for result in animixplay.by_season(
                 season=season,
                 year=year,
-                page=_positive_page_arg(),
+                page=page,
             )
         ]
     )
@@ -478,12 +484,13 @@ def api_amp_type(anime_type):
     anime_type = anime_type.strip().lower()
     if anime_type not in animixplay.ALL_TYPES:
         return flask.abort(404)
+    page = _positive_page_arg()
     return _cached_catalog(
         lambda: [
             result.__dict__
             for result in animixplay.by_type(
                 anime_type,
-                page=_positive_page_arg(),
+                page=page,
             )
         ]
     )
@@ -495,12 +502,13 @@ def api_amp_status(status):
     status = status.strip().lower()
     if status not in animixplay.ALL_STATUSES:
         return flask.abort(404)
+    page = _positive_page_arg()
     return _cached_catalog(
         lambda: [
             result.__dict__
             for result in animixplay.by_status(
                 status,
-                page=_positive_page_arg(),
+                page=page,
             )
         ]
     )
