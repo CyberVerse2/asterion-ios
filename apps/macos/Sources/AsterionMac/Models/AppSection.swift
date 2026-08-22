@@ -43,6 +43,36 @@ enum AppDestination: String, CaseIterable, Codable, Hashable, Sendable {
     }
 }
 
+struct AppNavigationHistory: Equatable, Sendable {
+    private(set) var destinations: [AppDestination] = []
+
+    var previousDestination: AppDestination? {
+        destinations.last
+    }
+
+    mutating func recordNavigation(from current: AppDestination, to next: AppDestination) {
+        guard current != next else { return }
+
+        if next == .home {
+            destinations.removeAll()
+        } else {
+            destinations.append(current)
+        }
+    }
+
+    mutating func destinationForBack(from current: AppDestination) -> AppDestination? {
+        guard current != .home else { return nil }
+
+        while let previous = destinations.popLast() {
+            if previous != current {
+                return previous
+            }
+        }
+
+        return .home
+    }
+}
+
 enum MovieSection: String, CaseIterable, Codable, Hashable, Sendable {
     case discover
     case movies

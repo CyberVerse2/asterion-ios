@@ -429,28 +429,47 @@ struct ReaderView: View {
 
     private func load() async {
         isLoading = true
-        defer { isLoading = false }
+        errorMessage = nil
         do {
-            if let cachedNovel = model.novel(id: route.novelID) {
-                novel = cachedNovel
-            } else {
-                novel = try await model.api.fetchNovel(id: route.novelID)
-            }
-            chapters = try await model.chapters(for: route.novelID)
-            guard let index = chapters.firstIndex(where: { $0.id == route.chapterID }) else {
-                throw APIError.invalidResponse
-            }
-            currentIndex = index
-            chapter = try await model.chapter(id: route.chapterID)
-            if let progress = try await model.fetchProgress(novelID: route.novelID), progress.chapterId == route.chapterID {
-                restoredLine = min(progress.currentLine, max(0, chapter?.paragraphs.count ?? 1) - 1)
+            async let loadedNovel = resolvedNovel()
+            async let loadedChapter = model.chapter(id: route.chapterID)
+            async let loadedProgress = optionalProgress()
+
+            let chapter = try await loadedChapter
+            novel = try await loadedNovel
+            self.chapter = chapter
+            if let progress = await loadedProgress, progress.chapterId == route.chapterID {
+                restoredLine = min(progress.currentLine, max(0, chapter.paragraphs.count - 1))
                 currentLine = restoredLine ?? 0
             }
-            errorMessage = nil
-            preloadNeighborChapters()
+            isLoading = false
+            preloadNeighborChapters(around: chapter)
+
+            await loadChapterList(selecting: chapter.id)
         } catch {
             errorMessage = error.localizedDescription
+            isLoading = false
         }
+    }
+
+    private func resolvedNovel() async throws -> Novel? {
+        if let cached = model.novel(id: route.novelID) {
+            return cached
+        }
+        return try await model.api.fetchNovel(id: route.novelID)
+    }
+
+    private func optionalProgress() async -> ReadingProgress? {
+        try? await model.fetchProgress(novelID: route.novelID)
+    }
+
+    private func loadChapterList(selecting chapterID: String) async {
+        guard let loadedChapters = try? await model.chapters(for: route.novelID) else { return }
+        chapters = loadedChapters
+        if let index = loadedChapters.firstIndex(where: { $0.id == chapterID }) {
+            currentIndex = index
+        }
+        preloadNeighborChapters()
     }
 
     private func navigate(by offset: Int) {
@@ -530,15 +549,22 @@ struct ReaderView: View {
         }
     }
 
-    private func preloadNeighborChapters() {
-        let neighborIDs = [currentIndex - 1, currentIndex + 1]
-            .filter { chapters.indices.contains($0) }
-            .map { chapters[$0].id }
-        guard !neighborIDs.isEmpty else { return }
-        Task {
-            for id in neighborIDs {
-                _ = try? await model.chapter(id: id)
+    private func preloadNeighborChapters(around chapter: Chapter? = nil) {
+        if chapters.isEmpty, let chapter {
+            let previousNumber = chapter.chapterNumber - 1
+            let nextNumber = chapter.chapterNumber + 1
+            model.prefetchChapter(novelID: route.novelID, number: nextNumber)
+            if previousNumber >= 1 {
+                model.prefetchChapter(novelID: route.novelID, number: previousNumber)
             }
+            return
+        }
+
+        if chapters.indices.contains(currentIndex + 1) {
+            model.prefetchChapter(id: chapters[currentIndex + 1].id)
+        }
+        if chapters.indices.contains(currentIndex - 1) {
+            model.prefetchChapter(id: chapters[currentIndex - 1].id)
         }
     }
 }
@@ -671,9 +697,9 @@ private struct ReaderWebSpreadView: View {
               --asterion-bg: \(palette.backgroundHex);
               --asterion-text: \(palette.textHex);
               --asterion-muted: \(palette.mutedHex);
-              --asterion-page-gap: clamp(20px, 2.5vw, 48px);
-              --asterion-page-width: calc((100vw - var(--asterion-page-gap)) / 2);
-              --asterion-page-inset: clamp(24px, 3vw, 64px);
+              --asterion-page-gap: 32px;
+              --asterion-page-width: 50%;
+              --asterion-page-inset: 40px;
             }
             html, body {
               width: 100%;
@@ -693,7 +719,7 @@ private struct ReaderWebSpreadView: View {
               column-width: var(--asterion-page-width);
               column-gap: var(--asterion-page-gap);
               column-fill: auto;
-              height: calc(100vh - 88px);
+              height: 100%;
               overflow-x: auto;
               overflow-y: hidden;
               overscroll-behavior-x: none;
@@ -746,6 +772,14 @@ private struct ReaderWebSpreadView: View {
               widows: 2;
               orphans: 2;
             }
+            #asterion-column-pad {
+              display: none;
+              break-before: column;
+              -webkit-column-break-before: always;
+              height: 100%;
+              visibility: hidden;
+              pointer-events: none;
+            }
           </style>
         </head>
         <body>
@@ -754,34 +788,66 @@ private struct ReaderWebSpreadView: View {
             <h1>\(chapter.displayTitle.htmlEscaped)</h1>
           </header>
           \(paragraphs)
+          <div id="asterion-column-pad" aria-hidden="true"></div>
           <script>
             (() => {
+              const scroller = document.body;
+              const pad = document.getElementById('asterion-column-pad');
+              const preferredScrollBehavior = '\(reduceMotion ? "instant" : "smooth")';
+
+              const applyMetrics = () => {
+                const viewport = scroller.clientWidth || window.innerWidth;
+                const gap = Math.round(Math.min(48, Math.max(20, viewport * 0.025)));
+                const inset = Math.round(Math.min(64, Math.max(24, viewport * 0.03)));
+                const pageWidth = Math.max(320, Math.floor((viewport - gap) / 2));
+                const pageUnit = pageWidth + gap;
+                const root = document.documentElement;
+                root.style.setProperty('--asterion-page-gap', gap + 'px');
+                root.style.setProperty('--asterion-page-width', pageWidth + 'px');
+                root.style.setProperty('--asterion-page-inset', inset + 'px');
+                return { viewport, gap, pageWidth, pageUnit, turnUnit: pageUnit * 2 };
+              };
+
+              const columnCount = (metrics) => {
+                return Math.max(1, Math.round((scroller.scrollWidth + metrics.gap) / metrics.pageUnit));
+              };
+
+              const syncColumnPad = () => {
+                pad.style.display = 'none';
+                void scroller.offsetWidth;
+                const before = applyMetrics();
+                pad.style.display = columnCount(before) % 2 === 1 ? 'block' : 'none';
+                void scroller.offsetWidth;
+                return applyMetrics();
+              };
+
               const pageMetrics = () => {
-                const gap = Math.min(48, Math.max(20, window.innerWidth * 0.025));
-                const inset = Math.min(64, Math.max(24, window.innerWidth * 0.03));
-                const width = Math.max(320, (window.innerWidth - gap) / 2);
-                const pageUnit = width + gap;
-                const turnUnit = window.innerWidth + gap;
-                const maxX = Math.max(0, document.body.scrollWidth - window.innerWidth);
-                const turnCount = Math.max(1, Math.ceil((maxX + turnUnit) / turnUnit));
-                return { pageUnit, turnUnit, maxX, turnCount, inset };
+                const metrics = applyMetrics();
+                const columns = columnCount(metrics);
+                return {
+                  ...metrics,
+                  turnCount: Math.max(1, Math.round(columns / 2)),
+                  maxX: Math.max(0, scroller.scrollWidth - metrics.viewport),
+                };
               };
 
               const currentTurn = () => {
                 const { turnUnit, turnCount } = pageMetrics();
-                return Math.max(0, Math.min(turnCount - 1, Math.round(window.scrollX / turnUnit)));
+                return Math.max(0, Math.min(turnCount - 1, Math.round(scroller.scrollLeft / turnUnit)));
               };
 
-              const preferredScrollBehavior = '\(reduceMotion ? "instant" : "smooth")';
-
               const scrollToTurn = (turn, behavior = preferredScrollBehavior) => {
-                const { turnUnit, maxX, turnCount, inset } = pageMetrics();
+                const { turnUnit, maxX, turnCount } = pageMetrics();
                 const target = Math.max(0, Math.min(turnCount - 1, Math.round(turn)));
-                const targetX = Math.max(0, target * turnUnit - (target > 0 ? inset : 0));
-                window.scrollTo({ left: Math.min(maxX, targetX), top: 0, behavior });
+                scroller.scrollTo({
+                  left: Math.min(maxX, target * turnUnit),
+                  top: 0,
+                  behavior,
+                });
               };
 
               const turnPage = (direction) => {
+                syncColumnPad();
                 const { turnCount } = pageMetrics();
                 const turn = currentTurn();
                 if (direction > 0 && turn >= turnCount - 1) {
@@ -796,7 +862,7 @@ private struct ReaderWebSpreadView: View {
               };
 
               const reportProgress = () => {
-                const probeX = Math.max(48, window.innerWidth * 0.08);
+                const probeX = Math.max(48, (scroller.clientWidth || window.innerWidth) * 0.08);
                 const probeY = 96;
                 let bestLine = 0;
                 let bestDistance = Infinity;
@@ -813,10 +879,31 @@ private struct ReaderWebSpreadView: View {
                 window.webkit.messageHandlers.asterionProgress.postMessage({ type: 'progress', line: bestLine });
               };
 
-              window.__asterionRestoreLine = (line) => {
-                const target = document.querySelector(`[data-line="${line}"]`);
-                if (target) target.scrollIntoView({ behavior: 'instant', block: 'nearest', inline: 'start' });
+              const restoreLine = (line) => {
+                syncColumnPad();
+                const target = document.querySelector('[data-line="' + String(line) + '"]');
+                if (!target) {
+                  scrollToTurn(0, 'instant');
+                  reportProgress();
+                  return;
+                }
+                const { turnUnit, turnCount } = pageMetrics();
+                const left = target.getBoundingClientRect().left + scroller.scrollLeft;
+                scrollToTurn(
+                  Math.max(0, Math.min(turnCount - 1, Math.round(left / turnUnit))),
+                  'instant'
+                );
                 reportProgress();
+              };
+
+              window.__asterionRestoreLine = (line) => {
+                const run = () => restoreLine(line);
+                const afterLayout = () => requestAnimationFrame(() => requestAnimationFrame(run));
+                if (document.fonts && document.fonts.ready) {
+                  document.fonts.ready.then(afterLayout, afterLayout);
+                } else {
+                  afterLayout();
+                }
               };
 
               window.addEventListener('wheel', (event) => {
@@ -837,7 +924,11 @@ private struct ReaderWebSpreadView: View {
               });
 
               window.addEventListener('scroll', () => window.requestAnimationFrame(reportProgress), { passive: true });
-              window.addEventListener('resize', () => scrollToTurn(currentTurn(), 'instant'));
+              window.addEventListener('resize', () => {
+                syncColumnPad();
+                scrollToTurn(currentTurn(), 'instant');
+              });
+              syncColumnPad();
               reportProgress();
             })();
           </script>

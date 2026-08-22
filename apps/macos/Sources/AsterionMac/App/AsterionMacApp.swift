@@ -49,7 +49,6 @@ final class AsterionAppDelegate: NSObject, NSApplicationDelegate {
 @main
 @MainActor
 struct AsterionApp: App {
-    private static let clerkKeychainService = "cloud.cyberverse.Asterion.clerk"
     private static let clerkPublishableKeyInfoKey = "AsterionClerkPublishableKey"
 
     private static var clerkPublishableKey: String {
@@ -68,12 +67,14 @@ struct AsterionApp: App {
     }
 
     @NSApplicationDelegateAdaptor(AsterionAppDelegate.self) private var appDelegate
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var model = AppModel()
     @StateObject private var mediaDownloads = MediaDownloadManager()
 
     init() {
+        ClerkKeychainMigration.migrateLegacySessionIfNeeded()
         let options = Clerk.Options(
-            keychainConfig: .init(service: Self.clerkKeychainService)
+            keychainConfig: .init(service: ClerkKeychainMigration.currentService)
         )
         Clerk.configure(
             publishableKey: Self.clerkPublishableKey,
@@ -89,6 +90,10 @@ struct AsterionApp: App {
                 .environmentObject(mediaDownloads)
                 .environment(Clerk.shared)
                 .task { await model.start() }
+                .onChange(of: scenePhase) { _, phase in
+                    guard phase == .active else { return }
+                    Task { await model.reconcileAuthenticationState() }
+                }
         }
         .defaultLaunchBehavior(.presented)
         .defaultSize(width: 1420, height: 780)
@@ -141,6 +146,7 @@ struct AsterionApp: App {
 
         Window("Sign In to Asterion", id: "authentication") {
             AsterionAuthenticationView()
+                .environmentObject(model)
                 .environment(Clerk.shared)
         }
         .defaultSize(width: 438, height: 548)

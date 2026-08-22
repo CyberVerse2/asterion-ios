@@ -62,10 +62,20 @@ struct CatalogContextBar: View {
     private var animeFilterMenus: some View {
         Menu {
             Button("Browse Genres") { animeSection = .genres }
-            if !animeStore.genres.isEmpty {
+            if animeStore.isLoadingGenres, animeStore.genres.isEmpty {
+                Divider()
+                Button("Loading Genres…") {}
+                    .disabled(true)
+            } else if let error = animeStore.genreError, animeStore.genres.isEmpty {
+                Divider()
+                Button("Try Loading Genres Again") {
+                    Task { await animeStore.loadGenresIfNeeded() }
+                }
+                .help(error)
+            } else if !animeStore.genres.isEmpty {
                 Divider()
                 ForEach(animeStore.genres, id: \.self) { genre in
-                    Button(genre) {
+                    Button(displayName(forGenre: genre)) {
                         animeSection = .genres
                         Task { await animeStore.selectGenre(genre, query: "") }
                     }
@@ -76,6 +86,9 @@ struct CatalogContextBar: View {
         }
         .controlSize(.small)
         .help("Filter anime by genre")
+        .task {
+            await animeStore.loadGenresIfNeeded()
+        }
 
         Menu {
             ForEach(AnimeStore.types, id: \.self) { type in
@@ -94,7 +107,17 @@ struct CatalogContextBar: View {
     private var movieGenreMenu: some View {
         Menu {
             Button("Browse Genres") { movieSection = .genres }
-            if !movieStore.genres.isEmpty {
+            if movieStore.isLoadingGenres, movieStore.genres.isEmpty {
+                Divider()
+                Button("Loading Genres…") {}
+                    .disabled(true)
+            } else if let error = movieStore.genreError, movieStore.genres.isEmpty {
+                Divider()
+                Button("Try Loading Genres Again") {
+                    Task { await movieStore.loadGenresIfNeeded() }
+                }
+                .help(error)
+            } else if !movieStore.genres.isEmpty {
                 Divider()
                 ForEach(movieStore.genres) { genre in
                     Button(genre.title) {
@@ -108,6 +131,13 @@ struct CatalogContextBar: View {
         }
         .controlSize(.small)
         .help("Filter movies and TV shows by genre")
+        .task {
+            await movieStore.loadGenresIfNeeded()
+        }
+    }
+
+    private func displayName(forGenre genre: String) -> String {
+        genre.replacingOccurrences(of: "-", with: " ").capitalized
     }
 
     private func sectionButton<Value: Hashable>(

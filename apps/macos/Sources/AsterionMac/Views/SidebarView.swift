@@ -114,8 +114,12 @@ struct SidebarView: View {
             selection = .account
         } label: {
             HStack(spacing: 9) {
-                SidebarAccountAvatar(user: model.signedInUser, size: 26)
-                Text(model.signedInUser?.name ?? "Account")
+                SidebarAccountAvatar(
+                    user: model.signedInUser,
+                    isRestoring: model.accountSessionPresentation == .restoring,
+                    size: 26
+                )
+                Text(sidebarAccountTitle)
                     .lineLimit(1)
                 Spacer(minLength: 0)
             }
@@ -132,22 +136,43 @@ struct SidebarView: View {
         .help("Account")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
+
+    private var sidebarAccountTitle: String {
+        if let name = model.signedInUser?.name {
+            return name
+        }
+        switch model.accountSessionPresentation {
+        case .restoring:
+            return "Restoring"
+        case .restoreFailed, .signedIn, .signedOut:
+            return "Account"
+        }
+    }
 }
 
 private struct SidebarAccountAvatar: View {
     let user: AppModel.SignedInUser?
+    var isRestoring = false
     let size: CGFloat
 
     var body: some View {
-        AsyncImage(url: user?.imageURL) { phase in
-            if case .success(let image) = phase {
-                image
-                    .resizable()
-                    .scaledToFill()
+        Group {
+            if isRestoring, user == nil {
+                ProgressView()
+                    .controlSize(.mini)
+                    .frame(width: size, height: size)
             } else {
-                Image(systemName: "person.crop.circle.fill")
-                    .resizable()
-                    .foregroundStyle(.secondary)
+                AsyncImage(url: user?.imageURL) { phase in
+                    if case .success(let image) = phase {
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    } else {
+                        Image(systemName: "person.crop.circle.fill")
+                            .resizable()
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
         }
         .frame(width: size, height: size)

@@ -92,12 +92,50 @@ actor MovieAPI {
     }
 
     func fetchGenres() async throws -> [MovieGenre] {
-        try await request(
+        let serviceGenres: [MovieGenre] = try await request(
             path: "/api/genres",
             namespace: Self.catalogCacheNamespace,
             cacheLifetime: 3_600
         )
+        return Self.completeGenreList(serviceGenres)
     }
+
+    static func completeGenreList(_ serviceGenres: [MovieGenre]) -> [MovieGenre] {
+        var genresByTitle = Dictionary(
+            uniqueKeysWithValues: standardGenres.map { ($0.title.lowercased(), $0) }
+        )
+        for genre in serviceGenres where !genre.slug.isEmpty && !genre.title.isEmpty {
+            genresByTitle[genre.title.lowercased()] = genre
+        }
+        return genresByTitle.values.sorted {
+            $0.title.localizedStandardCompare($1.title) == .orderedAscending
+        }
+    }
+
+    private static let standardGenres: [MovieGenre] = [
+        MovieGenre(slug: "action-3scq8", title: "Action"),
+        MovieGenre(slug: "adventure-r6k9s", title: "Adventure"),
+        MovieGenre(slug: "animation-q75ud", title: "Animation"),
+        MovieGenre(slug: "biography", title: "Biography"),
+        MovieGenre(slug: "comedy-z4sq6", title: "Comedy"),
+        MovieGenre(slug: "crime", title: "Crime"),
+        MovieGenre(slug: "documentary-pf6r9", title: "Documentary"),
+        MovieGenre(slug: "drama-d89qv", title: "Drama"),
+        MovieGenre(slug: "qqwwee-family", title: "Family"),
+        MovieGenre(slug: "fantasy-11234", title: "Fantasy"),
+        MovieGenre(slug: "history-4y39b", title: "History"),
+        MovieGenre(slug: "horror-2234", title: "Horror"),
+        MovieGenre(slug: "kids", title: "Kids"),
+        MovieGenre(slug: "music", title: "Music"),
+        MovieGenre(slug: "musical-y8x3p", title: "Musical"),
+        MovieGenre(slug: "mystery-kusdv", title: "Mystery"),
+        MovieGenre(slug: "reality", title: "Reality"),
+        MovieGenre(slug: "romance-8e2vg", title: "Romance"),
+        MovieGenre(slug: "sport-865d2", title: "Sport"),
+        MovieGenre(slug: "thriller-66223", title: "Thriller"),
+        MovieGenre(slug: "war-5nhq9", title: "War"),
+        MovieGenre(slug: "western-8k6ec", title: "Western"),
+    ]
 
     func search(query: String) async throws -> [MovieTitle] {
         try await request(
@@ -192,20 +230,20 @@ actor MovieAPI {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
         var response: CachedHTTPResponse?
-        for attempt in 0..<3 {
+        for attempt in 0..<4 {
             do {
                 let candidate = try await loadResponse(
                     for: request,
                     namespace: namespace,
                     cacheLifetime: cacheLifetime
                 )
-                if Self.retryableStatusCodes.contains(candidate.statusCode), attempt < 2 {
+                if Self.retryableStatusCodes.contains(candidate.statusCode), attempt < 3 {
                     try await Task.sleep(for: .milliseconds(500 * (attempt + 1)))
                     continue
                 }
                 response = candidate
                 break
-            } catch let error as URLError where attempt < 2 && Self.isRetryable(error) {
+            } catch let error as URLError where attempt < 3 && Self.isRetryable(error) {
                 try await Task.sleep(for: .milliseconds(500 * (attempt + 1)))
             }
         }

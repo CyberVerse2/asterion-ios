@@ -3,6 +3,7 @@ import SwiftUI
 struct ContentView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var mediaDownloads: MediaDownloadManager
 
     @SceneStorage("selectedDestination") private var selectedDestinationRaw = AppDestination.home.rawValue
     @SceneStorage("selectedSection") private var selectedSectionRaw = AppSection.discover.rawValue
@@ -17,6 +18,7 @@ struct ContentView: View {
     @State private var columnVisibility = NavigationSplitViewVisibility.all
     @State private var searchText = ""
     @State private var detailSelection: AppDetailSelection?
+    @State private var navigationHistory = AppNavigationHistory()
 
     private var destination: Binding<AppDestination> {
         Binding(
@@ -24,6 +26,7 @@ struct ContentView: View {
             set: { newValue in
                 let current = AppDestination(rawValue: selectedDestinationRaw) ?? .home
                 guard newValue != current else { return }
+                navigationHistory.recordNavigation(from: current, to: newValue)
                 selectedDestinationRaw = newValue.rawValue
                 searchText = ""
                 detailSelection = nil
@@ -76,6 +79,23 @@ struct ContentView: View {
     }
 
     var body: some View {
+        rootNavigationView
+            .onAppear(perform: handleAppear)
+            .onChange(of: mediaDownloads.downloads) { _, downloads in
+                updateOfflineMediaSnapshots(downloads)
+            }
+            .onChange(of: model.novels) {
+                handleNovelCatalogChange()
+            }
+            .onChange(of: selectedSectionRaw) {
+                handleNovelSectionChange()
+            }
+            .onChange(of: searchText) {
+                handleNovelSearchChange()
+            }
+    }
+
+    private var rootNavigationView: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarView(
                 selection: destination
@@ -95,17 +115,7 @@ struct ContentView: View {
         .searchable(text: $searchText, placement: .sidebar, prompt: Text(searchPrompt))
         .toolbar(removing: .title)
         .toolbar {
-            ToolbarItem(placement: .navigation) {
-                if detailSelection != nil {
-                    Button {
-                        detailSelection = nil
-                    } label: {
-                        Label("Back", systemImage: "chevron.left")
-                    }
-                    .help("Back to browse")
-                    .accessibilityLabel("Back to browse")
-                }
-            }
+            navigationToolbar
         }
         .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         .focusedSceneValue(\.asterionDestination, destination)
@@ -115,25 +125,30 @@ struct ContentView: View {
         .focusedSceneValue(\.asterionFootballSection, footballSection)
         .tint(.asterionAccent)
         .frame(minWidth: 1_040, minHeight: 640)
-        .onAppear {
-            if destination.wrappedValue == .novels, selectedNovelID.isEmpty {
-                selectFirstNovel(in: section.wrappedValue)
-            }
+    }
+
+    private func handleAppear() {
+        updateOfflineMediaSnapshots(mediaDownloads.downloads)
+        if destination.wrappedValue == .novels, selectedNovelID.isEmpty {
+            selectFirstNovel(in: section.wrappedValue)
         }
-        .onChange(of: model.novels) {
-            if destination.wrappedValue == .novels {
-                ensureNovelSelection()
-            }
+    }
+
+    private func handleNovelCatalogChange() {
+        if destination.wrappedValue == .novels {
+            ensureNovelSelection()
         }
-        .onChange(of: selectedSectionRaw) {
-            if destination.wrappedValue == .novels {
-                selectFirstNovel(in: section.wrappedValue)
-            }
+    }
+
+    private func handleNovelSectionChange() {
+        if destination.wrappedValue == .novels {
+            selectFirstNovel(in: section.wrappedValue)
         }
-        .onChange(of: searchText) {
-            if destination.wrappedValue == .novels {
-                ensureNovelSelection()
-            }
+    }
+
+    private func handleNovelSearchChange() {
+        if destination.wrappedValue == .novels {
+            ensureNovelSelection()
         }
     }
 
@@ -148,6 +163,38 @@ struct ContentView: View {
         case .bookmarks: "Search bookmarks"
         case .downloads, .account: "Search Asterion"
         }
+    }
+
+    @ToolbarContentBuilder
+    private var navigationToolbar: some ToolbarContent {
+        ToolbarItem(placement: .navigation) {
+            if canNavigateBack {
+                Button {
+                    navigateBack()
+                } label: {
+                    Label("Back", systemImage: "chevron.left")
+                }
+                .keyboardShortcut("[", modifiers: .command)
+                .help(backButtonHelp)
+                .accessibilityLabel(backButtonHelp)
+            }
+        }
+    }
+
+    private func updateOfflineMediaSnapshots(_ downloads: [MediaDownloadRecord]) {
+        animeStore.updateOfflineDownloads(downloads)
+        movieStore.updateOfflineDownloads(downloads)
+    }
+
+    private var canNavigateBack: Bool {
+        detailSelection != nil || destination.wrappedValue != .home
+    }
+
+    private var backButtonHelp: String {
+        if detailSelection != nil {
+            return "Back to \(destination.wrappedValue.title)"
+        }
+        return "Back to \(navigationHistory.previousDestination?.title ?? AppDestination.home.title)"
     }
 
     private var mainContent: some View {
@@ -325,6 +372,23 @@ struct ContentView: View {
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.asterionMediaCanvas)
+    }
+
+    private func navigateBack() {
+        if detailSelection != nil {
+            detailSelection = nil
+            return
+        }
+
+        let current = destination.wrappedValue
+        guard let previous = navigationHistory.destinationForBack(from: current) else { return }
+
+        selectedDestinationRaw = previous.rawValue
+        searchText = ""
+        detailSelection = nil
+        if previous == .novels {
+            ensureNovelSelection()
+        }
     }
 
     private func selectNovelDetail(_ novel: Novel) {

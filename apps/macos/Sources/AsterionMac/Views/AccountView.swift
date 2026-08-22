@@ -49,9 +49,18 @@ struct AccountSummaryView: View {
 
     var body: some View {
         Group {
-            if let user = model.signedInUser {
-                signedInProfile(user)
-            } else {
+            switch model.accountSessionPresentation {
+            case .signedIn:
+                if let user = model.signedInUser {
+                    signedInProfile(user)
+                } else {
+                    restoringProfile
+                }
+            case .restoring:
+                restoringProfile
+            case .restoreFailed:
+                restoreFailedProfile
+            case .signedOut:
                 signedOutProfile
             }
         }
@@ -271,33 +280,106 @@ struct AccountSummaryView: View {
         }
     }
 
+    private var restoringProfile: some View {
+        accountMessage(
+            kicker: "YOUR ASTERION",
+            title: "Restoring your profile.",
+            detail: "Checking the saved account on this Mac."
+        ) {
+            ProgressView()
+                .controlSize(.small)
+                .padding(.top, 6)
+        }
+    }
+
+    private var restoreFailedProfile: some View {
+        accountMessage(
+            kicker: "YOUR ASTERION",
+            title: "Your profile could not be restored.",
+            detail: "Asterion still has a saved account on this Mac, but the session did not come back. Try again, or sign in once more."
+        ) {
+            if let error = model.accountError {
+                Label(error, systemImage: "exclamationmark.triangle.fill")
+                    .font(.callout)
+                    .foregroundStyle(Color.asterionAccent)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: 560, alignment: .leading)
+            }
+
+            HStack(spacing: 10) {
+                Button {
+                    Task { await model.retryAccountSessionRestore() }
+                } label: {
+                    Label("Try Again", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+
+                Button {
+                    openWindow(id: "authentication")
+                } label: {
+                    Label("Sign In", systemImage: "person.crop.circle.badge.plus")
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.asterionAccent)
+                .controlSize(.large)
+            }
+            .padding(.top, 6)
+        }
+    }
+
     private var signedOutProfile: some View {
+        accountMessage(
+            kicker: "YOUR ASTERION",
+            title: "Make Asterion yours.",
+            detail: "A profile keeps saved stories, shows, films, matches, and every reading or watching position together."
+        ) {
+            Button {
+                openWindow(id: "authentication")
+            } label: {
+                Label("Sign In or Create Account", systemImage: "person.crop.circle.badge.plus")
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.asterionAccent)
+            .controlSize(.large)
+            .padding(.top, 6)
+
+            VStack(spacing: 0) {
+                ProfileBenefit(icon: "bookmark", title: "Save anything", detail: "Keep novels, anime, movies, and matches together.")
+                Divider()
+                ProfileBenefit(icon: "play.circle", title: "Never lose your place", detail: "Reading and watching progress follows your account.")
+                Divider()
+                ProfileBenefit(icon: "chart.bar", title: "See your story", detail: "Your profile turns activity into useful personal stats.")
+            }
+            .padding(.horizontal, 22)
+            .stableAccountSurface(cornerRadius: 14)
+        }
+    }
+
+    private func accountMessage<Content: View>(
+        kicker: String,
+        title: String,
+        detail: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 30) {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("YOUR ASTERION")
+                    Text(kicker)
                         .font(.asterionMono(10, weight: .semibold))
                         .tracking(1.4)
                         .foregroundStyle(Color.asterionAccent)
-                    Text("Make Asterion yours.")
+                    Text(title)
                         .font(.asterionDisplay(36, weight: .semibold))
                         .foregroundStyle(Color.asterionText)
-                    Text("A profile keeps saved stories, shows, films, matches, and every reading or watching position together.")
+                    Text(detail)
                         .font(.asterionDisplay(17))
                         .foregroundStyle(Color.asterionMuted)
                         .lineSpacing(4)
                         .frame(maxWidth: 560, alignment: .leading)
                 }
 
-                VStack(spacing: 0) {
-                    ProfileBenefit(icon: "bookmark", title: "Save anything", detail: "Keep novels, anime, movies, and matches together.")
-                    Divider()
-                    ProfileBenefit(icon: "play.circle", title: "Never lose your place", detail: "Reading and watching progress follows your account.")
-                    Divider()
-                    ProfileBenefit(icon: "chart.bar", title: "See your story", detail: "Your profile turns activity into useful personal stats.")
-                }
-                .padding(.horizontal, 22)
-                .stableAccountSurface(cornerRadius: 14)
+                content()
             }
             .frame(maxWidth: 900, alignment: .leading)
             .padding(34)
@@ -372,9 +454,18 @@ struct AccountView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                if let user = model.signedInUser {
-                    signedInAccount(user)
-                } else {
+                switch model.accountSessionPresentation {
+                case .signedIn:
+                    if let user = model.signedInUser {
+                        signedInAccount(user)
+                    } else {
+                        restoringAccount
+                    }
+                case .restoring:
+                    restoringAccount
+                case .restoreFailed:
+                    restoreFailedAccount
+                case .signedOut:
                     signedOutAccount
                 }
             }
@@ -513,10 +604,80 @@ struct AccountView: View {
             }
         }
     }
+
+    private var restoringAccount: some View {
+        Group {
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Restoring your profile")
+                    .font(.asterionDisplay(26, weight: .semibold))
+                    .foregroundStyle(Color.asterionText)
+                Text("Checking the saved account on this Mac.")
+                    .font(.callout)
+                    .foregroundStyle(Color.asterionMuted)
+            }
+
+            VStack(alignment: .leading, spacing: 18) {
+                ProgressView()
+                    .controlSize(.regular)
+                Text("This usually takes a moment after opening Asterion.")
+                    .font(.callout)
+                    .foregroundStyle(Color.asterionMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .accountCard()
+        }
+    }
+
+    private var restoreFailedAccount: some View {
+        Group {
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Profile could not be restored")
+                    .font(.asterionDisplay(26, weight: .semibold))
+                    .foregroundStyle(Color.asterionText)
+                Text("Try again, or sign in once more to reconnect this Mac.")
+                    .font(.callout)
+                    .foregroundStyle(Color.asterionMuted)
+            }
+
+            VStack(alignment: .leading, spacing: 18) {
+                Image(systemName: "person.crop.circle.badge.exclamationmark")
+                    .font(.system(size: 42, weight: .thin))
+                    .foregroundStyle(Color.asterionAccent)
+                Text("Your saved account is still on this Mac, but the session did not come back.")
+                    .font(.callout)
+                    .foregroundStyle(Color.asterionMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if let error = model.accountError {
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                        .font(.callout)
+                        .foregroundStyle(Color.asterionAccent)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Button("Try Again") {
+                    Task { await model.retryAccountSessionRestore() }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .frame(maxWidth: .infinity)
+
+                Button("Sign In") {
+                    openWindow(id: "authentication")
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.asterionAccent)
+                .controlSize(.large)
+                .frame(maxWidth: .infinity)
+            }
+            .accountCard()
+        }
+    }
 }
 
 struct AsterionAuthenticationView: View {
     @Environment(Clerk.self) private var clerk
+    @EnvironmentObject private var model: AppModel
     @Environment(\.dismissWindow) private var dismissWindow
 
     var body: some View {
@@ -559,7 +720,9 @@ struct AsterionAuthenticationView: View {
         .frame(width: 438, height: 548)
         .background(Color.asterionMediaCanvas)
         .onChange(of: clerk.user?.id) {
-            if clerk.user != nil {
+            guard clerk.user != nil else { return }
+            Task {
+                await model.reconcileAuthenticationState()
                 dismissWindow(id: "authentication")
             }
         }

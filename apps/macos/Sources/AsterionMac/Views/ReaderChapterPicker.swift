@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct ReaderChapterPicker: View {
+    @EnvironmentObject private var model: AppModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     let chapters: [Chapter]
@@ -152,6 +153,10 @@ struct ReaderChapterPicker: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .onHover { hovering in
+            guard hovering else { return }
+            model.prefetchChapter(id: item.chapter.id)
+        }
     }
 
     private func scrollToSelection(using proxy: ScrollViewProxy) {

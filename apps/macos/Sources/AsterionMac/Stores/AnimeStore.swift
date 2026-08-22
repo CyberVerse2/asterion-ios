@@ -62,6 +62,8 @@ final class AnimeStore: ObservableObject {
     @Published private(set) var genres: [String] = []
     @Published private(set) var scheduleDays: [AnimeScheduleDay] = []
     @Published private(set) var selectedGenre: String?
+    @Published private(set) var isLoadingGenres = false
+    @Published private(set) var genreError: String?
     @Published private(set) var selectedType = AnimeStore.types[0]
     @Published private(set) var selectedTitleID: AnimeTitle.ID?
     @Published private(set) var show: AnimeShow?
@@ -88,9 +90,17 @@ final class AnimeStore: ObservableObject {
     private var canLoadNextPage = false
     private var selectedScheduleTitle: AnimeTitle?
     private var dashboardSelectionID: AnimeTitle.ID?
+    private var genreLoadTask: Task<[String], Error>?
+    private var offlineDownloads: [MediaDownloadRecord] = []
 
     init(api: any AnimeCatalogServing = AnimeAPI.shared) {
         self.api = api
+    }
+
+    func updateOfflineDownloads(_ records: [MediaDownloadRecord]) {
+        offlineDownloads = records.filter {
+            $0.mediaType == .anime && $0.isAvailableOffline
+        }
     }
 
     func hasLoadedCatalog(section: AnimeSection, query: String) -> Bool {
@@ -178,9 +188,15 @@ final class AnimeStore: ObservableObject {
             }
         } catch {
             guard !Task.isCancelled, catalogRequestID == requestID else { return }
-            titles = []
-            catalogError = error.localizedDescription
-            clearSelection()
+            let downloadedTitles = offlineTitles(section: section, query: query)
+            titles = downloadedTitles
+            catalogError = downloadedTitles.isEmpty ? error.localizedDescription : nil
+            if selectsInitialTitle, dashboardSelectionID == nil,
+               let selected = downloadedTitles.first {
+                await select(selected)
+            } else if downloadedTitles.isEmpty {
+                clearSelection()
+            }
         }
     }
 
@@ -233,9 +249,10 @@ final class AnimeStore: ObservableObject {
                 page: 1
             ).deduplicatedByID()
         } catch {
-            seasonalTitles = []
-            seasonError = error.localizedDescription
-            loadedSeasonKey = nil
+            if seasonalTitles.isEmpty {
+                seasonError = error.localizedDescription
+                loadedSeasonKey = nil
+            }
         }
     }
 
@@ -254,9 +271,10 @@ final class AnimeStore: ObservableObject {
         do {
             newReleaseTitles = try await api.fetchNewReleases(page: 1).deduplicatedByID()
         } catch {
-            newReleaseTitles = []
-            newReleasesError = error.localizedDescription
-            hasLoadedNewReleases = false
+            if newReleaseTitles.isEmpty {
+                newReleasesError = error.localizedDescription
+                hasLoadedNewReleases = false
+            }
         }
     }
 
@@ -292,6 +310,16 @@ final class AnimeStore: ObservableObject {
 
     func retrySchedule() async {
         await loadSchedule(force: true)
+    }
+
+    func loadGenresIfNeeded() async {
+        do {
+            try await ensureGenresLoaded()
+        } catch is CancellationError {
+            return
+        } catch {
+            genreError = error.localizedDescription
+        }
     }
 
     func loadNextPageIfNeeded(
@@ -368,7 +396,9 @@ final class AnimeStore: ObservableObject {
             isLoadingDetail = false
         } catch {
             guard selectedTitleID == title.id else { return }
-            detailError = error.localizedDescription
+            if !loadOfflineDetail(slug: title.slug) {
+                detailError = error.localizedDescription
+            }
             isLoadingDetail = false
         }
     }
@@ -428,6 +458,57 @@ final class AnimeStore: ObservableObject {
         }
     }
 
+    private func loadOfflineDetail(slug: String) -> Bool {
+        let records = offlineDownloads.filter { $0.contentID == slug }
+        guard let loadedShow = records.compactMap(\.animeShow).first else { return false }
+
+        show = loadedShow
+        episodes = records.compactMap(\.animeEpisode)
+            .deduplicatedByID()
+            .sorted { $0.number < $1.number }
+        detailError = nil
+        return true
+    }
+
+    private func offlineTitles(section: AnimeSection, query: String) -> [AnimeTitle] {
+        let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let shows = offlineDownloads.compactMap(\.animeShow).deduplicatedByID()
+        return shows.filter { show in
+            guard normalizedQuery.isEmpty
+                    || show.displayTitle.localizedCaseInsensitiveContains(normalizedQuery)
+                    || show.displayJapaneseTitle?.localizedCaseInsensitiveContains(normalizedQuery) == true
+            else { return false }
+
+            return switch section {
+            case .types:
+                show.type?.localizedCaseInsensitiveCompare(selectedType) == .orderedSame
+            case .genres:
+                selectedGenre == nil || show.genres.contains {
+                    $0.localizedCaseInsensitiveCompare(selectedGenre ?? "") == .orderedSame
+                }
+            case .ongoing:
+                show.status?.localizedCaseInsensitiveContains("airing") == true
+            case .completed:
+                show.status?.localizedCaseInsensitiveContains("finished") == true
+            case .upcoming:
+                show.status?.localizedCaseInsensitiveContains("not yet") == true
+            case .schedule:
+                false
+            default:
+                true
+            }
+        }.map { show in
+            AnimeTitle(
+                slug: show.slug,
+                title: show.title,
+                japaneseTitle: show.japaneseTitle,
+                imageURL: show.imageURL,
+                type: show.type,
+                episodeLabel: show.episodesCount > 0 ? "\(show.episodesCount) episodes" : nil
+            )
+        }
+    }
+
     private func fetchTitles(
         section: AnimeSection,
         query: String,
@@ -446,13 +527,9 @@ final class AnimeStore: ObservableObject {
         case .popular:
             return try await api.fetchPopular(page: page)
         case .genres:
-            if genres.isEmpty {
-                let loadedGenres = try await api.fetchGenres()
-                guard !Task.isCancelled, catalogRequestID == requestID else {
-                    throw CancellationError()
-                }
-                genres = loadedGenres
-                selectedGenre = selectedGenre ?? loadedGenres.first
+            try await ensureGenresLoaded()
+            guard !Task.isCancelled, catalogRequestID == requestID else {
+                throw CancellationError()
             }
             guard let selectedGenre else { return [] }
             loadedRequestKey = "\(section.rawValue):\(selectedGenre)"
@@ -468,6 +545,37 @@ final class AnimeStore: ObservableObject {
             return try await api.fetchStatus("finished-airing", page: page)
         case .schedule:
             return []
+        }
+    }
+
+    private func ensureGenresLoaded() async throws {
+        guard genres.isEmpty else { return }
+
+        let task: Task<[String], Error>
+        if let genreLoadTask {
+            task = genreLoadTask
+        } else {
+            let api = self.api
+            let newTask = Task { try await api.fetchGenres() }
+            genreLoadTask = newTask
+            isLoadingGenres = true
+            genreError = nil
+            task = newTask
+        }
+
+        do {
+            let loadedGenres = Array(Set(try await task.value.filter { !$0.isEmpty }))
+                .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+            genres = loadedGenres
+            selectedGenre = selectedGenre ?? loadedGenres.first
+            genreError = nil
+            isLoadingGenres = false
+            genreLoadTask = nil
+        } catch {
+            isLoadingGenres = false
+            genreLoadTask = nil
+            genreError = error.localizedDescription
+            throw error
         }
     }
 

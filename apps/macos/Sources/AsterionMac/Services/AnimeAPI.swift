@@ -11,9 +11,13 @@ enum AnimeAPIError: LocalizedError {
         case .invalidResponse:
             "The anime service returned an invalid response."
         case .http(let statusCode, let message):
-            message.isEmpty
-                ? "The anime service returned HTTP \(statusCode)."
-                : message
+            if !message.isEmpty {
+                message
+            } else if [502, 503, 504].contains(statusCode) {
+                "The anime service is temporarily unreachable."
+            } else {
+                "The anime service returned HTTP \(statusCode)."
+            }
         case .invalidPayload:
             "The anime service returned data Asterion could not read."
         case .noPlaybackSource:
@@ -33,6 +37,7 @@ actor AnimeAPI {
     private let baseURL: URL
     private let session: URLSession
     private let responseCache: HTTPResponseCache
+    private let retryDelays: [Duration]
 
     private static let catalogCacheNamespace = "anime.catalog"
     private static let detailCacheNamespace = "anime.detail"
@@ -40,11 +45,17 @@ actor AnimeAPI {
     init(
         baseURL: URL = URL(string: "https://asterion-scraper.cyberverse.cloud")!,
         session: URLSession = .shared,
-        responseCache: HTTPResponseCache = HTTPResponseCache()
+        responseCache: HTTPResponseCache = HTTPResponseCache(),
+        retryDelays: [Duration] = [
+            .seconds(1),
+            .seconds(3),
+            .seconds(8),
+        ]
     ) {
         self.baseURL = baseURL
         self.session = session
         self.responseCache = responseCache
+        self.retryDelays = retryDelays
     }
 
     func invalidateCatalogCache() async {
@@ -236,20 +247,52 @@ actor AnimeAPI {
         var request = URLRequest(url: url)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
-        let response: CachedHTTPResponse
-        if cacheLifetime > 0 {
-            response = try await responseCache.response(
-                for: request,
-                session: session,
-                namespace: namespace,
-                lifetime: cacheLifetime
-            )
-        } else {
-            let (data, urlResponse) = try await session.data(for: request)
-            guard let httpResponse = urlResponse as? HTTPURLResponse else {
-                throw AnimeAPIError.invalidResponse
+        var response: CachedHTTPResponse?
+        for attempt in 0...retryDelays.count {
+            do {
+                let candidate: CachedHTTPResponse
+                if cacheLifetime > 0 {
+                    candidate = try await responseCache.response(
+                        for: request,
+                        session: session,
+                        namespace: namespace,
+                        lifetime: cacheLifetime
+                    )
+                } else {
+                    let (data, urlResponse) = try await session.data(for: request)
+                    guard let httpResponse = urlResponse as? HTTPURLResponse else {
+                        throw AnimeAPIError.invalidResponse
+                    }
+                    candidate = CachedHTTPResponse(
+                        data: data,
+                        statusCode: httpResponse.statusCode
+                    )
+                }
+
+                if Self.retryableStatusCodes.contains(candidate.statusCode),
+                   attempt < retryDelays.count {
+                    try await Task.sleep(for: retryDelays[attempt])
+                    continue
+                }
+                response = candidate
+                break
+            } catch let error as URLError
+            where attempt < retryDelays.count && Self.isRetryable(error) {
+                try await Task.sleep(for: retryDelays[attempt])
             }
-            response = CachedHTTPResponse(data: data, statusCode: httpResponse.statusCode)
+        }
+        guard let response else { throw AnimeAPIError.invalidResponse }
+        if !(200..<300 ~= response.statusCode), cacheLifetime > 0,
+           let stale = await responseCache.staleResponse(
+            for: request,
+            namespace: namespace
+           ),
+           200..<300 ~= stale.statusCode {
+            do {
+                return try Self.decoder.decode(Response.self, from: stale.data)
+            } catch {
+                throw AnimeAPIError.invalidPayload
+            }
         }
         guard 200..<300 ~= response.statusCode else {
             let envelope = try? Self.decoder.decode(ErrorEnvelope.self, from: response.data)
@@ -265,6 +308,12 @@ actor AnimeAPI {
         } catch {
             throw AnimeAPIError.invalidPayload
         }
+    }
+
+    private static let retryableStatusCodes: Set<Int> = [429, 500, 502, 503, 504]
+
+    private static func isRetryable(_ error: URLError) -> Bool {
+        ![.badURL, .unsupportedURL, .cancelled].contains(error.code)
     }
 
     private static let decoder = JSONDecoder()

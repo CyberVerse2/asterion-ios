@@ -23,11 +23,16 @@ actor HTTPResponseCache {
     }
 
     private let maximumEntryCount: Int
+    private let now: @Sendable () -> Date
     private var entries: [Key: Entry] = [:]
     private var inFlight: [Key: InFlight] = [:]
 
-    init(maximumEntryCount: Int = 160) {
+    init(
+        maximumEntryCount: Int = 160,
+        now: @escaping @Sendable () -> Date = { Date() }
+    ) {
         self.maximumEntryCount = maximumEntryCount
+        self.now = now
     }
 
     func response(
@@ -42,12 +47,11 @@ actor HTTPResponseCache {
             method: request.httpMethod ?? "GET",
             url: url
         )
-        let now = Date()
+        let now = now()
 
         if let entry = entries[key], entry.expiresAt > now {
             return entry.response
         }
-        entries.removeValue(forKey: key)
 
         if let pending = inFlight[key] {
             return try await pending.task.value
@@ -59,7 +63,10 @@ actor HTTPResponseCache {
             guard let response = response as? HTTPURLResponse else {
                 throw URLError(.badServerResponse)
             }
-            return CachedHTTPResponse(data: data, statusCode: response.statusCode)
+            return CachedHTTPResponse(
+                data: data,
+                statusCode: response.statusCode
+            )
         }
         inFlight[key] = InFlight(id: requestID, task: task)
 
@@ -80,6 +87,19 @@ actor HTTPResponseCache {
         }
     }
 
+    func staleResponse(
+        for request: URLRequest,
+        namespace: String
+    ) -> CachedHTTPResponse? {
+        guard let url = request.url else { return nil }
+        let key = Key(
+            namespace: namespace,
+            method: request.httpMethod ?? "GET",
+            url: url
+        )
+        return entries[key]?.response
+    }
+
     func invalidate(namespace: String) {
         entries = entries.filter { $0.key.namespace != namespace }
         let matchingTasks = inFlight.filter { $0.key.namespace == namespace }
@@ -93,11 +113,17 @@ actor HTTPResponseCache {
     }
 
     private func trimIfNeeded(now: Date) {
-        entries = entries.filter { $0.value.expiresAt > now }
         guard entries.count > maximumEntryCount else { return }
         let overflow = entries.count - maximumEntryCount
         let oldestKeys = entries
-            .sorted { $0.value.expiresAt < $1.value.expiresAt }
+            .sorted { lhs, rhs in
+                let leftExpired = lhs.value.expiresAt <= now
+                let rightExpired = rhs.value.expiresAt <= now
+                if leftExpired != rightExpired {
+                    return leftExpired && !rightExpired
+                }
+                return lhs.value.expiresAt < rhs.value.expiresAt
+            }
             .prefix(overflow)
             .map(\.key)
         oldestKeys.forEach { entries.removeValue(forKey: $0) }

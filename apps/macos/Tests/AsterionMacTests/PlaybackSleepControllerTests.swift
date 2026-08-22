@@ -4,6 +4,82 @@ import Testing
 
 @MainActor
 struct PlaybackSleepControllerTests {
+    @Test func keyboardSeekPreservesPlaybackIntent() {
+        #expect(
+            NativeMediaSeekPolicy.shouldResume(
+                playbackRate: 1,
+                timeControlStatus: .playing
+            )
+        )
+        #expect(
+            NativeMediaSeekPolicy.shouldResume(
+                playbackRate: 0,
+                timeControlStatus: .waitingToPlayAtSpecifiedRate
+            )
+        )
+        #expect(
+            !NativeMediaSeekPolicy.shouldResume(
+                playbackRate: 0,
+                timeControlStatus: .paused
+            )
+        )
+    }
+
+    @Test func nativePlayerKeyboardControlsUseStandardVideoBindings() {
+        #expect(
+            NativeMediaKeyboardCommand.resolve(
+                keyCode: 123,
+                charactersIgnoringModifiers: nil,
+                modifiers: []
+            ) == .seek(-10)
+        )
+        #expect(
+            NativeMediaKeyboardCommand.resolve(
+                keyCode: 124,
+                charactersIgnoringModifiers: nil,
+                modifiers: []
+            ) == .seek(10)
+        )
+        #expect(
+            NativeMediaKeyboardCommand.resolve(
+                keyCode: 126,
+                charactersIgnoringModifiers: nil,
+                modifiers: []
+            ) == .adjustVolume(0.1)
+        )
+        #expect(
+            NativeMediaKeyboardCommand.resolve(
+                keyCode: 125,
+                charactersIgnoringModifiers: nil,
+                modifiers: []
+            ) == .adjustVolume(-0.1)
+        )
+        #expect(
+            NativeMediaKeyboardCommand.resolve(
+                keyCode: 46,
+                charactersIgnoringModifiers: "m",
+                modifiers: []
+            ) == .toggleMute
+        )
+        #expect(
+            NativeMediaKeyboardCommand.resolve(
+                keyCode: 49,
+                charactersIgnoringModifiers: " ",
+                modifiers: []
+            ) == .togglePlayback
+        )
+    }
+
+    @Test func nativePlayerLeavesModifiedArrowShortcutsToTheApp() {
+        #expect(
+            NativeMediaKeyboardCommand.resolve(
+                keyCode: 124,
+                charactersIgnoringModifiers: nil,
+                modifiers: [.command]
+            ) == nil
+        )
+    }
+
     @Test func activePlaybackPreventsSleepUntilEverySourceStops() {
         let probe = PlaybackActivityProbe()
         let controller = PlaybackSleepController(
@@ -77,6 +153,33 @@ struct PlaybackSleepControllerTests {
         #expect(embeddedScript.contains("type: 'playback', sourceID, isPlaying"))
         #expect(embeddedScript.contains("reportPlaybackActivity(activePlayer !== null)"))
         #expect(embeddedScript.contains("reportPlaybackActivity(false)"))
+    }
+
+    @Test func webPlayersCheckpointProgressBeforeReportingPlaybackFailure() throws {
+        let videoURL = try #require(URL(string: "https://media.example/master.m3u8"))
+        let captionedDocument = CaptionedMediaDocument.html(
+            url: videoURL,
+            tracks: []
+        )
+        let embeddedScript = EmbeddedMediaProgressScript.source(initialPosition: 120)
+
+        let captionedError = try #require(
+            captionedDocument.range(of: "reportError('The video source could not be played.');")
+        )
+        let captionedCheckpoint = try #require(
+            captionedDocument[..<captionedError.lowerBound]
+                .range(of: "reportProgress(true);", options: .backwards)
+        )
+        let embeddedError = try #require(
+            embeddedScript.range(of: "reportMediaError(player);")
+        )
+        let embeddedCheckpoint = try #require(
+            embeddedScript[..<embeddedError.lowerBound]
+                .range(of: "if (activePlayer === player) emit(player, true);", options: .backwards)
+        )
+
+        #expect(captionedCheckpoint.upperBound <= captionedError.lowerBound)
+        #expect(embeddedCheckpoint.upperBound <= embeddedError.lowerBound)
     }
 }
 

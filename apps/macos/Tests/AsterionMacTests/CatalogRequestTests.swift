@@ -68,6 +68,49 @@ struct CatalogRequestTests {
         #expect(page.pageCount == 24)
     }
 
+    @Test func fetchChapterByIDLoadsThatChapterOnly() async throws {
+        let data = try Self.chapterEnvelope(
+            id: "12",
+            number: 3,
+            title: "The Gate",
+            content: "<p>Opened.</p>"
+        )
+        CatalogURLProtocol.install { request in
+            #expect(request.url?.path == "/chapters/12")
+            #expect(request.url?.query == nil)
+            return (Self.successResponse(for: request), data)
+        }
+        defer { CatalogURLProtocol.reset() }
+
+        let client = APIClient(session: Self.stubbedSession())
+        let chapter = try await client.fetchChapter(id: "12")
+
+        #expect(chapter.id == "12")
+        #expect(chapter.chapterNumber == 3)
+        #expect(chapter.title == "The Gate")
+        #expect(chapter.content == "<p>Opened.</p>")
+    }
+
+    @Test func fetchChapterByNumberLoadsThatChapterOnly() async throws {
+        let data = try Self.chapterEnvelope(
+            id: "12",
+            number: 3,
+            title: "The Gate",
+            content: "<p>Opened.</p>"
+        )
+        CatalogURLProtocol.install { request in
+            #expect(request.url?.path == "/novels/42/chapters/3")
+            return (Self.successResponse(for: request), data)
+        }
+        defer { CatalogURLProtocol.reset() }
+
+        let client = APIClient(session: Self.stubbedSession())
+        let chapter = try await client.fetchChapter(novelID: "42", chapterNumber: 3)
+
+        #expect(chapter.id == "12")
+        #expect(chapter.chapterNumber == 3)
+    }
+
     @Test @MainActor func animeCatalogDeduplicatesEveryPageAndSurfacesARepeat() async {
         let first = Self.animeTitle("anime-1")
         let second = Self.animeTitle("anime-2")
@@ -103,6 +146,59 @@ struct CatalogRequestTests {
         await store.retryNextPage(section: .discover, query: "")
         let calls = await service.latestCallCount
         #expect(calls == 4)
+    }
+
+    @Test @MainActor func animeGenresPreloadWithoutReplacingTheCurrentShelf() async {
+        let title = Self.animeTitle("anime-1")
+        let genres = ["slice-of-life", "action", "action", "sci-fi"]
+        let service = AnimeCatalogStub(pages: [1: [title]], genres: genres)
+        let store = AnimeStore(api: service)
+
+        await store.loadCatalog(section: .popular, query: "")
+        await store.loadGenresIfNeeded()
+        await store.loadGenresIfNeeded()
+
+        #expect(store.titles.map(\.id) == [title.id])
+        #expect(store.genres == ["action", "sci-fi", "slice-of-life"])
+        #expect(store.selectedGenre == "action")
+        #expect(!store.isLoadingGenres)
+        #expect(store.genreError == nil)
+        #expect(await service.genreCallCount == 1)
+    }
+
+    @Test @MainActor func animeDiscoverKeepsShelvesWhenRefreshFails() async {
+        let title = Self.animeTitle("anime-1")
+        let service = AnimeCatalogStub(pages: [1: [title]])
+        let store = AnimeStore(api: service)
+
+        await store.loadCurrentSeason()
+        await store.loadDiscoverNewReleases()
+        await service.failNextSeasonAndReleases()
+        await store.loadCurrentSeason(force: true)
+        await store.loadDiscoverNewReleases(force: true)
+
+        #expect(store.seasonalTitles.map(\.id) == [title.id])
+        #expect(store.newReleaseTitles.map(\.id) == [title.id])
+        #expect(store.seasonError == nil)
+        #expect(store.newReleasesError == nil)
+    }
+
+    @Test @MainActor func animeDetailFallsBackToDownloadedMetadataWhenOffline() async {
+        let show = Self.animeShow("offline-anime")
+        let episode = AnimeEpisode(id: "offline-anime-episode-3", animeID: show.id, number: 3)
+        let service = AnimeCatalogStub(pages: [:], failsCatalog: true, failsDetail: true)
+        let store = AnimeStore(api: service)
+        store.updateOfflineDownloads([
+            Self.mediaDownload(animeShow: show, episode: episode),
+        ])
+
+        await store.loadCatalog(section: .discover, query: "")
+
+        #expect(store.titles.map(\.slug) == [show.slug])
+        #expect(store.show == show)
+        #expect(store.episodes == [episode])
+        #expect(store.catalogError == nil)
+        #expect(store.detailError == nil)
     }
 
     @Test @MainActor func movieCatalogDeduplicatesEveryPageAndSurfacesARepeat() async {
@@ -148,6 +244,137 @@ struct CatalogRequestTests {
             currentTitle: third
         )
         #expect(store.paginationError?.contains("repeated the previous page") == true)
+    }
+
+    @Test @MainActor func movieGenresPreloadWithoutReplacingTheCurrentShelf() async {
+        let title = Self.movieTitle("movie-1")
+        let genres = [
+            MovieGenre(slug: "action", title: "Action"),
+            MovieGenre(slug: "drama", title: "Drama"),
+        ]
+        let service = MovieCatalogStub(
+            pages: [
+                1: MovieCatalogPage(page: 1, totalPages: 1, results: [title]),
+            ],
+            genres: genres
+        )
+        let store = MovieStore(api: service)
+
+        await store.loadCatalog(section: .movies, query: "")
+        await store.loadGenresIfNeeded()
+        await store.loadGenresIfNeeded()
+
+        #expect(store.titles.map(\.id) == [title.id])
+        #expect(store.genres == genres)
+        #expect(store.selectedGenre == genres.first)
+        #expect(!store.isLoadingGenres)
+        #expect(store.genreError == nil)
+        #expect(await service.genreCallCount == 1)
+    }
+
+    @Test @MainActor func movieDetailFallsBackToDownloadedMetadataWhenOffline() async {
+        let show = Self.movieShow("offline-series", type: "tv")
+        let episode = MovieEpisode(
+            id: "offline-series-s1e2",
+            season: 1,
+            number: 2,
+            title: "Episode 2",
+            url: URL(string: "https://movies.example/offline-series/s1e2")!
+        )
+        let service = MovieCatalogStub(
+            pages: [:],
+            failsCatalog: true,
+            failsDetail: true
+        )
+        let store = MovieStore(api: service)
+        store.updateOfflineDownloads([
+            Self.mediaDownload(movieShow: show, episode: episode),
+        ])
+
+        await store.loadCatalog(section: .tvShows, query: "")
+
+        #expect(store.titles.map(\.slug) == [show.slug])
+        #expect(store.show == show)
+        #expect(store.episodes == [episode])
+        #expect(store.catalogError == nil)
+        #expect(store.detailError == nil)
+    }
+
+    @Test func movieGenreFallbackIsCompleteAndPrefersFreshServiceSlugs() {
+        let genres = MovieAPI.completeGenreList([
+            MovieGenre(slug: "current-action", title: "Action"),
+        ])
+
+        #expect(genres.count == 22)
+        #expect(genres.first(where: { $0.title == "Action" })?.slug == "current-action")
+        #expect(genres.contains(where: { $0.title == "Western" }))
+    }
+
+    @Test func animeStreamResolutionRetriesATemporary502() async throws {
+        let attempts = CatalogRequestCounter()
+        CatalogURLProtocol.install { request in
+            if attempts.increment() == 1 {
+                return (
+                    Self.response(for: request, statusCode: 502),
+                    Data(#"{"error":"Temporary gateway failure"}"#.utf8)
+                )
+            }
+            let payload = Data(
+                #"[{"server":"primary","url":"https://embed.example/watch","quality":"1080p","source":"https://cdn.example/video.m3u8","tracks":[]}]"#.utf8
+            )
+            return (Self.successResponse(for: request), payload)
+        }
+        defer { CatalogURLProtocol.reset() }
+
+        let api = AnimeAPI(
+            baseURL: URL(string: "https://anime.example")!,
+            session: Self.stubbedSession(),
+            responseCache: HTTPResponseCache(),
+            retryDelays: [.zero]
+        )
+        let sources = try await api.fetchStream(animeID: "anime-1", episodeNumber: 1)
+
+        #expect(sources.first?.server == "primary")
+        #expect(attempts.value == 2)
+    }
+
+    @Test func animeCatalogKeepsStaleShelvesAfterAGatewayFailure() async throws {
+        let clock = CatalogDateBox()
+        let cache = HTTPResponseCache(now: { clock.now })
+        let attempts = CatalogRequestCounter()
+        CatalogURLProtocol.install { request in
+            if attempts.increment() == 1 {
+                let payload = Data(
+                    #"[{"slug":"cached-show","title":"Cached Show","japanese_title":null,"image_url":null,"type":"TV","episode_label":"12 episodes"}]"#.utf8
+                )
+                return (Self.successResponse(for: request), payload)
+            }
+            return (
+                Self.response(for: request, statusCode: 502),
+                Data("error code: 502\n".utf8)
+            )
+        }
+        defer { CatalogURLProtocol.reset() }
+
+        let api = AnimeAPI(
+            baseURL: URL(string: "https://anime.example")!,
+            session: Self.stubbedSession(),
+            responseCache: cache,
+            retryDelays: [.zero]
+        )
+
+        let first = try await api.fetchSeason(season: "summer", year: 2026, page: 1)
+        clock.now = clock.now.addingTimeInterval(121)
+        let second = try await api.fetchSeason(season: "summer", year: 2026, page: 1)
+
+        #expect(first.map(\.slug) == ["cached-show"])
+        #expect(second.map(\.slug) == ["cached-show"])
+        #expect(attempts.value > 1)
+    }
+
+    @Test func animeGatewayFailureHasAReadableMessage() {
+        let error = AnimeAPIError.http(statusCode: 502, message: "")
+        #expect(error.errorDescription == "The anime service is temporarily unreachable.")
     }
 
     @Test @MainActor func cancelledAnimeCatalogCanRetryTheSameRequest() async throws {
@@ -254,9 +481,13 @@ struct CatalogRequestTests {
     }
 
     private static func successResponse(for request: URLRequest) -> HTTPURLResponse {
+        response(for: request, statusCode: 200)
+    }
+
+    private static func response(for request: URLRequest, statusCode: Int) -> HTTPURLResponse {
         HTTPURLResponse(
             url: request.url!,
-            statusCode: 200,
+            statusCode: statusCode,
             httpVersion: "HTTP/1.1",
             headerFields: ["Content-Type": "application/json"]
         )!
@@ -267,6 +498,24 @@ struct CatalogRequestTests {
             withJSONObject: [
                 "data": ids.map { ["_id": $0, "title": "Title \($0)"] },
                 "meta": ["total": total],
+            ]
+        )
+    }
+
+    private static func chapterEnvelope(
+        id: String,
+        number: Int,
+        title: String,
+        content: String
+    ) throws -> Data {
+        try JSONSerialization.data(
+            withJSONObject: [
+                "data": [
+                    "_id": id,
+                    "chapterNumber": number,
+                    "title": title,
+                    "content": content,
+                ]
             ]
         )
     }
@@ -302,6 +551,27 @@ struct CatalogRequestTests {
         )
     }
 
+    private static func animeShow(_ id: String) -> AnimeShow {
+        AnimeShow(
+            id: id,
+            title: "Downloaded \(id)",
+            japaneseTitle: nil,
+            imageURL: nil,
+            description: "Saved synopsis",
+            type: "TV",
+            status: "Finished Airing",
+            genres: ["action"],
+            episodesCount: 3,
+            subEpisodes: 3,
+            dubEpisodes: 0,
+            season: "Spring 2026",
+            studio: "Asterion",
+            dateAired: nil,
+            malScore: nil,
+            slug: id
+        )
+    }
+
     private static func animeScheduleEntry(_ id: String, passed: Bool) -> AnimeScheduleEntry {
         AnimeScheduleEntry(
             slug: id,
@@ -324,6 +594,82 @@ struct CatalogRequestTests {
             year: nil,
             type: "movie",
             quality: nil
+        )
+    }
+
+    private static func movieShow(_ id: String, type: String) -> MovieShow {
+        MovieShow(
+            slug: id,
+            title: "Downloaded \(id)",
+            type: type,
+            imageURL: nil,
+            description: "Saved synopsis",
+            imdbRating: "8.0",
+            tmdbRating: nil,
+            rottenTomatoes: nil,
+            metacritic: nil,
+            genres: ["Drama"],
+            director: nil,
+            actors: [],
+            duration: "24m",
+            releaseYear: "2026",
+            releaseDate: nil,
+            country: nil,
+            seasons: type == "tv" ? ["1"] : [],
+            streams: []
+        )
+    }
+
+    private static func mediaDownload(
+        animeShow: AnimeShow,
+        episode: AnimeEpisode
+    ) -> MediaDownloadRecord {
+        MediaDownloadRecord(
+            id: "anime:\(animeShow.slug):\(episode.id)",
+            mediaType: .anime,
+            contentID: animeShow.slug,
+            contentTitle: animeShow.title,
+            unitID: episode.id,
+            unitTitle: "Episode \(episode.number)",
+            imageURL: animeShow.imageURL,
+            animeShow: animeShow,
+            animeEpisode: episode,
+            movieShow: nil,
+            movieEpisode: nil,
+            downloadQuality: .p720,
+            phase: .completed,
+            progress: 1,
+            localAssetURL: URL(fileURLWithPath: "/tmp/\(episode.id).movpkg"),
+            subtitleTracks: [],
+            errorMessage: nil,
+            updatedAt: .now
+        )
+    }
+
+    private static func mediaDownload(
+        movieShow: MovieShow,
+        episode: MovieEpisode?
+    ) -> MediaDownloadRecord {
+        let unitID = episode?.id ?? movieShow.slug
+        return MediaDownloadRecord(
+            id: "movie:\(movieShow.slug):\(unitID)",
+            mediaType: .movie,
+            contentID: movieShow.slug,
+            contentTitle: movieShow.title,
+            unitID: unitID,
+            unitTitle: episode?.title ?? movieShow.title,
+            imageURL: movieShow.imageURL,
+            animeShow: nil,
+            animeEpisode: nil,
+            movieShow: movieShow,
+            movieEpisode: episode,
+            downloadQuality: .p720,
+            phase: .completed,
+            progress: 1,
+            localAssetURL: URL(fileURLWithPath: "/tmp/\(unitID).movpkg"),
+            subtitleTracks: [],
+            errorMessage: nil,
+            updatedAt: .now
         )
     }
 
@@ -358,6 +704,27 @@ struct CatalogRequestTests {
 
 private enum CatalogTestError: Error {
     case timedOut
+    case offline
+}
+
+private final class CatalogDateBox: @unchecked Sendable {
+    var now = Date()
+}
+
+private final class CatalogRequestCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    var value: Int {
+        lock.withLock { count }
+    }
+
+    func increment() -> Int {
+        lock.withLock {
+            count += 1
+            return count
+        }
+    }
 }
 
 private final class CatalogURLProtocol: URLProtocol, @unchecked Sendable {
@@ -408,21 +775,37 @@ private final class CatalogURLProtocol: URLProtocol, @unchecked Sendable {
 private actor AnimeCatalogStub: AnimeCatalogServing {
     let pages: [Int: [AnimeTitle]]
     let scheduleDays: [AnimeScheduleDay]
+    let genres: [String]
     let suspendFirstRequest: Bool
+    let failsCatalog: Bool
+    let failsDetail: Bool
     private(set) var latestCallCount = 0
+    private(set) var genreCallCount = 0
+    private var failSeasonAndReleases = false
 
     init(
         pages: [Int: [AnimeTitle]],
         scheduleDays: [AnimeScheduleDay] = [],
-        suspendFirstRequest: Bool = false
+        genres: [String] = [],
+        suspendFirstRequest: Bool = false,
+        failsCatalog: Bool = false,
+        failsDetail: Bool = false
     ) {
         self.pages = pages
         self.scheduleDays = scheduleDays
+        self.genres = genres
         self.suspendFirstRequest = suspendFirstRequest
+        self.failsCatalog = failsCatalog
+        self.failsDetail = failsDetail
+    }
+
+    func failNextSeasonAndReleases() {
+        failSeasonAndReleases = true
     }
 
     func fetchLatest(page: Int) async throws -> [AnimeTitle] {
         latestCallCount += 1
+        if failsCatalog { throw CatalogTestError.offline }
         if suspendFirstRequest, latestCallCount == 1 {
             try await Task.sleep(for: .seconds(30))
         }
@@ -430,17 +813,27 @@ private actor AnimeCatalogStub: AnimeCatalogServing {
     }
 
     func fetchPopular(page: Int) async throws -> [AnimeTitle] { pages[page] ?? [] }
-    func fetchNewReleases(page: Int) async throws -> [AnimeTitle] { pages[page] ?? [] }
+    func fetchNewReleases(page: Int) async throws -> [AnimeTitle] {
+        if failSeasonAndReleases { throw CatalogTestError.offline }
+        return pages[page] ?? []
+    }
     func fetchGenre(_ genre: String, page: Int) async throws -> [AnimeTitle] { pages[page] ?? [] }
-    func fetchSeason(season: String, year: Int, page: Int) async throws -> [AnimeTitle] { pages[page] ?? [] }
+    func fetchSeason(season: String, year: Int, page: Int) async throws -> [AnimeTitle] {
+        if failSeasonAndReleases { throw CatalogTestError.offline }
+        return pages[page] ?? []
+    }
     func fetchType(_ type: String, page: Int) async throws -> [AnimeTitle] { pages[page] ?? [] }
     func fetchStatus(_ status: String, page: Int) async throws -> [AnimeTitle] { pages[page] ?? [] }
     func fetchSchedule(timeZoneHours: Double) async throws -> [AnimeScheduleDay] { scheduleDays }
-    func fetchGenres() async throws -> [String] { [] }
+    func fetchGenres() async throws -> [String] {
+        genreCallCount += 1
+        return genres
+    }
     func search(query: String, page: Int) async throws -> [AnimeTitle] { pages[page] ?? [] }
 
     func fetchShow(slug: String) async throws -> AnimeShow {
-        AnimeShow(
+        if failsDetail { throw CatalogTestError.offline }
+        return AnimeShow(
             id: slug,
             title: slug,
             japaneseTitle: nil,
@@ -466,16 +859,30 @@ private actor AnimeCatalogStub: AnimeCatalogServing {
 
 private actor MovieCatalogStub: MovieCatalogServing {
     let pages: [Int: MovieCatalogPage]
+    let genres: [MovieGenre]
     let suspendFirstRequest: Bool
+    let failsCatalog: Bool
+    let failsDetail: Bool
     private(set) var movieCallCount = 0
+    private(set) var genreCallCount = 0
 
-    init(pages: [Int: MovieCatalogPage], suspendFirstRequest: Bool = false) {
+    init(
+        pages: [Int: MovieCatalogPage],
+        genres: [MovieGenre] = [],
+        suspendFirstRequest: Bool = false,
+        failsCatalog: Bool = false,
+        failsDetail: Bool = false
+    ) {
         self.pages = pages
+        self.genres = genres
         self.suspendFirstRequest = suspendFirstRequest
+        self.failsCatalog = failsCatalog
+        self.failsDetail = failsDetail
     }
 
     func fetchMovies(page: Int) async throws -> MovieCatalogPage {
         movieCallCount += 1
+        if failsCatalog { throw CatalogTestError.offline }
         if suspendFirstRequest, movieCallCount == 1 {
             try await Task.sleep(for: .seconds(30))
         }
@@ -483,17 +890,22 @@ private actor MovieCatalogStub: MovieCatalogServing {
     }
 
     func fetchTV(page: Int) async throws -> MovieCatalogPage {
-        pages[page] ?? MovieCatalogPage(page: page, totalPages: page, results: [])
+        if failsCatalog { throw CatalogTestError.offline }
+        return pages[page] ?? MovieCatalogPage(page: page, totalPages: page, results: [])
     }
 
     func fetchTrendingMovies() async throws -> [MovieTitle] { [] }
     func fetchPopularMovies() async throws -> [MovieTitle] { [] }
     func fetchGenre(_ slug: String, page: Int) async throws -> [MovieTitle] { [] }
-    func fetchGenres() async throws -> [MovieGenre] { [] }
+    func fetchGenres() async throws -> [MovieGenre] {
+        genreCallCount += 1
+        return genres
+    }
     func search(query: String) async throws -> [MovieTitle] { [] }
 
     func fetchShow(slug: String) async throws -> MovieShow {
-        MovieShow(
+        if failsDetail { throw CatalogTestError.offline }
+        return MovieShow(
             slug: slug,
             title: slug,
             type: "movie",

@@ -31,6 +31,8 @@ final class MovieStore: ObservableObject {
     @Published private(set) var titles: [MovieTitle] = []
     @Published private(set) var genres: [MovieGenre] = []
     @Published private(set) var selectedGenre: MovieGenre?
+    @Published private(set) var isLoadingGenres = false
+    @Published private(set) var genreError: String?
     @Published private(set) var selectedTitleID: MovieTitle.ID?
     @Published private(set) var show: MovieShow?
     @Published private(set) var episodes: [MovieEpisode] = []
@@ -48,9 +50,17 @@ final class MovieStore: ObservableObject {
     private var canLoadNextPage = false
     private var detailCache: [String: DetailSnapshot] = [:]
     private var dashboardSelectionID: MovieTitle.ID?
+    private var genreLoadTask: Task<[MovieGenre], Error>?
+    private var offlineDownloads: [MediaDownloadRecord] = []
 
     init(api: any MovieCatalogServing = MovieAPI.shared) {
         self.api = api
+    }
+
+    func updateOfflineDownloads(_ records: [MediaDownloadRecord]) {
+        offlineDownloads = records.filter {
+            $0.mediaType == .movie && $0.isAvailableOffline
+        }
     }
 
     func hasLoadedCatalog(section: MovieSection, query: String) -> Bool {
@@ -135,9 +145,15 @@ final class MovieStore: ObservableObject {
             }
         } catch {
             guard !Task.isCancelled, catalogRequestID == requestID else { return }
-            titles = []
-            catalogError = error.localizedDescription
-            clearSelection()
+            let downloadedTitles = offlineTitles(section: section, query: query)
+            titles = downloadedTitles
+            catalogError = downloadedTitles.isEmpty ? error.localizedDescription : nil
+            if selectsInitialTitle, dashboardSelectionID == nil,
+               let selected = downloadedTitles.first {
+                await select(selected)
+            } else if downloadedTitles.isEmpty {
+                clearSelection()
+            }
         }
     }
 
@@ -154,6 +170,16 @@ final class MovieStore: ObservableObject {
             force: true,
             selectsInitialTitle: false
         )
+    }
+
+    func loadGenresIfNeeded() async {
+        do {
+            try await ensureGenresLoaded()
+        } catch is CancellationError {
+            return
+        } catch {
+            genreError = error.localizedDescription
+        }
     }
 
     func selectGenre(_ genre: MovieGenre, query: String) async {
@@ -216,7 +242,9 @@ final class MovieStore: ObservableObject {
             isLoadingDetail = false
         } catch {
             guard selectedTitleID == title.id else { return }
-            detailError = error.localizedDescription
+            if !loadOfflineDetail(slug: title.slug) {
+                detailError = error.localizedDescription
+            }
             isLoadingDetail = false
         }
     }
@@ -234,6 +262,53 @@ final class MovieStore: ObservableObject {
 
     func retryNextPage(section: MovieSection, query: String) async {
         await loadNextPage(section: section, query: query)
+    }
+
+    private func loadOfflineDetail(slug: String) -> Bool {
+        let records = offlineDownloads.filter { $0.contentID == slug }
+        guard let loadedShow = records.compactMap(\.movieShow).first else { return false }
+
+        show = loadedShow
+        episodes = records.compactMap(\.movieEpisode)
+            .deduplicatedByID()
+            .sorted { ($0.season, $0.number) < ($1.season, $1.number) }
+        detailError = nil
+        return true
+    }
+
+    private func offlineTitles(section: MovieSection, query: String) -> [MovieTitle] {
+        let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let shows = offlineDownloads.compactMap(\.movieShow).deduplicatedByID()
+        return shows.filter { show in
+            guard normalizedQuery.isEmpty
+                    || show.displayTitle.localizedCaseInsensitiveContains(normalizedQuery)
+            else { return false }
+
+            return switch section {
+            case .movies:
+                !show.isSeries
+            case .tvShows:
+                show.isSeries
+            case .genres:
+                selectedGenre == nil || show.genres.contains {
+                    $0.localizedCaseInsensitiveCompare(selectedGenre?.title ?? "") == .orderedSame
+                }
+            default:
+                true
+            }
+        }.map { show in
+            MovieTitle(
+                id: show.slug,
+                slug: show.slug,
+                title: show.title,
+                imageURL: show.imageURL,
+                imdbRating: show.imdbRating,
+                runtime: show.duration,
+                year: show.releaseYear,
+                type: show.type,
+                quality: nil
+            )
+        }
     }
 
     private func fetchTitles(
@@ -258,13 +333,9 @@ final class MovieStore: ObservableObject {
         case .popular:
             return (try await api.fetchPopularMovies(), false)
         case .genres:
-            if genres.isEmpty {
-                let loadedGenres = try await api.fetchGenres()
-                guard !Task.isCancelled, catalogRequestID == requestID else {
-                    throw CancellationError()
-                }
-                genres = loadedGenres
-                selectedGenre = selectedGenre ?? loadedGenres.first
+            try await ensureGenresLoaded()
+            guard !Task.isCancelled, catalogRequestID == requestID else {
+                throw CancellationError()
             }
             guard let selectedGenre else { return ([], false) }
             loadedRequestKey = "\(section.rawValue):\(selectedGenre.slug)"
@@ -322,6 +393,36 @@ final class MovieStore: ObservableObject {
         episodes = []
         detailError = nil
         isLoadingDetail = false
+    }
+
+    private func ensureGenresLoaded() async throws {
+        guard genres.isEmpty else { return }
+
+        let task: Task<[MovieGenre], Error>
+        if let genreLoadTask {
+            task = genreLoadTask
+        } else {
+            let api = self.api
+            let newTask = Task { try await api.fetchGenres() }
+            genreLoadTask = newTask
+            isLoadingGenres = true
+            genreError = nil
+            task = newTask
+        }
+
+        do {
+            let loadedGenres = try await task.value
+            genres = loadedGenres
+            selectedGenre = selectedGenre ?? loadedGenres.first
+            genreError = nil
+            isLoadingGenres = false
+            genreLoadTask = nil
+        } catch {
+            isLoadingGenres = false
+            genreLoadTask = nil
+            genreError = error.localizedDescription
+            throw error
+        }
     }
 
     private func resetPagination() {

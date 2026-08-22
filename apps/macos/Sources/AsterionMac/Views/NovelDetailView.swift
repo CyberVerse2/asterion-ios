@@ -460,6 +460,10 @@ struct NovelDetailView: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .stroke(.white.opacity(0.08))
         }
+        .onHover { hovering in
+            guard hovering else { return }
+            model.prefetchChapter(id: chapter.id)
+        }
     }
 
     private var displayedChapters: [Chapter] {
@@ -567,6 +571,11 @@ struct NovelDetailView: View {
                 chapters = page.chapters
             }
             errorMessage = nil
+            if let progressChapter {
+                model.prefetchChapter(novelID: novel.id, number: progressChapter.chapterNumber + 1)
+            } else if let firstChapter {
+                model.prefetchChapter(id: firstChapter.id)
+            }
         } catch {
             errorMessage = error.localizedDescription
         }

@@ -176,6 +176,10 @@ private struct NativeDirectMediaPlayer: View {
 private struct NativeMediaPlayerView: NSViewRepresentable {
     let player: AVPlayer
 
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
     func makeNSView(context: Context) -> FullFramePlayerView {
         let playerView = FullFramePlayerView()
         playerView.player = player
@@ -187,6 +191,7 @@ private struct NativeMediaPlayerView: NSViewRepresentable {
         playerView.setContentHuggingPriority(.defaultLow, for: .vertical)
         playerView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         playerView.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+        context.coordinator.attach(to: playerView)
         return playerView
     }
 
@@ -197,19 +202,227 @@ private struct NativeMediaPlayerView: NSViewRepresentable {
         playerView.videoGravity = .resizeAspect
     }
 
-    static func dismantleNSView(_ playerView: FullFramePlayerView, coordinator: Void) {
+    static func dismantleNSView(_ playerView: FullFramePlayerView, coordinator: Coordinator) {
+        coordinator.detach()
         playerView.player = nil
+    }
+
+    // AppKit invokes local event monitors on the main thread. The coordinator's
+    // lifecycle is also owned by this main-thread representable.
+    final class Coordinator: NSObject, @unchecked Sendable {
+        private weak var playerView: FullFramePlayerView?
+        private var keyboardMonitor: Any?
+
+        func attach(to playerView: FullFramePlayerView) {
+            self.playerView = playerView
+            guard keyboardMonitor == nil else { return }
+            keyboardMonitor = NSEvent.addLocalMonitorForEvents(
+                matching: [.keyDown, .keyUp]
+            ) { [weak self] event in
+                let eventWindowNumber = event.windowNumber
+                let keyCode = event.keyCode
+                let characters = event.charactersIgnoringModifiers
+                let modifierRawValue = event.modifierFlags.rawValue
+                let isKeyDown = event.type == .keyDown
+                let isKeyUp = event.type == .keyUp
+
+                let shouldConsume = MainActor.assumeIsolated {
+                    guard let self,
+                          let playerView = self.playerView,
+                          let playerWindow = playerView.window,
+                          playerWindow.windowNumber == eventWindowNumber,
+                          playerWindow.isKeyWindow,
+                          !Self.isEditingText(in: playerWindow) else {
+                        return false
+                    }
+                    return playerView.handlesMediaKeyEvent(
+                        keyCode: keyCode,
+                        charactersIgnoringModifiers: characters,
+                        modifiers: NSEvent.ModifierFlags(rawValue: modifierRawValue),
+                        isKeyDown: isKeyDown,
+                        isKeyUp: isKeyUp
+                    )
+                }
+                return shouldConsume ? nil : event
+            }
+        }
+
+        func detach() {
+            if let keyboardMonitor {
+                NSEvent.removeMonitor(keyboardMonitor)
+            }
+            keyboardMonitor = nil
+            playerView = nil
+        }
+
+        deinit {
+            detach()
+        }
+
+        @MainActor
+        private static func isEditingText(in window: NSWindow?) -> Bool {
+            guard let responder = window?.firstResponder else { return false }
+            return responder is NSTextView || responder is NSTextField
+        }
     }
 }
 
 private final class FullFramePlayerView: AVPlayerView {
+    override var acceptsFirstResponder: Bool { true }
+
     override var intrinsicContentSize: NSSize {
         NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        window?.makeFirstResponder(self)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        super.mouseDown(with: event)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        guard handlesMediaKeyEvent(event) else {
+            super.keyDown(with: event)
+            return
+        }
+    }
+
+    override func keyUp(with event: NSEvent) {
+        guard handlesMediaKeyEvent(event) else {
+            super.keyUp(with: event)
+            return
+        }
     }
 
     override func layout() {
         super.layout()
         videoGravity = .resizeAspect
+    }
+
+    fileprivate func handlesMediaKeyEvent(_ event: NSEvent) -> Bool {
+        handlesMediaKeyEvent(
+            keyCode: event.keyCode,
+            charactersIgnoringModifiers: event.charactersIgnoringModifiers,
+            modifiers: event.modifierFlags,
+            isKeyDown: event.type == .keyDown,
+            isKeyUp: event.type == .keyUp
+        )
+    }
+
+    fileprivate func handlesMediaKeyEvent(
+        keyCode: UInt16,
+        charactersIgnoringModifiers: String?,
+        modifiers: NSEvent.ModifierFlags,
+        isKeyDown: Bool,
+        isKeyUp: Bool
+    ) -> Bool {
+        guard let command = NativeMediaKeyboardCommand.resolve(
+            keyCode: keyCode,
+            charactersIgnoringModifiers: charactersIgnoringModifiers,
+            modifiers: modifiers
+        ) else { return false }
+
+        if isKeyDown {
+            perform(command)
+        }
+        return isKeyDown || isKeyUp
+    }
+
+    private func perform(_ command: NativeMediaKeyboardCommand) {
+        guard let player else { return }
+        switch command {
+        case .seek(let offset):
+            let current = player.currentTime().seconds
+            guard current.isFinite else { return }
+            let shouldResume = NativeMediaSeekPolicy.shouldResume(
+                playbackRate: player.rate,
+                timeControlStatus: player.timeControlStatus
+            )
+            let resumeRate = player.rate > 0
+                ? player.rate
+                : max(player.defaultRate, 1)
+            let duration = player.currentItem?.duration.seconds ?? 0
+            let unclampedTarget = max(0, current + offset)
+            let target = duration.isFinite && duration > 0
+                ? min(unclampedTarget, duration)
+                : unclampedTarget
+            player.seek(
+                to: CMTime(seconds: target, preferredTimescale: 600),
+                toleranceBefore: CMTime(seconds: 0.15, preferredTimescale: 600),
+                toleranceAfter: CMTime(seconds: 0.15, preferredTimescale: 600)
+            )
+            if shouldResume {
+                player.playImmediately(atRate: resumeRate)
+            }
+        case .adjustVolume(let amount):
+            player.isMuted = false
+            player.volume = min(1, max(0, player.volume + Float(amount)))
+        case .toggleMute:
+            player.isMuted.toggle()
+        case .togglePlayback:
+            if player.rate > 0 || player.timeControlStatus == .playing {
+                player.pause()
+            } else {
+                player.play()
+            }
+        }
+    }
+}
+
+enum NativeMediaSeekPolicy {
+    static func shouldResume(
+        playbackRate: Float,
+        timeControlStatus: AVPlayer.TimeControlStatus
+    ) -> Bool {
+        playbackRate > 0
+            || timeControlStatus == .playing
+            || timeControlStatus == .waitingToPlayAtSpecifiedRate
+    }
+}
+
+enum NativeMediaKeyboardCommand: Equatable {
+    case seek(Double)
+    case adjustVolume(Double)
+    case toggleMute
+    case togglePlayback
+
+    static func resolve(
+        keyCode: UInt16,
+        charactersIgnoringModifiers: String?,
+        modifiers: NSEvent.ModifierFlags
+    ) -> Self? {
+        let blockedModifiers: NSEvent.ModifierFlags = [.command, .control, .option]
+        guard modifiers.intersection(blockedModifiers).isEmpty else { return nil }
+
+        switch keyCode {
+        case 123:
+            return .seek(-10)
+        case 124:
+            return .seek(10)
+        case 125:
+            return .adjustVolume(-0.1)
+        case 126:
+            return .adjustVolume(0.1)
+        default:
+            break
+        }
+
+        switch charactersIgnoringModifiers?.lowercased() {
+        case " ", "k":
+            return .togglePlayback
+        case "j":
+            return .seek(-10)
+        case "l":
+            return .seek(10)
+        case "m":
+            return .toggleMute
+        default:
+            return nil
+        }
     }
 }
 
@@ -845,14 +1058,14 @@ private struct CaptionedMediaWebView: NSViewRepresentable {
         ) {
             guard message.name == Self.messageName else { return }
             if let error = message.body as? String {
-                Task { @MainActor in onError(error) }
+                report(error)
                 return
             }
             guard let payload = message.body as? [String: Any],
                   let type = payload["type"] as? String else { return }
             if type == "error", let error = payload["message"] as? String {
                 stopPlaybackActivity()
-                Task { @MainActor in onError(error) }
+                report(error)
             } else if type == "playback", let isPlaying = payload["isPlaying"] as? Bool {
                 sleepController.setPlaying(isPlaying, sourceID: "captioned-player")
             } else if type == "ended" {
@@ -882,6 +1095,16 @@ private struct CaptionedMediaWebView: NSViewRepresentable {
 
         func stopPlaybackActivity() {
             sleepController.stopAll()
+        }
+
+        private func report(_ error: String) {
+            let checkpoint = lastSample
+            Task { @MainActor in
+                if let checkpoint {
+                    onProgress(checkpoint)
+                }
+                onError(error)
+            }
         }
     }
 }
@@ -971,6 +1194,7 @@ enum CaptionedMediaDocument {
             });
             player.addEventListener('error', () => {
               post({ type: 'playback', isPlaying: false });
+              reportProgress(true);
               reportError('The video source could not be played.');
             });
             document.querySelectorAll('track').forEach(track => {
@@ -1337,6 +1561,7 @@ private struct RestrictedMediaWebView: NSViewRepresentable {
             guard isActive, !hasReportedFailure else { return }
             hasReportedFailure = true
             stopPlaybackActivity()
+            flushLastProgress()
             onLifecycleEvent(.failed(message))
             Task { @MainActor in onError(message) }
         }
@@ -1553,7 +1778,10 @@ enum EmbeddedMediaProgressScript {
               reportMediaReady(player);
               scheduleSelection();
             });
-            player.addEventListener('error', () => reportMediaError(player));
+            player.addEventListener('error', () => {
+              if (activePlayer === player) emit(player, true);
+              reportMediaError(player);
+            });
             player.addEventListener('timeupdate', () => {
               reportIfSelected(player, false);
             });

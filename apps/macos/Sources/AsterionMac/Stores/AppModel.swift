@@ -11,7 +11,7 @@ private struct MediaOutboxRejectedError: LocalizedError {
 
 @MainActor
 final class AppModel: ObservableObject {
-    private static let offlineDownloadConcurrency = 6
+    private static let offlineDownloadConcurrency = 24
     private static let deviceProgressOwnerID = "device"
 
     private enum AccountErrorSource: CaseIterable {
@@ -54,6 +54,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var progressByNovelID: [String: ReadingProgress] = [:]
     @Published private(set) var downloadedNovelIDs: Set<String> = []
     @Published private(set) var signedInUser: SignedInUser?
+    @Published private(set) var isRestoringAccountSession = true
     @Published private(set) var isLoadingCatalog = false
     @Published private(set) var isUpdatingLibrary = false
     @Published private(set) var offlineDownloadByNovelID: [String: OfflineDownload] = [:]
@@ -84,10 +85,16 @@ final class AppModel: ObservableObject {
     private var progressSaveGenerationByKey: [String: UInt] = [:]
     private var accountErrors: [AccountErrorSource: String] = [:]
     private var retryableAccountErrorReasons: [AccountErrorSource: String] = [:]
+    private static let hasSignedInOnThisMacKey = "asterion.hasSignedInOnThisMac"
+
     private var hasStarted = false
+    private var hasCompletedInitialSessionRestore = false
+    private var isPerformingSessionRestore = false
+    private var sessionRestoreWaiters: [CheckedContinuation<Void, Never>] = []
     private var isSynchronizingSession = false
     private var shouldResynchronizeSession = false
     private var shouldForceSessionResync = false
+    private var synchronizedSessionUser: SignedInUser?
     private var accountBootstrappedOwnerID: String?
     private var authEventsTask: Task<Void, Never>?
     private var networkEventsTask: Task<Void, Never>?
@@ -106,6 +113,18 @@ final class AppModel: ObservableObject {
     }
 
     var isSignedIn: Bool { signedInUser != nil }
+
+    var accountSessionPresentation: AccountSessionPresentation {
+        .resolve(
+            isSignedIn: isSignedIn,
+            isRestoring: isRestoringAccountSession,
+            expectsPersistedSession: hasPreviousAccountSession
+        )
+    }
+
+    private var hasPreviousAccountSession: Bool {
+        UserDefaults.standard.bool(forKey: Self.hasSignedInOnThisMacKey)
+    }
 
     var mediaBookmarks: [MediaBookmark] {
         mediaBookmarksByKey.values.sorted { $0.updatedAt > $1.updatedAt }
@@ -181,17 +200,22 @@ final class AppModel: ObservableObject {
         guard !hasStarted else { return }
         hasStarted = true
 
-        await loadOfflineLibrary()
-        async let catalog: Void = loadCatalog()
-        async let session: Void = restoreSession()
-        _ = await (catalog, session)
+        refreshSignedInUserPresentation()
+        if isSignedIn {
+            isRestoringAccountSession = false
+        }
 
         authEventsTask = Task { @MainActor [weak self] in
             for await _ in Clerk.shared.auth.events {
                 guard let self else { return }
-                await self.synchronizeSession()
+                await synchronizeSession()
             }
         }
+
+        async let session: Void = restoreSession()
+        await loadOfflineLibrary()
+        async let catalog: Void = loadCatalog()
+        _ = await (catalog, session)
 
         let networkUpdates = networkStatus.updates()
         networkEventsTask = Task { @MainActor [weak self] in
@@ -205,6 +229,30 @@ final class AppModel: ObservableObject {
                 await self.synchronizeSession(forceRemote: true)
             }
         }
+    }
+
+    func reconcileAuthenticationState() async {
+        if !hasCompletedInitialSessionRestore || Clerk.shared.user == nil {
+            await restoreSession()
+            return
+        }
+
+        do {
+            try await Clerk.shared.refreshClient()
+        } catch {
+            if Clerk.shared.user == nil {
+                setAccountError(
+                    .authentication,
+                    "The saved account session could not be restored: \(error.localizedDescription)"
+                )
+            }
+        }
+        await synchronizeSession()
+    }
+
+    func retryAccountSessionRestore() async {
+        isRestoringAccountSession = true
+        await restoreSession()
     }
 
     func loadCatalog() async {
@@ -345,6 +393,15 @@ final class AppModel: ObservableObject {
         let chapter = try await api.fetchChapter(novelID: novelID, chapterNumber: number)
         chapterByID[chapter.id] = chapter
         return chapter
+    }
+
+    func prefetchChapter(id: String) {
+        Task { _ = try? await chapter(id: id) }
+    }
+
+    func prefetchChapter(novelID: String, number: Int) {
+        guard number >= 1 else { return }
+        Task { _ = try? await chapter(novelID: novelID, number: number) }
     }
 
     func chapter(id: String) async throws -> Chapter {
@@ -801,6 +858,9 @@ final class AppModel: ObservableObject {
     func signOut() async {
         do {
             try await Clerk.shared.auth.signOut()
+            forgetSignedInSession()
+            isRestoringAccountSession = false
+            hasCompletedInitialSessionRestore = true
             await synchronizeSession(forceRemote: true)
             setAccountError(.signOut, nil)
         } catch {
@@ -809,24 +869,45 @@ final class AppModel: ObservableObject {
     }
 
     private func restoreSession() async {
-        var refreshError: Error?
-        if Clerk.shared.user == nil {
-            do {
-                try await Clerk.shared.refreshClient()
-            } catch {
-                refreshError = error
+        if isPerformingSessionRestore {
+            await withCheckedContinuation { continuation in
+                sessionRestoreWaiters.append(continuation)
             }
+            return
+        }
+
+        isPerformingSessionRestore = true
+        defer {
+            isPerformingSessionRestore = false
+            let waiters = sessionRestoreWaiters
+            sessionRestoreWaiters = []
+            waiters.forEach { $0.resume() }
+        }
+
+        if signedInUser == nil {
+            isRestoringAccountSession = true
+        }
+
+        var refreshError: Error?
+        do {
+            try await Clerk.shared.refreshClient()
+        } catch {
+            refreshError = error
         }
         await synchronizeSession(forceRemote: true)
-        if let refreshError {
+        if let refreshError, signedInUser == nil {
             setAccountError(
                 .authentication,
                 "The saved account session could not be restored: \(refreshError.localizedDescription)"
             )
         }
+
+        isRestoringAccountSession = false
+        hasCompletedInitialSessionRestore = true
     }
 
     private func synchronizeSession(forceRemote: Bool = false) async {
+        refreshSignedInUserPresentation()
         guard !isSynchronizingSession else {
             shouldResynchronizeSession = true
             shouldForceSessionResync = shouldForceSessionResync || forceRemote
@@ -855,7 +936,7 @@ final class AppModel: ObservableObject {
             mediaOutboxTask = nil
             startedMediaSessionIDs = []
             finishMediaHydration(ownerID: nil)
-            signedInUser = nil
+            synchronizedSessionUser = nil
             libraryNovelIDs = []
             mediaBookmarksByKey = [:]
             mediaProgressByKey = [:]
@@ -878,13 +959,10 @@ final class AppModel: ObservableObject {
             return
         }
 
-        let email = clerkUser.emailAddresses.first?.emailAddress
-        let fullName = [clerkUser.firstName, clerkUser.lastName]
-            .compactMap { $0 }
-            .joined(separator: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let name = fullName.isEmpty ? (email ?? "Asterion Reader") : fullName
-        let changesOwner = signedInUser?.id != clerkUser.id
+        let synchronizedUser = Self.signedInUser(from: clerkUser)
+        let email = synchronizedUser.email
+        let name = synchronizedUser.name
+        let changesOwner = synchronizedSessionUser?.id != clerkUser.id
         await progressUploadQueue.cancelAll(exceptOwnerID: clerkUser.id)
         await mediaProgressUploadQueue.cancelAll(exceptOwnerID: clerkUser.id)
         if changesOwner {
@@ -902,14 +980,8 @@ final class AppModel: ObservableObject {
             updatingMediaBookmarkKeys = []
             mediaBookmarkError = nil
         }
-        let synchronizedUser = SignedInUser(
-            id: clerkUser.id,
-            name: name,
-            email: email,
-            imageURL: URL(string: clerkUser.imageUrl)
-        )
-        let accountIsUnchanged = signedInUser == synchronizedUser
-        signedInUser = synchronizedUser
+        let accountIsUnchanged = synchronizedSessionUser == synchronizedUser
+        synchronizedSessionUser = synchronizedUser
 
         do {
             try await loadLocalProgress(ownerID: clerkUser.id)
@@ -982,6 +1054,40 @@ final class AppModel: ObservableObject {
 
     private var progressOwnerID: String {
         signedInUser?.id ?? Self.deviceProgressOwnerID
+    }
+
+    private func refreshSignedInUserPresentation() {
+        let currentUser = Clerk.shared.user.map(Self.signedInUser(from:))
+        if signedInUser != currentUser {
+            signedInUser = currentUser
+        }
+        if currentUser != nil {
+            rememberSignedInSession()
+        }
+    }
+
+    private func rememberSignedInSession() {
+        UserDefaults.standard.set(true, forKey: Self.hasSignedInOnThisMacKey)
+    }
+
+    private func forgetSignedInSession() {
+        UserDefaults.standard.set(false, forKey: Self.hasSignedInOnThisMacKey)
+    }
+
+    private static func signedInUser(from clerkUser: User) -> SignedInUser {
+        let email = clerkUser.emailAddresses.first?.emailAddress
+        let fullName = [clerkUser.firstName, clerkUser.lastName]
+            .compactMap { $0 }
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = fullName.isEmpty ? (email ?? "Asterion Reader") : fullName
+
+        return SignedInUser(
+            id: clerkUser.id,
+            name: name,
+            email: email,
+            imageURL: URL(string: clerkUser.imageUrl)
+        )
     }
 
     private func loadLocalProgress(ownerID: String) async throws {

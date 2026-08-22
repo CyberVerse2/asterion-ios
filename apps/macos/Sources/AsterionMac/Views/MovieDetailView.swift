@@ -609,18 +609,23 @@ struct MovieDetailView: View {
         quality: MediaDownloadQuality
     ) async {
         downloadError = nil
-        var failures: [String] = []
-        for unit in plan.units where selectedIDs.contains(unit.id) {
+        let selections = plan.units.filter { selectedIDs.contains($0.id) }
+        let failures = await ConcurrentBatch.run(
+            selections,
+            maximumConcurrentTasks: 12
+        ) { unit -> String? in
             do {
                 try await mediaDownloads.downloadMovie(
                     show: unit.show,
                     episode: unit.episode,
                     quality: quality
                 )
+                return nil
             } catch {
-                failures.append("\(unit.title): \(error.localizedDescription)")
+                return "\(unit.title): \(error.localizedDescription)"
             }
         }
+        .compactMap { $0 }
         if !failures.isEmpty {
             let summary = failures.prefix(3).joined(separator: "\n")
             let remainder = failures.count - min(3, failures.count)
@@ -854,7 +859,7 @@ struct MovieDetailView: View {
 
 }
 
-private struct MovieDownloadUnit: Identifiable {
+private struct MovieDownloadUnit: Identifiable, Sendable {
     let show: MovieShow
     let episode: MovieEpisode?
 

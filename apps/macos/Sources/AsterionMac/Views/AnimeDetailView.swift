@@ -660,21 +660,29 @@ struct AnimeDetailView: View {
         quality: MediaDownloadQuality
     ) async {
         downloadError = nil
-        var failures: [String] = []
-        for group in plan.groups {
-            for episode in group.episodes
-            where selectedIDs.contains(plannerItemID(show: group.show, episode: episode)) {
-                do {
-                    try await mediaDownloads.downloadAnime(
-                        show: group.show,
-                        episode: episode,
-                        quality: quality
-                    )
-                } catch {
-                    failures.append("\(group.show.displayTitle), episode \(episode.number): \(error.localizedDescription)")
-                }
+        let selections = plan.groups.flatMap { group in
+            group.episodes.compactMap { episode in
+                selectedIDs.contains(plannerItemID(show: group.show, episode: episode))
+                    ? AnimeDownloadSelection(show: group.show, episode: episode)
+                    : nil
             }
         }
+        let failures = await ConcurrentBatch.run(
+            selections,
+            maximumConcurrentTasks: 12
+        ) { selection -> String? in
+            do {
+                try await mediaDownloads.downloadAnime(
+                    show: selection.show,
+                    episode: selection.episode,
+                    quality: quality
+                )
+                return nil
+            } catch {
+                return "\(selection.show.displayTitle), episode \(selection.episode.number): \(error.localizedDescription)"
+            }
+        }
+        .compactMap { $0 }
         if !failures.isEmpty {
             downloadError = downloadFailureMessage(failures)
         }
@@ -826,6 +834,11 @@ struct AnimeDetailView: View {
             content()
         }
     }
+}
+
+private struct AnimeDownloadSelection: Sendable {
+    let show: AnimeShow
+    let episode: AnimeEpisode
 }
 
 private struct AnimeDownloadPlan: Identifiable {

@@ -452,7 +452,9 @@ struct AnimePlayerView: View {
                         .font(.title)
                     Text(error)
                         .multilineTextAlignment(.center)
-                    Button("Try Again") { Task { await store.retryStream() } }
+                    Button("Try Again") {
+                        Task { await retryStreamPreservingProgress() }
+                    }
                 }
                 .foregroundStyle(.white)
                 .padding()
@@ -471,6 +473,7 @@ struct AnimePlayerView: View {
                         requestHeaders: option.requestHeaders,
                         initialPosition: playbackResumePosition,
                         onProgress: { sample in
+                            playbackResumePosition = sample.positionSeconds
                             Task {
                                 await model.recordMediaPlaybackSample(
                                     playback,
@@ -490,6 +493,7 @@ struct AnimePlayerView: View {
                         url: option.url,
                         initialPosition: playbackResumePosition,
                         onProgress: { sample in
+                            playbackResumePosition = sample.positionSeconds
                             Task {
                                 await model.recordMediaPlaybackSample(
                                     playback,
@@ -553,5 +557,13 @@ struct AnimePlayerView: View {
     private func autoplayNextEpisode() {
         guard store.nextEpisode != nil else { return }
         Task { await store.playNext() }
+    }
+
+    private func retryStreamPreservingProgress() async {
+        if let activePlayback {
+            let savedPosition = await model.preparedResumePosition(for: activePlayback)
+            playbackResumePosition = max(playbackResumePosition, savedPosition)
+        }
+        await store.retryStream()
     }
 }
