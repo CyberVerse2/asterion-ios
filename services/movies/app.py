@@ -14,6 +14,7 @@ import flask
 import requests
 
 import db
+from genre_catalog import merge_genres
 import playback
 import soap2day as scraper
 
@@ -279,7 +280,19 @@ def api_playback(slug):
 @app.route("/api/genres")
 @_json_or_error
 def api_genres():
-    return db.get_genres()
+    database_genres = []
+    try:
+        database_genres = db.get_genres()
+    except Exception:
+        app.logger.exception("Database genre lookup failed; using source navigation")
+
+    source_genres = []
+    try:
+        source_genres = [genre.__dict__ for genre in scraper.genres()]
+    except Exception:
+        app.logger.exception("Source genre lookup failed; using database genres")
+
+    return merge_genres(database_genres, source_genres)
 
 
 @app.route("/proxy/hls")
