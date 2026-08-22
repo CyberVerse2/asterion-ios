@@ -42,3 +42,29 @@ struct ReaderSpreadLayoutTests {
         #expect(ReaderSpreadLayout.turnIndex(scrollX: turnUnit, turnUnit: turnUnit, turnCount: turnCount) == 1)
     }
 }
+
+struct ReaderSpreadKeyboardTests {
+    @Test func unmodifiedArrowsAndPagingKeysTurnTheSpread() {
+        #expect(
+            ReaderSpreadKeyboardCommand.resolve(keyCode: 123, modifiers: []) == .turn(-1)
+        )
+        #expect(
+            ReaderSpreadKeyboardCommand.resolve(keyCode: 124, modifiers: []) == .turn(1)
+        )
+        #expect(
+            ReaderSpreadKeyboardCommand.resolve(keyCode: 116, modifiers: []) == .turn(-1)
+        )
+        #expect(
+            ReaderSpreadKeyboardCommand.resolve(keyCode: 121, modifiers: []) == .turn(1)
+        )
+        #expect(
+            ReaderSpreadKeyboardCommand.resolve(keyCode: 49, modifiers: []) == .turn(1)
+        )
+    }
+
+    @Test func commandArrowsStayAvailableForChapterShortcuts() {
+        #expect(
+            ReaderSpreadKeyboardCommand.resolve(keyCode: 124, modifiers: [.command]) == nil
+        )
+    }
+}

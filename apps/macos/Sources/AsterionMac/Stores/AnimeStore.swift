@@ -249,6 +249,12 @@ final class AnimeStore: ObservableObject {
                 page: 1
             ).deduplicatedByID()
         } catch {
+            if Self.isCancellation(error) {
+                if seasonalTitles.isEmpty {
+                    loadedSeasonKey = nil
+                }
+                return
+            }
             if seasonalTitles.isEmpty {
                 seasonError = error.localizedDescription
                 loadedSeasonKey = nil
@@ -271,6 +277,12 @@ final class AnimeStore: ObservableObject {
         do {
             newReleaseTitles = try await api.fetchNewReleases(page: 1).deduplicatedByID()
         } catch {
+            if Self.isCancellation(error) {
+                if newReleaseTitles.isEmpty {
+                    hasLoadedNewReleases = false
+                }
+                return
+            }
             if newReleaseTitles.isEmpty {
                 newReleasesError = error.localizedDescription
                 hasLoadedNewReleases = false
@@ -655,6 +667,10 @@ final class AnimeStore: ObservableObject {
         default:
             section.rawValue
         }
+    }
+
+    private static func isCancellation(_ error: Error) -> Bool {
+        error is CancellationError || (error as? URLError)?.code == .cancelled
     }
 
 }

@@ -3,6 +3,7 @@ import Observation
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
+import AppKit
 
 private enum ReaderTheme: String, CaseIterable, Identifiable {
     case paper
@@ -657,8 +658,6 @@ private struct ReaderWebSpreadView: View {
 
         ZStack {
             WebView(model.page)
-                .scrollIndicators(.hidden)
-                .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
 
             if let loadError = model.loadError {
                 ContentUnavailableView {
@@ -667,6 +666,11 @@ private struct ReaderWebSpreadView: View {
                     Text(loadError)
                 }
                 .background(palette.background)
+            }
+        }
+        .background {
+            ReaderSpreadKeyMonitor { direction in
+                Task { await model.turnPage(direction) }
             }
         }
         .task(id: html) {
@@ -905,6 +909,7 @@ private struct ReaderWebSpreadView: View {
                   afterLayout();
                 }
               };
+              window.__asterionTurnPage = turnPage;
 
               window.addEventListener('wheel', (event) => {
                 if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
@@ -980,6 +985,13 @@ private final class ReaderWebSpreadModel {
             loadError = error.localizedDescription
         }
     }
+
+    func turnPage(_ direction: Int) async {
+        _ = try? await page.callJavaScript(
+            "window.__asterionTurnPage(direction);",
+            arguments: ["direction": direction]
+        )
+    }
 }
 
 @MainActor
@@ -1017,6 +1029,70 @@ private extension String {
             .replacingOccurrences(of: ">", with: "&gt;")
             .replacingOccurrences(of: "\"", with: "&quot;")
             .replacingOccurrences(of: "'", with: "&#39;")
+    }
+}
+
+private struct ReaderSpreadKeyMonitor: NSViewRepresentable {
+    var turn: (Int) -> Void
+
+    func makeNSView(context: Context) -> ReaderSpreadKeyView {
+        let view = ReaderSpreadKeyView()
+        view.turn = turn
+        return view
+    }
+
+    func updateNSView(_ view: ReaderSpreadKeyView, context: Context) {
+        view.turn = turn
+    }
+}
+
+private final class ReaderSpreadKeyView: NSView {
+    var turn: ((Int) -> Void)?
+    private var monitor: Any?
+
+    override var acceptsFirstResponder: Bool { true }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        removeMonitor()
+        guard window != nil else { return }
+        window?.makeFirstResponder(self)
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, self.shouldHandle(event) else { return event }
+            return nil
+        }
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if shouldHandle(event) { return }
+        super.keyDown(with: event)
+    }
+
+    private func shouldHandle(_ event: NSEvent) -> Bool {
+        guard let window, event.windowNumber == window.windowNumber, window.isKeyWindow else {
+            return false
+        }
+        if Self.isEditingText(in: window) { return false }
+        guard case .turn(let direction) = ReaderSpreadKeyboardCommand.resolve(
+            keyCode: event.keyCode,
+            modifiers: event.modifierFlags
+        ) else {
+            return false
+        }
+        turn?(direction)
+        return true
+    }
+
+    private func removeMonitor() {
+        if let monitor {
+            NSEvent.removeMonitor(monitor)
+        }
+        monitor = nil
+    }
+
+    private static func isEditingText(in window: NSWindow) -> Bool {
+        guard let responder = window.firstResponder else { return false }
+        return responder is NSTextView || responder is NSTextField
     }
 }
 

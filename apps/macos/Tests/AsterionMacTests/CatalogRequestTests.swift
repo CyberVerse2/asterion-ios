@@ -183,6 +183,20 @@ struct CatalogRequestTests {
         #expect(store.newReleasesError == nil)
     }
 
+    @Test @MainActor func cancelledAnimeShelfLoadsAreNotSurfacedAsErrors() async {
+        let service = AnimeCatalogStub(pages: [:])
+        let store = AnimeStore(api: service)
+
+        await service.cancelNextSeasonAndReleases()
+        await store.loadCurrentSeason()
+        await store.loadDiscoverNewReleases()
+
+        #expect(store.seasonalTitles.isEmpty)
+        #expect(store.newReleaseTitles.isEmpty)
+        #expect(store.seasonError == nil)
+        #expect(store.newReleasesError == nil)
+    }
+
     @Test @MainActor func animeDetailFallsBackToDownloadedMetadataWhenOffline() async {
         let show = Self.animeShow("offline-anime")
         let episode = AnimeEpisode(id: "offline-anime-episode-3", animeID: show.id, number: 3)
@@ -782,6 +796,7 @@ private actor AnimeCatalogStub: AnimeCatalogServing {
     private(set) var latestCallCount = 0
     private(set) var genreCallCount = 0
     private var failSeasonAndReleases = false
+    private var cancelSeasonAndReleases = false
 
     init(
         pages: [Int: [AnimeTitle]],
@@ -803,6 +818,10 @@ private actor AnimeCatalogStub: AnimeCatalogServing {
         failSeasonAndReleases = true
     }
 
+    func cancelNextSeasonAndReleases() {
+        cancelSeasonAndReleases = true
+    }
+
     func fetchLatest(page: Int) async throws -> [AnimeTitle] {
         latestCallCount += 1
         if failsCatalog { throw CatalogTestError.offline }
@@ -814,11 +833,13 @@ private actor AnimeCatalogStub: AnimeCatalogServing {
 
     func fetchPopular(page: Int) async throws -> [AnimeTitle] { pages[page] ?? [] }
     func fetchNewReleases(page: Int) async throws -> [AnimeTitle] {
+        if cancelSeasonAndReleases { throw CancellationError() }
         if failSeasonAndReleases { throw CatalogTestError.offline }
         return pages[page] ?? []
     }
     func fetchGenre(_ genre: String, page: Int) async throws -> [AnimeTitle] { pages[page] ?? [] }
     func fetchSeason(season: String, year: Int, page: Int) async throws -> [AnimeTitle] {
+        if cancelSeasonAndReleases { throw CancellationError() }
         if failSeasonAndReleases { throw CatalogTestError.offline }
         return pages[page] ?? []
     }
