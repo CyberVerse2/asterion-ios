@@ -1,0 +1,34 @@
+{
+  "name": "Asterion backend services",
+  "user": "ubuntu",
+  "install": "bash .cursor/install.sh",
+  "start": "bash .cursor/start.sh",
+  "terminals": [
+    {
+      "name": "core-api",
+      "command": "cd services/core-api && npm run dev",
+      "description": "Fastify + Drizzle user/content API on http://localhost:3001 (health: /health)."
+    },
+    {
+      "name": "anime",
+      "command": "cd services/anime && MEDIA_PROXY_SIGNING_KEY=\"$(openssl rand -hex 32)\" REDIS_URL=redis://localhost:6379/0 PORT=8080 ./.venv/bin/python app.py",
+      "description": "Anime Flask scraper on http://localhost:8080 (health: /api/health)."
+    },
+    {
+      "name": "movies",
+      "command": "cd services/movies && REDIS_URL=redis://localhost:6379/0 PORT=8081 ./.venv/bin/python app.py",
+      "description": "Movies/TV Flask scraper on http://localhost:8081 (health: /api/health)."
+    },
+    {
+      "name": "football",
+      "command": "cd services/football && PORT=8082 ./.venv/bin/gunicorn --bind 0.0.0.0:8082 --workers 2 --threads 8 --worker-class gthread app:app",
+      "description": "Football Flask scraper on http://localhost:8082 (health: /api/health)."
+    }
+  ],
+  "ports": [
+    { "name": "core-api", "port": 3001 },
+    { "name": "anime", "port": 8080 },
+    { "name": "movies", "port": 8081 },
+    { "name": "football", "port": 8082 }
+  ]
+}
