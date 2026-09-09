@@ -60,7 +60,11 @@ def api_health():
 def api_movies():
     page = int(flask.request.args.get("page", "1"))
     key = f"discovery:movies:page:{page}"
-    return _cached_or_scrape(key, lambda: _paginated_result(scraper.movies(page), page, 464))
+    return _cached_or_scrape(
+        key,
+        lambda: _paginated_result(scraper.movies(page), page, 464),
+        fallback=lambda: db.get_movie_list(page, media_type="movie"),
+    )
 
 
 @app.route("/api/tv")
@@ -68,7 +72,11 @@ def api_movies():
 def api_tv():
     page = int(flask.request.args.get("page", "1"))
     key = f"discovery:tv:page:{page}"
-    return _cached_or_scrape(key, lambda: _paginated_result(scraper.tv_shows(page), page, 100))
+    return _cached_or_scrape(
+        key,
+        lambda: _paginated_result(scraper.tv_shows(page), page, 100),
+        fallback=lambda: db.get_movie_list(page, media_type="tv"),
+    )
 
 
 @app.route("/api/trending/movies")
@@ -88,15 +96,21 @@ def api_trending_tv():
 @app.route("/api/popular/movies")
 @_json_or_error
 def api_popular_movies():
-    return _cached_or_scrape("discovery:popular:movies",
-                            lambda: _search_result_list(scraper.popular_movies()))
+    return _cached_or_scrape(
+        "discovery:popular:movies",
+        lambda: _search_result_list(scraper.popular_movies()),
+        fallback=lambda: db.get_popular("movie").get("results", []),
+    )
 
 
 @app.route("/api/popular/tv")
 @_json_or_error
 def api_popular_tv():
-    return _cached_or_scrape("discovery:popular:tv",
-                            lambda: _search_result_list(scraper.popular_tv()))
+    return _cached_or_scrape(
+        "discovery:popular:tv",
+        lambda: _search_result_list(scraper.popular_tv()),
+        fallback=lambda: db.get_popular("tv").get("results", []),
+    )
 
 
 @app.route("/api/search")
@@ -106,7 +120,11 @@ def api_search():
     if not q:
         return []
     key = f"discovery:search:{q.lower()}"
-    return _cached_or_scrape(key, lambda: _search_result_list(scraper.search(q)))
+    return _cached_or_scrape(
+        key,
+        lambda: _search_result_list(scraper.search(q)),
+        fallback=lambda: db.search_movies(q).get("results", []),
+    )
 
 
 @app.route("/api/episodes")
@@ -122,7 +140,11 @@ def api_episodes():
 def api_genre(genre_slug):
     page = int(flask.request.args.get("page", "1"))
     key = f"discovery:genre:{genre_slug}:page:{page}"
-    return _cached_or_scrape(key, lambda: _search_result_list(scraper.by_genre(genre_slug, page)))
+    return _cached_or_scrape(
+        key,
+        lambda: _search_result_list(scraper.by_genre(genre_slug, page)),
+        fallback=lambda: db.get_by_genre(genre_slug, page).get("results", []),
+    )
 
 
 @app.route("/api/year/<year>")
@@ -381,14 +403,47 @@ def _update_db_from_2embed(imdb_id: str, slug: str, metadata: dict):
         pass
 
 
-def _cached_or_scrape(key: str, fetcher):
+def _has_catalog_results(result) -> bool:
+    if not result:
+        return False
+    if isinstance(result, list):
+        return bool(result)
+    if isinstance(result, dict):
+        if "results" in result:
+            return bool(result.get("results"))
+        return True
+    return True
+
+
+def _cached_or_scrape(key: str, fetcher, fallback=None):
     """Redis-backed lazy cache: scrape on miss, cache for 30 days."""
     cached = db.cache_get(key)
     if cached:
         return cached
-    result = fetcher()
-    db.cache_set(key, result, 30 * 24 * 3600)
-    return result
+
+    scrape_error = None
+    result = None
+    try:
+        result = fetcher()
+    except Exception as error:
+        scrape_error = error
+        app.logger.exception("Live catalog scrape failed")
+
+    if _has_catalog_results(result):
+        db.cache_set(key, result, 30 * 24 * 3600)
+        return result
+
+    if fallback is not None:
+        try:
+            fallback_result = fallback()
+            if _has_catalog_results(fallback_result):
+                return fallback_result
+        except Exception:
+            app.logger.exception("Catalog database fallback failed")
+
+    if scrape_error is not None:
+        raise scrape_error
+    return result if result is not None else []
 
 
 def _pick_best_match(results: list, query: str, title_key: str, year: str = None) -> Optional[str]:

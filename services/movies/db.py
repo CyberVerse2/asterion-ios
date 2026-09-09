@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/movies?schema=public")
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+SOURCE_BASE = "https://ww25.soap2day.day"
 
 _pg_pool: Optional[psycopg2.extensions.connection] = None
 _redis: Optional[redis.Redis] = None
@@ -109,7 +110,7 @@ def get_movie_list(page: int = 1, per_page: int = 30, media_type: str = "movie")
             r = dict(row)
             r["imdb_rating"] = str(r["imdb_rating"]) if r.get("imdb_rating") else None
             r["image_url"] = r.pop("poster_url", None)
-            r["url"] = f"https://uk-soap2day.day/{r['slug']}/"
+            r["url"] = f"{SOURCE_BASE}/{r['slug']}/"
             results.append(r)
 
         return {
@@ -143,7 +144,7 @@ def search_movies(query: str, page: int = 1, per_page: int = 30) -> dict:
             r = dict(row)
             r["imdb_rating"] = str(r["imdb_rating"]) if r.get("imdb_rating") else None
             r["image_url"] = r.pop("poster_url", None)
-            r["url"] = f"https://uk-soap2day.day/{r['slug']}/"
+            r["url"] = f"{SOURCE_BASE}/{r['slug']}/"
             results.append(r)
 
         return {
@@ -176,7 +177,7 @@ def get_popular(media_type: str = "movie", limit: int = 50) -> dict:
             r = dict(row)
             r["imdb_rating"] = str(r["imdb_rating"]) if r.get("imdb_rating") else None
             r["image_url"] = r.pop("poster_url", None)
-            r["url"] = f"https://uk-soap2day.day/{r['slug']}/"
+            r["url"] = f"{SOURCE_BASE}/{r['slug']}/"
             results.append(r)
         return {"results": results, "total_pages": 1, "total": len(results)}
 
@@ -291,7 +292,7 @@ def get_by_genre(genre_slug: str, page: int = 1, per_page: int = 30) -> dict:
             r = dict(row)
             r["imdb_rating"] = str(r["imdb_rating"]) if r.get("imdb_rating") else None
             r["image_url"] = r.pop("poster_url", None)
-            r["url"] = f"https://uk-soap2day.day/{r['slug']}/"
+            r["url"] = f"{SOURCE_BASE}/{r['slug']}/"
             results.append(r)
         return {
             "page": page,

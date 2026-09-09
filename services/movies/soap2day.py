@@ -1,57 +1,60 @@
 """
-Soap2Day scraper — Python with requests + BeautifulSoup.
+Soap2Day scraper — Python with curl_cffi + BeautifulSoup.
 """
 
-import re
 import json
+import os
+import re
+import time as _time
 from dataclasses import dataclass, field
 from typing import Optional
 from urllib.parse import quote_plus, urljoin, urlparse
 
-import requests
 from bs4 import BeautifulSoup
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
+from curl_cffi import requests
 
-BASE = "https://uk-soap2day.day"
-# Domain rotation (uk and au don't use Cloudflare Turnstile, ww25 does)
+# ww25 completes TLS with a Chrome fingerprint. uk-soap2day.day rejects
+# the handshake even with impersonation; keep it last as a last resort.
+BASE = "https://ww25.soap2day.day"
 DOMAINS = [
-    {"url": "https://uk-soap2day.day", "type": "dooplay"},
+    {"url": "https://ww25.soap2day.day", "type": "dooplay"},
     {"url": "https://au-soap2day.day", "type": "dooplay"},
+    {"url": "https://uk-soap2day.day", "type": "dooplay"},
 ]
+MIRROR_HOSTS = tuple(domain["url"] for domain in DOMAINS)
 
 # Rotating residential proxy (prevents IP-based rate limiting)
-PROXY_URL = None  # Set via env var SOAP2DAY_PROXY
-import os as _os
-if _os.environ.get("SOAP2DAY_PROXY"):
-    PROXY_URL = _os.environ["SOAP2DAY_PROXY"]
+PROXY_URL = os.environ.get("SOAP2DAY_PROXY")
+IMPERSONATE = "chrome"
 
 _current_domain = DOMAINS[0]["url"]
 
 
 def _use_mirror(url: str) -> str:
-    """Rewrite known domains to the current mirror if blocked."""
-    if url.startswith(_current_domain):
-        return url
-    for d in DOMAINS:
-        if url.startswith(d["url"]):
-            return url
-    if "soap2day.day" in url:
-        return url.replace("https://ww25.soap2day.day", _current_domain)
+    """Rewrite known Soap2Day hosts to the active mirror."""
+    for host in MIRROR_HOSTS:
+        if url.startswith(host):
+            return _current_domain + url[len(host):]
     return url
 
 
 def _switch_domain():
-    """Rotate to next available domain."""
+    """Rotate to the next available domain."""
     global _current_domain
-    for d in DOMAINS:
-        if d["url"] == _current_domain:
-            idx = DOMAINS.index(d)
-            _current_domain = DOMAINS[(idx + 1) % len(DOMAINS)]["url"]
-            return
+    try:
+        idx = MIRROR_HOSTS.index(_current_domain)
+    except ValueError:
+        _current_domain = MIRROR_HOSTS[0]
+        return
+    _current_domain = MIRROR_HOSTS[(idx + 1) % len(MIRROR_HOSTS)]
+
+
+def _looks_blocked(html: str) -> bool:
+    lowered = (html or "").lower()
+    return "challenge-platform" in lowered or "soap2day — security check" in lowered
+
+
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.9",
 }
 
@@ -134,53 +137,40 @@ class ShowDetail:
 # HTTP helpers
 # ---------------------------------------------------------------------------
 
-_session = requests.Session()
-_session.headers.update(HEADERS)
+def _build_session():
+    session = requests.Session(impersonate=IMPERSONATE)
+    session.headers.update(HEADERS)
+    if PROXY_URL:
+        session.proxies = {"http": PROXY_URL, "https": PROXY_URL}
+    return session
 
-if PROXY_URL:
-    _session.proxies = {"http": PROXY_URL, "https": PROXY_URL}
 
-try:
-    import cloudscraper as _cs
-    _scraper = _cs.create_scraper(
-        browser={"browser": "chrome", "platform": "darwin", "mobile": False},
-        sess=_session,
-    )
-    _scraper.headers.update(HEADERS)
-    _session = _scraper
-except ImportError:
-    pass
-
-_retry_policy = Retry(
-    total=2,
-    connect=2,
-    read=2,
-    status=2,
-    backoff_factor=0.5,
-    status_forcelist=(429, 500, 502, 503, 504),
-    allowed_methods=frozenset({"GET"}),
-    raise_on_status=True,
-)
-_session.mount("https://", HTTPAdapter(max_retries=_retry_policy))
+_session = _build_session()
 
 
 def _get(url: str, timeout: int = 30) -> str:
-    url = _use_mirror(url)
-    resp = _session.get(url, timeout=timeout)
-    if resp.status_code == 403:
-        # Domain rotation handles Cloudflare - proxy helps with IP rate limits
-        _switch_domain()
-        url = _use_mirror(url)
-        kwargs = {"timeout": timeout}
-        if PROXY_URL:
-            kwargs["proxies"] = {"http": PROXY_URL, "https": PROXY_URL}
-        resp = _session.get(url, **kwargs)
-    resp.raise_for_status()
-    return resp.text
+    last_error = None
+    for _ in range(len(DOMAINS)):
+        candidate = _use_mirror(url)
+        try:
+            resp = _session.get(candidate, timeout=timeout, impersonate=IMPERSONATE)
+        except Exception as error:
+            last_error = error
+            _switch_domain()
+            continue
+        if resp.status_code == 403 or _looks_blocked(resp.text):
+            last_error = RuntimeError(f"Blocked by {candidate}")
+            _switch_domain()
+            continue
+        resp.raise_for_status()
+        return resp.text
+    if last_error:
+        raise last_error
+    raise RuntimeError("All soap2day mirrors failed")
 
 
 def _get_json(url: str) -> dict:
-    resp = _session.get(url, timeout=30)
+    resp = _session.get(url, timeout=30, impersonate=IMPERSONATE)
     resp.raise_for_status()
     return resp.json()
 
@@ -281,9 +271,6 @@ def genres() -> list[Genre]:
         seen.add(slug)
         results.append(Genre(slug=slug, title=title))
     return results
-
-
-import time as _time
 
 
 def _cached(key: str, ttl: int, fn):

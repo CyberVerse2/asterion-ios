@@ -113,5 +113,59 @@ class ParseCardsTests(unittest.TestCase):
         self.assertEqual(episodes[0].title, "Episode 1")
 
 
+class MirrorRotationTests(unittest.TestCase):
+    def tearDown(self):
+        soap2day._current_domain = soap2day.DOMAINS[0]["url"]
+
+    def test_rewrites_uk_and_au_hosts_to_the_active_mirror(self):
+        soap2day._current_domain = "https://ww25.soap2day.day"
+        self.assertEqual(
+            soap2day._use_mirror("https://uk-soap2day.day/movies-qfva3/"),
+            "https://ww25.soap2day.day/movies-qfva3/",
+        )
+        self.assertEqual(
+            soap2day._use_mirror("https://au-soap2day.day/series/"),
+            "https://ww25.soap2day.day/series/",
+        )
+
+    def test_detects_cloudflare_security_check_pages(self):
+        self.assertTrue(soap2day._looks_blocked(
+            "<title>Soap2Day — Security Check</title>"
+            "<script src='/cdn-cgi/challenge-platform/h/g/orchestrate'></script>"
+        ))
+        self.assertFalse(soap2day._looks_blocked("<div class='ml-item'>Mayday</div>"))
+
+    def test_get_rotates_off_a_tls_failure(self):
+        calls = []
+
+        class FakeResponse:
+            def __init__(self, url):
+                self.url = url
+                self.status_code = 200
+                self.text = "<html>ok</html>"
+
+            def raise_for_status(self):
+                return None
+
+        def fake_get(url, **_kwargs):
+            calls.append(url)
+            if "uk-soap2day.day" in url:
+                raise soap2day.requests.exceptions.SSLError("handshake failure")
+            return FakeResponse(url)
+
+        original_get = soap2day._session.get
+        soap2day._current_domain = "https://uk-soap2day.day"
+        soap2day._session.get = fake_get
+        try:
+            html = soap2day._get("https://uk-soap2day.day/movies-qfva3/")
+        finally:
+            soap2day._session.get = original_get
+            soap2day._current_domain = soap2day.DOMAINS[0]["url"]
+
+        self.assertEqual(html, "<html>ok</html>")
+        self.assertTrue(any("uk-soap2day.day" in url for url in calls))
+        self.assertTrue(any("uk-soap2day.day" not in url for url in calls))
+
+
 if __name__ == "__main__":
     unittest.main()
