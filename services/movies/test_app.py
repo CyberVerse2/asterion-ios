@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import patch
 
 import app
+import db
 from genre_catalog import merge_genres
 
 
@@ -59,6 +60,33 @@ class CachedCatalogTests(unittest.TestCase):
         result = app._cached_or_scrape("discovery:movies:page:1", lambda: payload)
         self.assertEqual(result, payload)
         cache_set.assert_called_once()
+
+    @patch("app.db.get_movie_list", return_value={"results": []})
+    @patch("app.db.get_popular", return_value={"results": [{"id": "1", "slug": "mayday", "title": "Mayday"}]})
+    def test_trending_uses_database_titles(self, _get_popular, _get_movie_list):
+        self.assertEqual(
+            app._database_titles("movie"),
+            [{"id": "1", "slug": "mayday", "title": "Mayday"}],
+        )
+
+
+class DatabaseTitleTests(unittest.TestCase):
+    def test_maps_poster_and_year_for_the_app(self):
+        title = db._row_to_title({
+            "imdb_id": "tt123",
+            "tmdb_id": None,
+            "title": "Mayday",
+            "slug": "mayday",
+            "poster_url": "https://img.example/mayday.jpg",
+            "release_year": 2024,
+            "runtime": "1h 40min",
+            "imdb_rating": 8.2,
+            "type": "movie",
+        })
+        self.assertEqual(title["id"], "tt123")
+        self.assertEqual(title["year"], "2024")
+        self.assertEqual(title["image_url"], "https://img.example/mayday.jpg")
+        self.assertEqual(title["imdb_rating"], "8.2")
 
 
 if __name__ == "__main__":

@@ -117,15 +117,15 @@ class MirrorRotationTests(unittest.TestCase):
     def tearDown(self):
         soap2day._current_domain = soap2day.DOMAINS[0]["url"]
 
-    def test_rewrites_uk_and_au_hosts_to_the_active_mirror(self):
+    def test_rewrites_au_host_to_the_active_mirror(self):
         soap2day._current_domain = "https://ww25.soap2day.day"
-        self.assertEqual(
-            soap2day._use_mirror("https://uk-soap2day.day/movies-qfva3/"),
-            "https://ww25.soap2day.day/movies-qfva3/",
-        )
         self.assertEqual(
             soap2day._use_mirror("https://au-soap2day.day/series/"),
             "https://ww25.soap2day.day/series/",
+        )
+        self.assertEqual(
+            soap2day._use_mirror("https://ww25.soap2day.day/movies-qfva3/"),
+            "https://ww25.soap2day.day/movies-qfva3/",
         )
 
     def test_detects_cloudflare_security_check_pages(self):
@@ -138,33 +138,24 @@ class MirrorRotationTests(unittest.TestCase):
     def test_get_rotates_off_a_tls_failure(self):
         calls = []
 
-        class FakeResponse:
-            def __init__(self, url):
-                self.url = url
-                self.status_code = 200
-                self.text = "<html>ok</html>"
-
-            def raise_for_status(self):
-                return None
-
-        def fake_get(url, **_kwargs):
+        def fake_plain(url, timeout=12):
             calls.append(url)
-            if "uk-soap2day.day" in url:
+            if "ww25.soap2day.day" in url:
                 raise soap2day.requests.exceptions.SSLError("handshake failure")
-            return FakeResponse(url)
+            return f"ok:{url}"
 
-        original_get = soap2day._session.get
-        soap2day._current_domain = "https://uk-soap2day.day"
-        soap2day._session.get = fake_get
+        original_plain = soap2day._plain_get
+        soap2day._plain_get = fake_plain
+        soap2day._current_domain = "https://ww25.soap2day.day"
         try:
-            html = soap2day._get("https://uk-soap2day.day/movies-qfva3/")
+            html = soap2day._get("https://ww25.soap2day.day/movies-qfva3/")
         finally:
-            soap2day._session.get = original_get
+            soap2day._plain_get = original_plain
             soap2day._current_domain = soap2day.DOMAINS[0]["url"]
 
-        self.assertEqual(html, "<html>ok</html>")
-        self.assertTrue(any("uk-soap2day.day" in url for url in calls))
-        self.assertTrue(any("uk-soap2day.day" not in url for url in calls))
+        self.assertEqual(html, "ok:https://au-soap2day.day/movies-qfva3/")
+        self.assertTrue(any("ww25.soap2day.day" in url for url in calls))
+        self.assertTrue(any("au-soap2day.day" in url for url in calls))
 
 
 if __name__ == "__main__":

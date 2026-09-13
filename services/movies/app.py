@@ -82,15 +82,21 @@ def api_tv():
 @app.route("/api/trending/movies")
 @_json_or_error
 def api_trending_movies():
-    return _cached_or_scrape("discovery:trending:movies",
-                            lambda: _search_result_list(scraper.trending_movies()))
+    return _cached_or_scrape(
+        "discovery:trending:movies",
+        lambda: _search_result_list(scraper.trending_movies()),
+        fallback=lambda: _database_titles("movie"),
+    )
 
 
 @app.route("/api/trending/tv")
 @_json_or_error
 def api_trending_tv():
-    return _cached_or_scrape("discovery:trending:tv",
-                            lambda: _search_result_list(scraper.trending_tv()))
+    return _cached_or_scrape(
+        "discovery:trending:tv",
+        lambda: _search_result_list(scraper.trending_tv()),
+        fallback=lambda: _database_titles("tv"),
+    )
 
 
 @app.route("/api/popular/movies")
@@ -99,7 +105,7 @@ def api_popular_movies():
     return _cached_or_scrape(
         "discovery:popular:movies",
         lambda: _search_result_list(scraper.popular_movies()),
-        fallback=lambda: db.get_popular("movie").get("results", []),
+        fallback=lambda: _database_titles("movie"),
     )
 
 
@@ -109,7 +115,7 @@ def api_popular_tv():
     return _cached_or_scrape(
         "discovery:popular:tv",
         lambda: _search_result_list(scraper.popular_tv()),
-        fallback=lambda: db.get_popular("tv").get("results", []),
+        fallback=lambda: _database_titles("tv"),
     )
 
 
@@ -415,10 +421,17 @@ def _has_catalog_results(result) -> bool:
     return True
 
 
+def _database_titles(media_type: str) -> list[dict]:
+    popular = db.get_popular(media_type).get("results", [])
+    if popular:
+        return popular
+    return db.get_movie_list(1, media_type=media_type).get("results", [])
+
+
 def _cached_or_scrape(key: str, fetcher, fallback=None):
-    """Redis-backed lazy cache: scrape on miss, cache for 30 days."""
+    """Scrape on cache miss. If the live page fails, return Postgres titles."""
     cached = db.cache_get(key)
-    if cached:
+    if _has_catalog_results(cached):
         return cached
 
     scrape_error = None
@@ -479,12 +492,25 @@ def _fmt_rating(val) -> Optional[str]:
         return str(val)
 
 
+def _normalize_title(item) -> dict:
+    if hasattr(item, "__dict__"):
+        payload = item.__dict__.copy()
+    else:
+        payload = dict(item)
+    slug = payload.get("slug") or ""
+    payload["id"] = payload.get("id") or payload.get("imdb_id") or slug
+    if not payload.get("year"):
+        year = payload.get("release_year")
+        payload["year"] = str(year) if year else None
+    return payload
+
+
 def _search_result_list(results) -> list[dict]:
-    return [r.__dict__ for r in results]
+    return [_normalize_title(result) for result in results]
 
 
 def _paginated_result(results, page: int, total: int) -> dict:
-    return {"page": page, "total_pages": total, "results": [r.__dict__ for r in results]}
+    return {"page": page, "total_pages": total, "results": _search_result_list(results)}
 
 
 def _stream_list_for_api(streams) -> list[dict]:

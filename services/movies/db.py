@@ -16,6 +16,27 @@ logger = logging.getLogger(__name__)
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/movies?schema=public")
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 SOURCE_BASE = "https://ww25.soap2day.day"
+_CATALOG_SLUG_SQL = "slug NOT LIKE 'episode/%'"
+
+
+def _row_to_title(row) -> dict:
+    item = dict(row)
+    slug = item.get("slug") or ""
+    year = item.get("release_year") or item.get("year")
+    return {
+        "id": item.get("imdb_id") or slug,
+        "imdb_id": item.get("imdb_id"),
+        "tmdb_id": item.get("tmdb_id"),
+        "slug": slug,
+        "title": item.get("title") or "",
+        "url": f"{SOURCE_BASE}/{slug}/" if slug else "",
+        "image_url": item.get("poster_url") or item.get("image_url"),
+        "imdb_rating": str(item["imdb_rating"]) if item.get("imdb_rating") is not None else None,
+        "runtime": item.get("runtime"),
+        "year": str(year) if year else None,
+        "type": item.get("type"),
+        "quality": item.get("quality"),
+    }
 
 _pg_pool: Optional[psycopg2.extensions.connection] = None
 _redis: Optional[redis.Redis] = None
@@ -96,22 +117,20 @@ def get_movie_list(page: int = 1, per_page: int = 30, media_type: str = "movie")
     offset = (page - 1) * per_page
     pg = get_pg()
     with pg.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute("SELECT COUNT(*) as total FROM movies WHERE type = %s", (media_type,))
+        cur.execute(
+            f"SELECT COUNT(*) as total FROM movies WHERE type = %s AND {_CATALOG_SLUG_SQL}",
+            (media_type,),
+        )
         total = cur.fetchone()["total"]
 
         cur.execute(
             "SELECT imdb_id, tmdb_id, title, slug, poster_url, release_year, "
             "runtime, imdb_rating, type FROM movies "
-            "WHERE type = %s ORDER BY added_at DESC LIMIT %s OFFSET %s",
+            f"WHERE type = %s AND {_CATALOG_SLUG_SQL} "
+            "ORDER BY added_at DESC LIMIT %s OFFSET %s",
             (media_type, per_page, offset),
         )
-        results = []
-        for row in cur.fetchall():
-            r = dict(row)
-            r["imdb_rating"] = str(r["imdb_rating"]) if r.get("imdb_rating") else None
-            r["image_url"] = r.pop("poster_url", None)
-            r["url"] = f"{SOURCE_BASE}/{r['slug']}/"
-            results.append(r)
+        results = [_row_to_title(row) for row in cur.fetchall()]
 
         return {
             "page": page,
@@ -127,7 +146,7 @@ def search_movies(query: str, page: int = 1, per_page: int = 30) -> dict:
     with pg.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         like = f"%{query}%"
         cur.execute(
-            "SELECT COUNT(*) as total FROM movies WHERE title ILIKE %s",
+            f"SELECT COUNT(*) as total FROM movies WHERE title ILIKE %s AND {_CATALOG_SLUG_SQL}",
             (like,),
         )
         total = cur.fetchone()["total"]
@@ -135,17 +154,12 @@ def search_movies(query: str, page: int = 1, per_page: int = 30) -> dict:
         cur.execute(
             "SELECT imdb_id, tmdb_id, title, slug, poster_url, release_year, "
             "runtime, imdb_rating, type FROM movies "
-            "WHERE title ILIKE %s ORDER BY imdb_rating DESC NULLS LAST "
+            f"WHERE title ILIKE %s AND {_CATALOG_SLUG_SQL} "
+            "ORDER BY imdb_rating DESC NULLS LAST "
             "LIMIT %s OFFSET %s",
             (like, per_page, offset),
         )
-        results = []
-        for row in cur.fetchall():
-            r = dict(row)
-            r["imdb_rating"] = str(r["imdb_rating"]) if r.get("imdb_rating") else None
-            r["image_url"] = r.pop("poster_url", None)
-            r["url"] = f"{SOURCE_BASE}/{r['slug']}/"
-            results.append(r)
+        results = [_row_to_title(row) for row in cur.fetchall()]
 
         return {
             "page": page,
@@ -168,17 +182,11 @@ def get_popular(media_type: str = "movie", limit: int = 50) -> dict:
         cur.execute(
             "SELECT imdb_id, tmdb_id, title, slug, poster_url, release_year, "
             "runtime, imdb_rating, type FROM movies "
-            "WHERE type = %s AND imdb_rating IS NOT NULL "
+            f"WHERE type = %s AND imdb_rating IS NOT NULL AND {_CATALOG_SLUG_SQL} "
             "ORDER BY imdb_rating DESC LIMIT %s",
             (media_type, limit),
         )
-        results = []
-        for row in cur.fetchall():
-            r = dict(row)
-            r["imdb_rating"] = str(r["imdb_rating"]) if r.get("imdb_rating") else None
-            r["image_url"] = r.pop("poster_url", None)
-            r["url"] = f"{SOURCE_BASE}/{r['slug']}/"
-            results.append(r)
+        results = [_row_to_title(row) for row in cur.fetchall()]
         return {"results": results, "total_pages": 1, "total": len(results)}
 
 
@@ -274,7 +282,7 @@ def get_by_genre(genre_slug: str, page: int = 1, per_page: int = 30) -> dict:
         cur.execute(
             "SELECT COUNT(*) as total FROM movies m "
             "JOIN movie_genres mg ON m.imdb_id = mg.imdb_id "
-            "WHERE mg.genre_slug = %s",
+            f"WHERE mg.genre_slug = %s AND m.{_CATALOG_SLUG_SQL}",
             (genre_slug,),
         )
         total = cur.fetchone()["total"]
@@ -283,17 +291,12 @@ def get_by_genre(genre_slug: str, page: int = 1, per_page: int = 30) -> dict:
             "SELECT m.imdb_id, m.tmdb_id, m.title, m.slug, m.poster_url, "
             "m.release_year, m.runtime, m.imdb_rating, m.type FROM movies m "
             "JOIN movie_genres mg ON m.imdb_id = mg.imdb_id "
-            "WHERE mg.genre_slug = %s ORDER BY m.imdb_rating DESC NULLS LAST "
+            f"WHERE mg.genre_slug = %s AND m.{_CATALOG_SLUG_SQL} "
+            "ORDER BY m.imdb_rating DESC NULLS LAST "
             "LIMIT %s OFFSET %s",
             (genre_slug, per_page, offset),
         )
-        results = []
-        for row in cur.fetchall():
-            r = dict(row)
-            r["imdb_rating"] = str(r["imdb_rating"]) if r.get("imdb_rating") else None
-            r["image_url"] = r.pop("poster_url", None)
-            r["url"] = f"{SOURCE_BASE}/{r['slug']}/"
-            results.append(r)
+        results = [_row_to_title(row) for row in cur.fetchall()]
         return {
             "page": page,
             "total_pages": max(1, (total + per_page - 1) // per_page),

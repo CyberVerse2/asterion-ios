@@ -1,5 +1,5 @@
 """
-Soap2Day scraper — Python with curl_cffi + BeautifulSoup.
+Soap2Day scraper — Python with requests + BeautifulSoup.
 """
 
 import json
@@ -10,22 +10,20 @@ from dataclasses import dataclass, field
 from typing import Optional
 from urllib.parse import quote_plus, urljoin, urlparse
 
+import requests
 from bs4 import BeautifulSoup
-from curl_cffi import requests
 
-# ww25 completes TLS with a Chrome fingerprint. uk-soap2day.day rejects
-# the handshake even with impersonation; keep it last as a last resort.
+# uk-soap2day.day is dead (TLS reject, then 404). curl_cffi in gunicorn
+# kills the origin on cache misses and Cloudflare returns 502.
 BASE = "https://ww25.soap2day.day"
 DOMAINS = [
     {"url": "https://ww25.soap2day.day", "type": "dooplay"},
     {"url": "https://au-soap2day.day", "type": "dooplay"},
-    {"url": "https://uk-soap2day.day", "type": "dooplay"},
 ]
 MIRROR_HOSTS = tuple(domain["url"] for domain in DOMAINS)
 
 # Rotating residential proxy (prevents IP-based rate limiting)
 PROXY_URL = os.environ.get("SOAP2DAY_PROXY")
-IMPERSONATE = "chrome"
 
 _current_domain = DOMAINS[0]["url"]
 
@@ -55,6 +53,12 @@ def _looks_blocked(html: str) -> bool:
 
 
 HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/131.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.9",
 }
 
@@ -138,7 +142,7 @@ class ShowDetail:
 # ---------------------------------------------------------------------------
 
 def _build_session():
-    session = requests.Session(impersonate=IMPERSONATE)
+    session = requests.Session()
     session.headers.update(HEADERS)
     if PROXY_URL:
         session.proxies = {"http": PROXY_URL, "https": PROXY_URL}
@@ -148,29 +152,30 @@ def _build_session():
 _session = _build_session()
 
 
-def _get(url: str, timeout: int = 30) -> str:
+def _plain_get(url: str, timeout: int = 12) -> str:
+    resp = _session.get(url, timeout=timeout)
+    if resp.status_code == 403 or _looks_blocked(resp.text):
+        raise RuntimeError(f"Blocked by {url}")
+    resp.raise_for_status()
+    return resp.text
+
+
+def _get(url: str, timeout: int = 12) -> str:
     last_error = None
     for _ in range(len(DOMAINS)):
         candidate = _use_mirror(url)
         try:
-            resp = _session.get(candidate, timeout=timeout, impersonate=IMPERSONATE)
+            return _plain_get(candidate, timeout=timeout)
         except Exception as error:
             last_error = error
             _switch_domain()
-            continue
-        if resp.status_code == 403 or _looks_blocked(resp.text):
-            last_error = RuntimeError(f"Blocked by {candidate}")
-            _switch_domain()
-            continue
-        resp.raise_for_status()
-        return resp.text
     if last_error:
         raise last_error
     raise RuntimeError("All soap2day mirrors failed")
 
 
 def _get_json(url: str) -> dict:
-    resp = _session.get(url, timeout=30, impersonate=IMPERSONATE)
+    resp = _session.get(url, timeout=12)
     resp.raise_for_status()
     return resp.json()
 
