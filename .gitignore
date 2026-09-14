@@ -6,6 +6,7 @@
 *.dmg
 __pycache__/
 *.py[cod]
+.venv/
 **/.DS_Store
 **/xcuserdata/
 buildServer.json
