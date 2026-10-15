@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct AnimeCatalogView: View {
+    @Environment(\.asterionTopInset) private var topInset
     @EnvironmentObject private var model: AppModel
     @Environment(\.openWindow) private var openWindow
     @ObservedObject var store: AnimeStore
@@ -17,36 +18,39 @@ struct AnimeCatalogView: View {
     var body: some View {
         Group {
             if normalizedQuery.count == 1 {
-                ContentUnavailableView(
-                    "Keep typing",
+                AsterionEmptyState(
                     systemImage: "character.cursor.ibeam",
-                    description: Text("Enter at least two characters to search anime.")
+                    title: "Keep typing",
+                    message: "Search needs at least two characters to look through anime."
                 )
             } else if section == .schedule, normalizedQuery.isEmpty {
                 scheduleContent
             } else if (store.isLoadingCatalog
                 || !store.hasLoadedCatalog(section: section, query: normalizedQuery)),
                 store.titles.isEmpty {
-                ProgressView(normalizedQuery.isEmpty ? "Curating your shelves…" : "Searching anime…")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if showsHero {
+                    AsterionCatalogSkeleton()
+                } else {
+                    AsterionGridSkeleton()
+                }
             } else if let error = store.catalogError, store.titles.isEmpty {
-                ContentUnavailableView {
-                    Label("Anime unavailable", systemImage: "wifi.exclamationmark")
-                } description: {
-                    Text(error)
-                } actions: {
-                    Button("Try Again") {
+                AsterionEmptyState(
+                    systemImage: "wifi.exclamationmark",
+                    title: "Anime didn’t load",
+                    message: error
+                ) {
+                    Button("Try again") {
                         Task { await store.refresh(section: section, query: query) }
                     }
+                    .buttonStyle(.asterionSecondary)
                 }
             } else if store.titles.isEmpty {
                 emptyState
             } else {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 34) {
-                        if section == .discover, normalizedQuery.isEmpty {
+                    VStack(alignment: .leading, spacing: AsterionLayout.sectionSpacing) {
+                        if showsHero {
                             featuredBanner
-                                .padding(.horizontal, 32)
 
                             if !animeContinueWatching.isEmpty {
                                 continueWatchingShelf
@@ -56,20 +60,10 @@ struct AnimeCatalogView: View {
                             recentlyUpdatedShelf
                             newReleasesShelf
                         } else {
-                            if section == .genres, normalizedQuery.isEmpty, !store.genres.isEmpty {
-                                genreSelection
-                                    .padding(.horizontal, 32)
-                            }
-
-                            if section == .types, normalizedQuery.isEmpty {
-                                typeSelection
-                                    .padding(.horizontal, 32)
-                            }
-
                             shelf
                         }
                     }
-                    .padding(.top, 32)
+                    .padding(.top, showsHero ? 0 : AsterionLayout.catalogContentTop(topInset))
                     .padding(.bottom, 64)
                     .frame(maxWidth: .infinity, alignment: .top)
                 }
@@ -93,9 +87,13 @@ struct AnimeCatalogView: View {
             }
         }
         .onChange(of: store.titles) {
-            let lastFeaturedIndex = max(0, min(8, store.titles.count) - 1)
+            let lastFeaturedIndex = max(0, min(6, store.titles.count) - 1)
             featuredIndex = min(featuredIndex, lastFeaturedIndex)
         }
+    }
+
+    private var showsHero: Bool {
+        section == .discover && normalizedQuery.isEmpty
     }
 
     private var animeContinueWatching: [MediaPlaybackProgress] {
@@ -103,11 +101,11 @@ struct AnimeCatalogView: View {
     }
 
     private var continueWatchingShelf: some View {
-        HomeSection(title: "Continue Watching", subtitle: "Pick up where you left off.") {
+        HomeSection(title: "Continue watching", subtitle: "Pick up where you left off") {
             HomeHorizontalShelf(
                 items: animeContinueWatching,
                 itemWidth: AsterionCardMetrics.landscapeWidth,
-                spacing: 18,
+                spacing: 16,
                 height: AsterionCardMetrics.landscapeShelfHeight
             ) { progress in
                 HomeContinueCard(item: .watching(progress)) {
@@ -119,7 +117,6 @@ struct AnimeCatalogView: View {
                         )
                     )
                 }
-                .padding(.vertical, 3)
             }
         }
     }
@@ -127,30 +124,17 @@ struct AnimeCatalogView: View {
     private var seasonalShelf: some View {
         HomeSection(
             title: store.season.title,
-            subtitle: "Anime airing in the current season."
+            subtitle: "Airing this season"
         ) {
 
             if store.isLoadingSeason, store.seasonalTitles.isEmpty {
-                ProgressView("Loading \(store.season.title)…")
-                    .controlSize(.small)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 24)
+                AsterionSkeletonShelf()
             } else if let error = store.seasonError {
-                HStack(spacing: 12) {
-                    Label(error, systemImage: "exclamationmark.triangle")
-                        .font(.caption)
-                        .foregroundStyle(Color.asterionMuted)
-                    Spacer()
-                    Button("Try Again") {
-                        Task { await store.retryCurrentSeason() }
-                    }
+                shelfNotice(error) {
+                    Task { await store.retryCurrentSeason() }
                 }
-                .padding(.vertical, 12)
             } else if store.seasonalTitles.isEmpty {
-                Text("The anime service returned no titles for \(store.season.title).")
-                    .font(.callout)
-                    .foregroundStyle(Color.asterionMuted)
-                    .padding(.vertical, 12)
+                shelfNotice("No titles are listed for \(store.season.title) yet.", retry: nil)
             } else {
                 horizontalTitleRow(store.seasonalTitles, loadsNextPage: false)
             }
@@ -159,8 +143,8 @@ struct AnimeCatalogView: View {
 
     private var recentlyUpdatedShelf: some View {
         HomeSection(
-            title: "Recently Updated",
-            subtitle: "Fresh episodes, ready when you are."
+            title: "Recently updated",
+            subtitle: "New episodes"
         ) {
             horizontalTitleRow(store.titles, loadsNextPage: true)
         }
@@ -168,35 +152,39 @@ struct AnimeCatalogView: View {
 
     private var newReleasesShelf: some View {
         HomeSection(
-            title: "New Releases",
-            subtitle: "New arrivals across series, films, and specials."
+            title: "New releases",
+            subtitle: "Series, films, and specials"
         ) {
-
             if store.isLoadingNewReleases, store.newReleaseTitles.isEmpty {
-                ProgressView("Loading new releases…")
-                    .controlSize(.small)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 24)
+                AsterionSkeletonShelf()
             } else if let error = store.newReleasesError {
-                HStack(spacing: 12) {
-                    Label(error, systemImage: "exclamationmark.triangle")
-                        .font(.caption)
-                        .foregroundStyle(Color.asterionMuted)
-                    Spacer()
-                    Button("Try Again") {
-                        Task { await store.retryDiscoverNewReleases() }
-                    }
+                shelfNotice(error) {
+                    Task { await store.retryDiscoverNewReleases() }
                 }
-                .padding(.vertical, 12)
             } else if store.newReleaseTitles.isEmpty {
-                Text("The anime service returned no new releases.")
-                    .font(.callout)
-                    .foregroundStyle(Color.asterionMuted)
-                    .padding(.vertical, 12)
+                shelfNotice("No new releases are listed right now.", retry: nil)
             } else {
                 horizontalTitleRow(store.newReleaseTitles, loadsNextPage: false)
             }
         }
+    }
+
+    private func shelfNotice(_ message: String, retry: (() -> Void)?) -> some View {
+        HStack(spacing: 12) {
+            Label(message, systemImage: "exclamationmark.triangle")
+                .font(.system(size: 12.5))
+                .foregroundStyle(Color.asterionMuted)
+                .lineLimit(2)
+            Spacer()
+            if let retry {
+                Button("Try again", action: retry)
+                    .buttonStyle(.asterionSecondary)
+                    .controlSize(.small)
+            }
+        }
+        .padding(16)
+        .asterionPanel(cornerRadius: 12)
+        .padding(.horizontal, AsterionLayout.pageInset)
     }
 
     private func horizontalTitleRow(
@@ -215,7 +203,6 @@ struct AnimeCatalogView: View {
             ) {
                 selectTitle(title)
             }
-            .padding(.vertical, 3)
             .task {
                 guard loadsNextPage else { return }
                 await store.loadNextPageIfNeeded(
@@ -229,30 +216,29 @@ struct AnimeCatalogView: View {
 
     @ViewBuilder
     private var featuredBanner: some View {
-        let featuredTitles = Array(store.titles.prefix(8))
+        let featuredTitles = Array(store.titles.prefix(6))
 
         if !featuredTitles.isEmpty {
             let safeIndex = min(featuredIndex, featuredTitles.count - 1)
             let featuredTitle = featuredTitles[safeIndex]
 
-            AsterionFeatureCard(
+            AsterionHero(
                 imageURL: featuredTitle.imageURL,
-                fallbackSystemImage: "play.rectangle.fill",
-                eyebrow: "FEATURED ANIME",
+                fallbackSystemImage: "play.tv",
+                eyebrow: "Just updated",
                 title: featuredTitle.displayTitle,
                 summary: featuredSynopsis(for: featuredTitle),
-                previous: { moveFeatured(by: -1, titles: featuredTitles, selectedIndex: safeIndex) },
-                next: { moveFeatured(by: 1, titles: featuredTitles, selectedIndex: safeIndex) }
+                index: safeIndex,
+                count: featuredTitles.count,
+                select: { selectFeatured($0, titles: featuredTitles) }
             ) {
-                HStack(spacing: 14) {
-                    Label(featuredTitle.type ?? "Anime", systemImage: "play.fill")
+                HStack(spacing: 8) {
+                    Text(featuredTitle.type ?? "Anime")
                     if let episodeLabel = featuredTitle.episodeLabel {
-                        Label(episodeLabel, systemImage: "text.page")
+                        Text("·")
+                        Text(episodeLabel)
                     }
                 }
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.white.opacity(0.68))
-                .lineLimit(1)
             } actions: {
                 Button {
                     openWindow(
@@ -264,41 +250,55 @@ struct AnimeCatalogView: View {
                     )
                 } label: {
                     Label("Watch now", systemImage: "play.fill")
-                        .font(.headline)
-                        .frame(width: 132)
                 }
-                .buttonStyle(.glassProminent)
-                .buttonBorderShape(.roundedRectangle(radius: 8))
-                .controlSize(.large)
-                .tint(.asterionAccent)
+                .buttonStyle(.asterionPrimary)
+
+                Button { selectTitle(featuredTitle) } label: {
+                    Label("Episodes", systemImage: "list.bullet")
+                }
+                .buttonStyle(.asterionSecondary)
             }
         }
     }
 
-    private func moveFeatured(by offset: Int, titles: [AnimeTitle], selectedIndex: Int) {
-        guard !titles.isEmpty else { return }
-        let destination = (selectedIndex + offset + titles.count) % titles.count
-        featuredIndex = destination
-        Task { await store.select(titles[destination]) }
+    private func selectFeatured(_ index: Int, titles: [AnimeTitle]) {
+        guard titles.indices.contains(index) else { return }
+        featuredIndex = index
+        Task { await store.select(titles[index]) }
     }
 
-    private func featuredSynopsis(for title: AnimeTitle) -> String {
-        guard store.selectedTitleID == title.id else { return "Loading synopsis…" }
-        if let synopsis = store.show?.displayDescription,
-           !synopsis.isEmpty {
-            return synopsis
-        }
-        if store.isLoadingDetail { return "Loading synopsis…" }
-        return "Synopsis unavailable for this title."
+    private func featuredSynopsis(for title: AnimeTitle) -> String? {
+        guard store.selectedTitleID == title.id else { return nil }
+        return store.show?.displayDescription.flatMap { $0.isEmpty ? nil : $0 }
     }
 
     private var shelf: some View {
         VStack(alignment: .leading, spacing: 10) {
             HomeSection(title: shelfTitle, subtitle: shelfSubtitle) {
+                if section == .genres, normalizedQuery.isEmpty, !store.genres.isEmpty {
+                    Picker("Genre", selection: genreBinding) {
+                        ForEach(store.genres, id: \.self) { genre in
+                            Text(displayName(for: genre)).tag(genre)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .fixedSize()
+                } else if section == .types, normalizedQuery.isEmpty {
+                    Picker("Type", selection: typeBinding) {
+                        ForEach(AnimeStore.types, id: \.self) { type in
+                            Text(displayName(for: type)).tag(type)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .fixedSize()
+                }
+            } content: {
                 LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: AsterionCardMetrics.posterWidth, maximum: AsterionCardMetrics.posterWidth), spacing: 18)],
+                    columns: [GridItem(.adaptive(minimum: AsterionCardMetrics.posterWidth, maximum: AsterionCardMetrics.posterWidth), spacing: 20)],
                     alignment: .leading,
-                    spacing: 18
+                    spacing: 28
                 ) {
                     ForEach(store.titles) { title in
                         AnimeTitleTile(
@@ -316,25 +316,21 @@ struct AnimeCatalogView: View {
                         }
                     }
                 }
-                .padding(.horizontal, 32)
+                .padding(.horizontal, AsterionLayout.pageInset)
             }
             paginationStatus
-                .padding(.horizontal, 32)
+                .padding(.horizontal, AsterionLayout.pageInset)
         }
     }
 
     @ViewBuilder
     private var paginationStatus: some View {
         if store.isLoadingNextPage {
-            HStack(spacing: 10) {
-                ProgressView()
-                    .controlSize(.small)
-                Text("Loading more anime…")
-                    .font(.caption)
-                    .foregroundStyle(Color.asterionMuted)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
+            ProgressView()
+                .controlSize(.small)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .accessibilityLabel("Loading more anime")
         } else if let error = store.paginationError {
             HStack(spacing: 10) {
                 Label(error, systemImage: "exclamationmark.triangle")
@@ -342,47 +338,11 @@ struct AnimeCatalogView: View {
                     .foregroundStyle(Color.asterionMuted)
                     .lineLimit(2)
                 Spacer()
-                Button("Try Again") {
+                Button("Try again") {
                     Task { await store.retryNextPage(section: section, query: normalizedQuery) }
                 }
             }
             .padding(.vertical, 10)
-        }
-    }
-
-    private var genreSelection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            AnimeShelfHeader(
-                title: "Choose a Genre",
-                subtitle: "Select a shelf to explore."
-            )
-
-            Picker("Genre", selection: genreBinding) {
-                ForEach(store.genres, id: \.self) { genre in
-                    Text(displayName(for: genre)).tag(genre)
-                }
-            }
-            .labelsHidden()
-            .pickerStyle(.menu)
-            .frame(maxWidth: 220, alignment: .leading)
-        }
-    }
-
-    private var typeSelection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            AnimeShelfHeader(
-                title: "Choose a Type",
-                subtitle: "Narrow the catalog to a release format."
-            )
-
-            Picker("Type", selection: typeBinding) {
-                ForEach(AnimeStore.types, id: \.self) { type in
-                    Text(displayName(for: type)).tag(type)
-                }
-            }
-            .labelsHidden()
-            .pickerStyle(.menu)
-            .frame(maxWidth: 220, alignment: .leading)
         }
     }
 
@@ -405,159 +365,172 @@ struct AnimeCatalogView: View {
     }
 
     private var shelfTitle: String {
-        if !normalizedQuery.isEmpty { return "Search Results" }
+        if !normalizedQuery.isEmpty { return "Results" }
         if section == .genres, let genre = store.selectedGenre { return displayName(for: genre) }
         if section == .types { return displayName(for: store.selectedType) }
         return section.catalogTitle
     }
 
     private var shelfSubtitle: String {
-        if !normalizedQuery.isEmpty { return "Titles matching your search." }
+        if !normalizedQuery.isEmpty { return "Matching “\(normalizedQuery)”" }
         return section.catalogDescription
     }
 
     private var emptyState: some View {
-        ContentUnavailableView {
-            Label("No anime found", systemImage: "magnifyingglass")
-        } description: {
-            Text("Try a different title or category.")
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        AsterionEmptyState(
+            systemImage: "magnifyingglass",
+            title: normalizedQuery.isEmpty ? "Nothing here yet" : "Nothing matches “\(normalizedQuery)”",
+            message: normalizedQuery.isEmpty
+                ? "This shelf is empty right now. Try another section."
+                : "Try a shorter title or the Japanese name."
+        )
         .background(Color.asterionMediaCanvas)
     }
 
     private var scheduleContent: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                AnimeShelfHeader(
-                    title: "Release Schedule",
-                    subtitle: "Times are shown in \(TimeZone.current.localizedName(for: .standard, locale: .current) ?? TimeZone.current.identifier)."
-                )
+            LazyVStack(alignment: .leading, spacing: 34) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("This week")
+                        .font(.asterionTitle(30, weight: .heavy))
+                        .foregroundStyle(Color.asterionText)
+                    Text("Release times in \(TimeZone.current.localizedName(for: .standard, locale: .current) ?? TimeZone.current.identifier)")
+                        .font(.system(size: 13))
+                        .foregroundStyle(Color.asterionMuted)
+                }
 
                 if store.isLoadingSchedule, store.scheduleDays.isEmpty {
-                    ProgressView("Loading this week's schedule…")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, 28)
-                } else if let error = store.scheduleError, store.scheduleDays.isEmpty {
-                    ContentUnavailableView {
-                        Label("Schedule unavailable", systemImage: "calendar.badge.exclamationmark")
-                    } description: {
-                        Text(error)
-                    } actions: {
-                        Button("Try Again") {
-                            Task { await store.retrySchedule() }
+                    VStack(spacing: 10) {
+                        ForEach(0..<6, id: \.self) { _ in
+                            AsterionSkeleton(cornerRadius: 12).frame(height: 54)
                         }
                     }
+                } else if let error = store.scheduleError, store.scheduleDays.isEmpty {
+                    AsterionEmptyState(
+                        systemImage: "calendar.badge.exclamationmark",
+                        title: "The schedule didn’t load",
+                        message: error
+                    ) {
+                        Button("Try again") {
+                            Task { await store.retrySchedule() }
+                        }
+                        .buttonStyle(.asterionSecondary)
+                    }
+                    .frame(height: 360)
                 } else if store.scheduleDays.isEmpty {
-                    ContentUnavailableView(
-                        "No releases scheduled",
+                    AsterionEmptyState(
                         systemImage: "calendar",
-                        description: Text("The anime service has no releases listed for this week.")
+                        title: "Nothing scheduled",
+                        message: "No releases are listed for this week yet."
                     )
+                    .frame(height: 360)
                 } else {
                     ForEach(store.scheduleDays) { day in
                         scheduleDay(day)
                     }
                 }
             }
-            .frame(maxWidth: 920, alignment: .leading)
-            .padding(.horizontal, 28)
-            .padding(.top, 24)
-            .padding(.bottom, 48)
+            .frame(maxWidth: 940, alignment: .leading)
+            .padding(.horizontal, AsterionLayout.pageInset)
+            .padding(.top, AsterionLayout.catalogContentTop(topInset))
+            .padding(.bottom, 64)
             .frame(maxWidth: .infinity, alignment: .top)
         }
         .hidingScrollIndicators()
     }
 
     private func scheduleDay(_ day: AnimeScheduleDay) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(day.label)
-                .font(.asterionDisplay(18, weight: .semibold))
-                .foregroundStyle(Color.asterionText)
+        HStack(alignment: .top, spacing: 28) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(day.label)
+                    .font(.asterionTitle(15, weight: .bold))
+                    .foregroundStyle(Color.asterionText)
+                Text("\(day.entries.count) \(day.entries.count == 1 ? "release" : "releases")")
+                    .font(.asterionMono(11))
+                    .foregroundStyle(Color.asterionFaint)
+            }
+            .frame(width: 128, alignment: .leading)
+            .padding(.top, 14)
 
-            LazyVStack(spacing: 8) {
-                ForEach(day.entries) { entry in
-                    Button {
-                        Task { await store.select(entry) }
-                    } label: {
-                        HStack(spacing: 16) {
-                            Text(entry.time)
-                                .font(.callout.monospacedDigit().weight(.semibold))
-                                .foregroundStyle(Color.asterionAccent)
-                                .frame(width: 58, alignment: .leading)
-
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(entry.displayTitle)
-                                    .font(.body.weight(.medium))
-                                    .foregroundStyle(Color.asterionText)
-                                    .lineLimit(1)
-                                if let japaneseTitle = entry.japaneseTitle, !japaneseTitle.isEmpty {
-                                    Text(japaneseTitle)
-                                        .font(.caption)
-                                        .foregroundStyle(Color.asterionMuted)
-                                        .lineLimit(1)
-                                }
-                            }
-
-                            Spacer(minLength: 12)
-
-                            if let episode = entry.episodeNumber {
-                                Text("Episode \(episode)")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(Color.asterionMuted)
-                                    .padding(.horizontal, 9)
-                                    .padding(.vertical, 5)
-                                    .background(Color.asterionCard, in: Capsule())
-                            }
-
-                            Image(systemName: "chevron.right")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(Color.asterionMuted)
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 11)
-                        .background(Color.asterionSurface.opacity(0.68), in: RoundedRectangle(cornerRadius: 10))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 10)
-                                .stroke(
-                                    store.selectedTitleID == entry.slug
-                                        ? Color.asterionAccent
-                                        : Color.white.opacity(0.06),
-                                    lineWidth: 1
-                                )
-                        }
-                        .contentShape(Rectangle())
+            VStack(spacing: 0) {
+                ForEach(Array(day.entries.enumerated()), id: \.element.id) { index, entry in
+                    scheduleRow(entry)
+                    if index < day.entries.count - 1 {
+                        Rectangle()
+                            .fill(Color.asterionHairline)
+                            .frame(height: 1)
+                            .padding(.leading, 86)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(entry.displayTitle)
-                    .accessibilityValue(
-                        [entry.time, entry.episodeNumber.map { "Episode \($0)" }]
-                            .compactMap { $0 }
-                            .joined(separator: ", ")
-                    )
                 }
             }
+            .asterionPanel(cornerRadius: 14)
         }
+    }
+
+    private func scheduleRow(_ entry: AnimeScheduleEntry) -> some View {
+        let isSelected = store.selectedTitleID == entry.slug
+        return Button {
+            Task { await store.select(entry) }
+        } label: {
+            HStack(spacing: 16) {
+                Text(entry.time)
+                    .font(.asterionMono(14, weight: .semibold))
+                    .foregroundStyle(entry.passed ? Color.asterionFaint : Color.asterionText)
+                    .frame(width: 54, alignment: .leading)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(entry.displayTitle)
+                        .font(.system(size: 13.5, weight: .semibold))
+                        .foregroundStyle(entry.passed ? Color.asterionMuted : Color.asterionText)
+                        .lineLimit(1)
+                    if let japaneseTitle = entry.japaneseTitle, !japaneseTitle.isEmpty {
+                        Text(japaneseTitle)
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(Color.asterionFaint)
+                            .lineLimit(1)
+                    }
+                }
+
+                Spacer(minLength: 12)
+
+                if let episode = entry.episodeNumber {
+                    Text("EP \(episode)")
+                        .font(.asterionMono(11, weight: .semibold))
+                        .foregroundStyle(Color.asterionMuted)
+                }
+
+                Text(entry.passed ? "Aired" : "Upcoming")
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .foregroundStyle(entry.passed ? Color.asterionFaint : Color.asterionMediaCanvas)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(
+                        entry.passed ? Color.clear : Color.asterionText,
+                        in: Capsule()
+                    )
+                    .overlay {
+                        if entry.passed {
+                            Capsule().strokeBorder(Color.asterionBorder)
+                        }
+                    }
+                    .frame(width: 74, alignment: .trailing)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(isSelected ? Color.white.opacity(0.06) : .clear)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(entry.displayTitle)
+        .accessibilityValue(
+            [entry.time, entry.episodeNumber.map { "Episode \($0)" }, entry.passed ? "Aired" : "Upcoming"]
+                .compactMap { $0 }
+                .joined(separator: ", ")
+        )
     }
 
     private func displayName(for genre: String) -> String {
         genre.replacingOccurrences(of: "-", with: " ").capitalized
-    }
-}
-
-private struct AnimeShelfHeader: View {
-    let title: String
-    let subtitle: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(title)
-                .font(.asterionDisplay(22, weight: .semibold))
-                .foregroundStyle(Color.asterionText)
-            Text(subtitle)
-                .font(.callout)
-                .foregroundStyle(Color.asterionMuted)
-        }
     }
 }
 
@@ -570,9 +543,9 @@ private struct AnimeTitleTile: View {
     var body: some View {
         AsterionPosterCard(
             imageURL: title.imageURL,
-            badge: "ANIME",
             title: title.displayTitle,
             subtitle: title.episodeLabel ?? title.type ?? "Anime",
+            fallbackSystemImage: "play.tv",
             isSelected: isSelected,
             action: action
         )

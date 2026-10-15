@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct MovieCatalogView: View {
+    @Environment(\.asterionTopInset) private var topInset
     @EnvironmentObject private var model: AppModel
     @Environment(\.openWindow) private var openWindow
     @ObservedObject var store: MovieStore
@@ -17,52 +18,52 @@ struct MovieCatalogView: View {
     var body: some View {
         Group {
             if normalizedQuery.count == 1 {
-                ContentUnavailableView(
-                    "Keep typing",
+                AsterionEmptyState(
                     systemImage: "character.cursor.ibeam",
-                    description: Text("Enter at least two characters to search movies and TV shows.")
+                    title: "Keep typing",
+                    message: "Search needs at least two characters to look through films and series."
                 )
             } else if (store.isLoadingCatalog
                 || !store.hasLoadedCatalog(section: section, query: normalizedQuery)),
                 store.titles.isEmpty {
-                ProgressView(normalizedQuery.isEmpty ? "Curating your screen…" : "Searching…")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if showsHero {
+                    AsterionCatalogSkeleton()
+                } else {
+                    gridSkeleton
+                }
             } else if let error = store.catalogError, store.titles.isEmpty {
-                ContentUnavailableView {
-                    Label("Movies unavailable", systemImage: "wifi.exclamationmark")
-                } description: {
-                    Text(error)
-                } actions: {
-                    Button("Try Again") {
+                AsterionEmptyState(
+                    systemImage: "wifi.exclamationmark",
+                    title: "Films and series didn’t load",
+                    message: error
+                ) {
+                    Button("Try again") {
                         Task { await store.refresh(section: section, query: query) }
                     }
+                    .buttonStyle(.asterionSecondary)
                 }
             } else if store.titles.isEmpty {
-                ContentUnavailableView(
-                    "No titles found",
+                AsterionEmptyState(
                     systemImage: "magnifyingglass",
-                    description: Text("Try a different title or category.")
+                    title: normalizedQuery.isEmpty ? "Nothing here yet" : "Nothing matches “\(normalizedQuery)”",
+                    message: normalizedQuery.isEmpty
+                        ? "This shelf is empty right now. Try another section."
+                        : "Try a shorter title or another section."
                 )
             } else {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 34) {
-                        if section == .discover, normalizedQuery.isEmpty {
+                    VStack(alignment: .leading, spacing: AsterionLayout.sectionSpacing) {
+                        if showsHero {
                             featuredBanner
-                                .padding(.horizontal, 32)
 
                             if !movieContinueWatching.isEmpty {
                                 continueWatchingShelf
                             }
                         }
 
-                        if section == .genres, normalizedQuery.isEmpty, !store.genres.isEmpty {
-                            genreSelection
-                                .padding(.horizontal, 32)
-                        }
-
                         shelf
                     }
-                    .padding(.top, 32)
+                    .padding(.top, showsHero ? 0 : AsterionLayout.catalogContentTop(topInset))
                     .padding(.bottom, 64)
                     .frame(maxWidth: .infinity, alignment: .top)
                 }
@@ -79,20 +80,29 @@ struct MovieCatalogView: View {
             await store.loadCatalog(section: section, query: normalizedQuery)
         }
         .onChange(of: store.titles) {
-            featuredIndex = min(featuredIndex, max(0, min(8, store.titles.count) - 1))
+            featuredIndex = min(featuredIndex, max(0, min(6, store.titles.count) - 1))
         }
     }
+
+    private var showsHero: Bool {
+        section == .discover && normalizedQuery.isEmpty
+    }
+
+    private var gridSkeleton: some View {
+        AsterionGridSkeleton()
+    }
+
 
     private var movieContinueWatching: [MediaPlaybackProgress] {
         model.continueWatching.filter { $0.mediaType == .movie }
     }
 
     private var continueWatchingShelf: some View {
-        HomeSection(title: "Continue Watching", subtitle: "Pick up where you left off.") {
+        HomeSection(title: "Continue watching", subtitle: "Pick up where you left off") {
             HomeHorizontalShelf(
                 items: movieContinueWatching,
                 itemWidth: AsterionCardMetrics.landscapeWidth,
-                spacing: 18,
+                spacing: 16,
                 height: AsterionCardMetrics.landscapeShelfHeight
             ) { progress in
                 HomeContinueCard(item: .watching(progress)) {
@@ -104,39 +114,38 @@ struct MovieCatalogView: View {
                         )
                     )
                 }
-                .padding(.vertical, 3)
             }
         }
     }
 
     @ViewBuilder
     private var featuredBanner: some View {
-        let titles = Array(store.titles.prefix(8))
+        let titles = Array(store.titles.prefix(6))
         if !titles.isEmpty {
             let safeIndex = min(featuredIndex, titles.count - 1)
             let title = titles[safeIndex]
-            let synopsis = featuredSynopsis(for: title)
 
-            AsterionFeatureCard(
+            AsterionHero(
                 imageURL: title.imageURL,
-                fallbackSystemImage: "play.rectangle.fill",
-                eyebrow: "NOW TRENDING",
+                fallbackSystemImage: title.isSeries ? "tv" : "film",
+                eyebrow: title.isSeries ? "Trending series" : "Trending film",
                 title: title.displayTitle,
-                summary: synopsis,
-                previous: { moveFeatured(by: -1, titles: titles, selectedIndex: safeIndex) },
-                next: { moveFeatured(by: 1, titles: titles, selectedIndex: safeIndex) }
+                summary: featuredSynopsis(for: title),
+                index: safeIndex,
+                count: titles.count,
+                select: { selectFeatured($0, titles: titles) }
             ) {
                 featuredMetadataRow(title)
             } actions: {
                 Button { openPlayer(title) } label: {
-                    Label("Watch now", systemImage: "play.fill")
-                        .font(.headline)
-                        .frame(width: 132)
+                    Label("Play", systemImage: "play.fill")
                 }
-                .buttonStyle(.glassProminent)
-                .buttonBorderShape(.roundedRectangle(radius: 8))
-                .controlSize(.large)
-                .tint(.asterionAccent)
+                .buttonStyle(.asterionPrimary)
+
+                Button { selectTitle(title) } label: {
+                    Label("Details", systemImage: "info.circle")
+                }
+                .buttonStyle(.asterionSecondary)
 
                 featuredBookmarkButton(title)
             }
@@ -145,29 +154,29 @@ struct MovieCatalogView: View {
 
     @ViewBuilder
     private func featuredMetadataRow(_ title: MovieTitle) -> some View {
-        HStack(spacing: 14) {
-            if let rating = title.imdbRating, !rating.isEmpty {
-                Label(rating, systemImage: "star.fill")
-            }
-
-            Label(title.isSeries ? "TV Series" : "Movie", systemImage: "play.fill")
+        HStack(spacing: 8) {
+            Text(title.isSeries ? "Series" : "Film")
 
             if let year = title.year, !year.isEmpty {
-                Label(year, systemImage: "calendar")
+                Text("·")
+                Text(year)
+            }
+
+            if let rating = title.imdbRating, !rating.isEmpty {
+                Text("·")
+                Label(rating, systemImage: "star.fill")
+                    .labelStyle(.titleAndIcon)
             }
 
             if let quality = title.quality, !quality.isEmpty {
                 Text(quality.uppercased())
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(.black.opacity(0.82))
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 4)
-                    .background(.white.opacity(0.74), in: RoundedRectangle(cornerRadius: 3))
+                    .font(.system(size: 9.5, weight: .bold).width(.expanded))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(.white.opacity(0.5)))
+                    .padding(.leading, 4)
             }
         }
-        .font(.caption.weight(.medium))
-        .foregroundStyle(.white.opacity(0.68))
-        .lineLimit(1)
     }
 
     private func featuredBookmarkButton(_ title: MovieTitle) -> some View {
@@ -191,44 +200,20 @@ struct MovieCatalogView: View {
             if isUpdating {
                 ProgressView()
                     .controlSize(.small)
-                    .frame(width: 86)
             } else {
-                Label(isSaved ? "Saved" : "Save", systemImage: isSaved ? "bookmark.fill" : "bookmark")
-                    .frame(width: 86)
+                Image(systemName: isSaved ? "bookmark.fill" : "bookmark")
             }
         }
-        .buttonStyle(.bordered)
-        .buttonBorderShape(.roundedRectangle(radius: 8))
-        .controlSize(.large)
+        .buttonStyle(.asterionSecondary)
         .disabled(isUpdating)
-        .help(isSaved ? "Remove from saved movies" : "Save this title to your account")
+        .help(isSaved ? "Remove from saved" : "Save to your account")
+        .accessibilityLabel(isSaved ? "Remove from saved" : "Save")
     }
 
-    private func moveFeatured(
-        by offset: Int,
-        titles: [MovieTitle],
-        selectedIndex: Int
-    ) {
-        guard !titles.isEmpty else { return }
-        let destination = (selectedIndex + offset + titles.count) % titles.count
-        featuredIndex = destination
-        Task {
-            await store.select(titles[destination])
-        }
-    }
-
-    private var genreSelection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            shelfHeader(title: "Choose a Genre", subtitle: "Select a shelf to explore.")
-            Picker("Genre", selection: genreBinding) {
-                ForEach(store.genres) { genre in
-                    Text(genre.title).tag(genre)
-                }
-            }
-            .labelsHidden()
-            .pickerStyle(.menu)
-            .frame(maxWidth: 240, alignment: .leading)
-        }
+    private func selectFeatured(_ index: Int, titles: [MovieTitle]) {
+        guard titles.indices.contains(index) else { return }
+        featuredIndex = index
+        Task { await store.select(titles[index]) }
     }
 
     private var genreBinding: Binding<MovieGenre> {
@@ -241,7 +226,18 @@ struct MovieCatalogView: View {
     private var shelf: some View {
         VStack(alignment: .leading, spacing: 10) {
             HomeSection(title: shelfTitle, subtitle: shelfSubtitle) {
-                if section == .discover, normalizedQuery.isEmpty {
+                if section == .genres, normalizedQuery.isEmpty, !store.genres.isEmpty {
+                    Picker("Genre", selection: genreBinding) {
+                        ForEach(store.genres) { genre in
+                            Text(genre.title).tag(genre)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .fixedSize()
+                }
+            } content: {
+                if showsHero {
                     HomeHorizontalShelf(
                         items: store.titles,
                         itemWidth: AsterionCardMetrics.posterWidth,
@@ -252,36 +248,38 @@ struct MovieCatalogView: View {
                     }
                 } else {
                     LazyVGrid(
-                        columns: [GridItem(.adaptive(minimum: AsterionCardMetrics.posterWidth, maximum: AsterionCardMetrics.posterWidth), spacing: 18)],
+                        columns: [GridItem(.adaptive(minimum: AsterionCardMetrics.posterWidth, maximum: AsterionCardMetrics.posterWidth), spacing: 20)],
                         alignment: .leading,
-                        spacing: 18
+                        spacing: 28
                     ) {
                         ForEach(store.titles) { title in
                             movieTile(title)
                         }
                     }
-                    .padding(.horizontal, 32)
+                    .padding(.horizontal, AsterionLayout.pageInset)
                 }
             }
 
             Group {
                 if store.isLoadingNextPage {
-                    ProgressView("Loading more titles…")
+                    ProgressView()
                         .controlSize(.small)
                         .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .accessibilityLabel("Loading more titles")
                 } else if let error = store.paginationError {
                     HStack {
                         Label(error, systemImage: "exclamationmark.triangle")
                             .font(.caption)
                             .foregroundStyle(Color.asterionMuted)
                         Spacer()
-                        Button("Try Again") {
+                        Button("Try again") {
                             Task { await store.retryNextPage(section: section, query: normalizedQuery) }
                         }
                     }
                 }
             }
-            .padding(.horizontal, 32)
+            .padding(.horizontal, AsterionLayout.pageInset)
         }
     }
 
@@ -301,43 +299,20 @@ struct MovieCatalogView: View {
         }
     }
 
-    private func shelfHeader(title: String, subtitle: String) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(title)
-                .font(.asterionDisplay(22, weight: .semibold))
-            Text(subtitle)
-                .font(.callout)
-                .foregroundStyle(Color.asterionMuted)
-        }
-    }
-
     private var shelfTitle: String {
-        if !normalizedQuery.isEmpty { return "Search Results" }
+        if !normalizedQuery.isEmpty { return "Results" }
         if section == .genres, let genre = store.selectedGenre { return genre.title }
         return section.catalogTitle
     }
 
     private var shelfSubtitle: String {
-        normalizedQuery.isEmpty ? section.catalogDescription : "Titles matching your search."
+        normalizedQuery.isEmpty ? section.catalogDescription : "Matching “\(normalizedQuery)”"
     }
 
-    private func featuredMetadata(_ title: MovieTitle) -> String {
-        [title.year, title.isSeries ? "TV Series" : "Movie", title.imdbRating.map { "IMDb \($0)" }]
-            .compactMap { $0 }
-            .joined(separator: " · ")
-    }
-
-    private func featuredSynopsis(for title: MovieTitle) -> String {
-        guard store.selectedTitleID == title.id else { return "Loading synopsis…" }
-
+    private func featuredSynopsis(for title: MovieTitle) -> String? {
+        guard store.selectedTitleID == title.id else { return nil }
         let synopsis = store.show?.description?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let synopsis, !synopsis.isEmpty {
-            return synopsis
-        }
-        if store.isLoadingDetail {
-            return "Loading synopsis…"
-        }
-        return "Synopsis unavailable for this title."
+        return synopsis.flatMap { $0.isEmpty ? nil : $0 }
     }
 
     private func openPlayer(_ title: MovieTitle) {
@@ -359,11 +334,11 @@ private struct MovieTitleTile: View {
     var body: some View {
         AsterionPosterCard(
             imageURL: title.imageURL,
-            badge: title.isSeries ? "SERIES" : "MOVIE",
             title: title.displayTitle,
-            subtitle: [title.isSeries ? "TV Series" : "Movie", title.year]
+            subtitle: [title.isSeries ? "Series" : "Film", title.year]
                 .compactMap { $0 }
                 .joined(separator: " · "),
+            fallbackSystemImage: title.isSeries ? "tv" : "film",
             isSelected: isSelected,
             action: action
         )

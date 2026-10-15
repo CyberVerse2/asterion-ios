@@ -28,20 +28,25 @@ struct ReaderChapterPicker: View {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .firstTextBaseline) {
                     Text("Chapters")
-                        .font(.system(size: 17, weight: .semibold))
+                        .font(.asterionTitle(16, weight: .bold))
                         .foregroundStyle(palette.text)
+                        .accessibilityAddTraits(.isHeader)
                     Spacer()
                     Text(chapters.count.formatted())
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .font(.asterionMono(11, weight: .medium))
                         .foregroundStyle(palette.faint)
+                        .accessibilityLabel("\(chapters.count) chapters")
                     Button(action: onClose) {
                         Image(systemName: "xmark")
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(.system(size: 10, weight: .bold))
                             .foregroundStyle(palette.muted)
                             .frame(width: 24, height: 24)
+                            .background(palette.text.opacity(0.06), in: Circle())
+                            .contentShape(Circle())
                     }
                     .buttonStyle(.plain)
                     .help("Close chapters")
+                    .accessibilityLabel("Close chapters")
                 }
 
                 HStack(spacing: 8) {
@@ -62,13 +67,13 @@ struct ReaderChapterPicker: View {
                         .help("Clear search")
                     }
                 }
-                .padding(.horizontal, 10)
+                .padding(.horizontal, 12)
                 .frame(height: 34)
                 .background {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(palette.text.opacity(0.055))
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(palette.border, lineWidth: 0.75)
+                    Capsule()
+                        .fill(palette.text.opacity(0.05))
+                    Capsule()
+                        .strokeBorder(palette.border, lineWidth: 1)
                 }
             }
             .padding(16)
@@ -80,12 +85,20 @@ struct ReaderChapterPicker: View {
             ScrollViewReader { proxy in
                 Group {
                     if filteredChapters.isEmpty {
-                        ContentUnavailableView {
-                            Label("No chapters found", systemImage: "magnifyingglass")
-                        } description: {
+                        VStack(spacing: 8) {
+                            Image(systemName: "magnifyingglass")
+                                .font(.system(size: 22, weight: .light))
+                                .foregroundStyle(palette.faint)
+                            Text("No chapters found")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(palette.text)
                             Text("Try a chapter number or title.")
+                                .font(.system(size: 12.5))
+                                .foregroundStyle(palette.muted)
                         }
-                        .foregroundStyle(palette.muted)
+                        .multilineTextAlignment(.center)
+                        .padding(24)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
                         ScrollView {
                             LazyVStack(spacing: 2) {
@@ -126,33 +139,16 @@ struct ReaderChapterPicker: View {
         return Button {
             onSelect(item.index)
         } label: {
-            HStack(spacing: 12) {
-                Text(item.chapter.chapterNumber.formatted())
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    .foregroundStyle(isSelected ? palette.text : palette.faint)
-                    .frame(width: 42, alignment: .trailing)
-
-                Text(item.chapter.displayTitle)
-                    .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
-                    .foregroundStyle(isSelected ? palette.text : palette.muted)
-                    .lineLimit(2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                if isSelected {
-                    Image(systemName: "book.fill")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(palette.text)
-                }
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 9)
-            .background {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isSelected ? palette.text.opacity(0.10) : .clear)
-            }
-            .contentShape(Rectangle())
+            ReaderChapterRowLabel(
+                number: item.chapter.chapterNumber.formatted(),
+                title: item.chapter.displayTitle,
+                isSelected: isSelected,
+                palette: palette
+            )
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("Chapter \(item.chapter.chapterNumber), \(item.chapter.displayTitle)")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
         .onHover { hovering in
             guard hovering else { return }
             model.prefetchChapter(id: item.chapter.id)
@@ -178,4 +174,44 @@ private struct IndexedChapter: Identifiable {
     let chapter: Chapter
 
     var id: String { chapter.id }
+}
+
+private struct ReaderChapterRowLabel: View {
+    let number: String
+    let title: String
+    let isSelected: Bool
+    let palette: ReaderPalette
+
+    @State private var isHovering = false
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Text(number)
+                .font(.asterionMono(11, weight: .medium))
+                .foregroundStyle(isSelected ? palette.text : palette.faint)
+                .frame(width: 42, alignment: .trailing)
+
+            Text(title)
+                .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
+                .foregroundStyle(isSelected ? palette.text : palette.muted)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            if isSelected {
+                Circle()
+                    .fill(palette.text)
+                    .frame(width: 5, height: 5)
+                    .accessibilityHidden(true)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 9)
+        .background {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(palette.text.opacity(isSelected ? 0.10 : (isHovering ? 0.05 : 0)))
+        }
+        .contentShape(Rectangle())
+        .onHover { isHovering = $0 }
+        .animation(.easeOut(duration: 0.12), value: isHovering)
+    }
 }

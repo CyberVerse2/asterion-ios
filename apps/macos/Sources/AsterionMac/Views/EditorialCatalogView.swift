@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct EditorialCatalogView: View {
+    @Environment(\.asterionTopInset) private var topInset
     @EnvironmentObject private var model: AppModel
     let section: AppSection
     let novels: [Novel]
@@ -12,52 +13,52 @@ struct EditorialCatalogView: View {
     var body: some View {
         Group {
             if (model.isLoadingCatalog || model.catalogState == .idle), novels.isEmpty {
-                ProgressView("Curating your shelves…")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if showsHero {
+                    AsterionCatalogSkeleton()
+                } else {
+                    AsterionGridSkeleton()
+                }
             } else if novels.isEmpty {
                 emptyState
             } else {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 34) {
+                    VStack(alignment: .leading, spacing: AsterionLayout.sectionSpacing) {
                         if isSearching {
                             shelf(
-                                title: "Search Results",
-                                subtitle: "Titles matching your search.",
+                                title: "Results",
+                                subtitle: "\(novels.count) novels",
                                 novels: novels,
                                 usesVerticalGrid: true
                             )
                         } else if section == .discover {
                             featuredCard
-                                .padding(.horizontal, 32)
-
-                            shelf(
-                                title: "Featured",
-                                subtitle: "Handpicked stories worth your time.",
-                                novels: model.featuredNovels
-                            )
 
                             if !model.continueReadingEntries.isEmpty {
                                 continueReadingShelf
                             }
 
                             shelf(
-                                title: "Trending This Week",
-                                subtitle: "Stories readers keep returning to.",
+                                title: "Featured",
+                                subtitle: "Chosen for this week",
+                                novels: model.featuredNovels
+                            )
+
+                            shelf(
+                                title: "Trending",
+                                subtitle: "What readers keep returning to",
                                 novels: model.trendingNovels
                             )
                         } else {
                             shelf(
-                                title: section.title,
-                                subtitle: section == .rankings
-                                    ? "The most-loved stories in Asterion."
-                                    : "Your saved stories, ready whenever you are.",
+                                title: "Rankings",
+                                subtitle: "The most-read novels on Asterion",
                                 novels: novels,
                                 showsRank: section == .rankings,
                                 usesVerticalGrid: true
                             )
                         }
                     }
-                    .padding(.top, 32)
+                    .padding(.top, showsHero ? 0 : AsterionLayout.catalogContentTop(topInset))
                     .padding(.bottom, 64)
                     .frame(maxWidth: .infinity, alignment: .top)
                 }
@@ -66,64 +67,61 @@ struct EditorialCatalogView: View {
         }
         .background(Color.asterionMediaCanvas)
         .onChange(of: model.featuredNovels) {
-            featuredIndex = min(featuredIndex, max(0, min(8, model.featuredNovels.count) - 1))
+            featuredIndex = min(featuredIndex, max(0, min(6, model.featuredNovels.count) - 1))
         }
+    }
+
+    private var showsHero: Bool {
+        section == .discover && !isSearching
     }
 
     @ViewBuilder
     private var featuredCard: some View {
-        let novels = Array(model.featuredNovels.prefix(8))
+        let novels = Array(model.featuredNovels.prefix(6))
         if !novels.isEmpty {
             let safeIndex = min(featuredIndex, novels.count - 1)
             let novel = novels[safeIndex]
-            AsterionFeatureCard(
+            let isSaved = model.libraryNovelIDs.contains(novel.id)
+            AsterionHero(
                 imageURL: novel.imageURL.flatMap(URL.init(string:)),
-                fallbackSystemImage: "book.closed.fill",
-                eyebrow: "FEATURED NOVEL",
+                fallbackSystemImage: "book.closed",
+                eyebrow: novel.genres?.first.map { "Featured \($0)" } ?? "Featured novel",
                 title: novel.title,
                 summary: novel.summary
                     .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                    .flatMap { $0.isEmpty ? nil : $0 }
-                    ?? "A handpicked story from the Asterion library.",
-                previous: { moveFeatured(by: -1, novels: novels, selectedIndex: safeIndex) },
-                next: { moveFeatured(by: 1, novels: novels, selectedIndex: safeIndex) }
+                    .flatMap { $0.isEmpty ? nil : $0 },
+                index: safeIndex,
+                count: novels.count,
+                select: { featuredIndex = $0 }
             ) {
-                HStack(spacing: 14) {
-                    Label(novel.authorDisplayName, systemImage: "person.fill")
-                    if let genre = novel.genres?.first {
-                        Label(genre, systemImage: "book.closed")
-                    }
+                HStack(spacing: 8) {
+                    Text(novel.authorDisplayName)
                     if let rating = novel.rating {
+                        Text("·")
                         Label(String(format: "%.1f", rating), systemImage: "star.fill")
                     }
+                    if let chapters = novel.totalChapters, let count = Int(chapters), count > 0 {
+                        Text("·")
+                        Text("\(count.formatted()) chapters")
+                    }
                 }
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.white.opacity(0.68))
-                .lineLimit(1)
             } actions: {
                 Button { open(novel) } label: {
                     Label("View novel", systemImage: "book.pages")
-                        .font(.headline)
-                        .frame(width: 132)
                 }
-                .buttonStyle(.glassProminent)
-                .buttonBorderShape(.roundedRectangle(radius: 8))
-                .controlSize(.large)
-                .tint(.asterionAccent)
+                .buttonStyle(.asterionPrimary)
 
                 Button {
                     Task { await model.toggleLibrary(novelID: novel.id) }
                 } label: {
                     Label(
-                        model.libraryNovelIDs.contains(novel.id) ? "Saved" : "Save",
-                        systemImage: model.libraryNovelIDs.contains(novel.id) ? "bookmark.fill" : "bookmark"
+                        isSaved ? "In library" : "Add to library",
+                        systemImage: isSaved ? "checkmark" : "plus"
                     )
-                    .frame(width: 86)
                 }
-                .buttonStyle(.bordered)
-                .buttonBorderShape(.roundedRectangle(radius: 8))
-                .controlSize(.large)
+                .buttonStyle(.asterionSecondary)
                 .disabled(!model.isSignedIn || model.isUpdatingLibrary)
+                .help(model.isSignedIn ? "" : "Sign in to keep a library")
             }
         }
     }
@@ -131,11 +129,6 @@ struct EditorialCatalogView: View {
     private func open(_ novel: Novel) {
         selectedNovelID = novel.id
         selectNovel(novel)
-    }
-
-    private func moveFeatured(by offset: Int, novels: [Novel], selectedIndex: Int) {
-        guard !novels.isEmpty else { return }
-        featuredIndex = (selectedIndex + offset + novels.count) % novels.count
     }
 
     private func shelf(
@@ -148,15 +141,15 @@ struct EditorialCatalogView: View {
         HomeSection(title: title, subtitle: subtitle) {
             if usesVerticalGrid {
                 LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: AsterionCardMetrics.posterWidth, maximum: AsterionCardMetrics.posterWidth), spacing: 18)],
+                    columns: [GridItem(.adaptive(minimum: AsterionCardMetrics.posterWidth, maximum: AsterionCardMetrics.posterWidth), spacing: 20)],
                     alignment: .leading,
-                    spacing: 18
+                    spacing: 28
                 ) {
                     ForEach(novels) { novel in
                         bookTile(novel, showsRank: showsRank)
                     }
                 }
-                .padding(.horizontal, 32)
+                .padding(.horizontal, AsterionLayout.pageInset)
             } else {
                 HomeHorizontalShelf(
                     items: novels,
@@ -165,7 +158,6 @@ struct EditorialCatalogView: View {
                     height: AsterionCardMetrics.posterShelfHeight
                 ) { novel in
                     bookTile(novel, showsRank: showsRank)
-                        .padding(.vertical, 3)
                 }
             }
         }
@@ -184,11 +176,11 @@ struct EditorialCatalogView: View {
     }
 
     private var continueReadingShelf: some View {
-        HomeSection(title: "Continue Reading", subtitle: "Pick up where you left off.") {
+        HomeSection(title: "Continue reading", subtitle: "Pick up where you left off") {
             HomeHorizontalShelf(
                 items: model.continueReadingEntries,
                 itemWidth: AsterionCardMetrics.landscapeWidth,
-                spacing: 18,
+                spacing: 16,
                 height: AsterionCardMetrics.landscapeShelfHeight
             ) { entry in
                 HomeContinueCard(
@@ -198,7 +190,6 @@ struct EditorialCatalogView: View {
                     selectedNovelID = entry.novel.id
                     selectNovel(entry.novel)
                 }
-                .padding(.vertical, 3)
                 .contextMenu { libraryContextMenu(for: entry.novel) }
             }
         }
@@ -213,12 +204,13 @@ struct EditorialCatalogView: View {
     }
 
     private var emptyState: some View {
-        ContentUnavailableView {
-            Label("No novels found", systemImage: "magnifyingglass")
-        } description: {
-            Text("Try a different title, author, or genre.")
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        AsterionEmptyState(
+            systemImage: isSearching ? "magnifyingglass" : "books.vertical",
+            title: isSearching ? "No novels match" : "No novels yet",
+            message: isSearching
+                ? "Try a shorter title, an author, or a genre."
+                : "The novel catalog is empty right now. Check your connection and reopen this page."
+        )
         .background(Color.asterionMediaCanvas)
     }
 }
@@ -233,9 +225,10 @@ private struct EditorialBookTile: View {
     var body: some View {
         AsterionPosterCard(
             imageURL: novel.imageURL.flatMap(URL.init(string:)),
-            badge: rank.map { "#\($0)" } ?? "NOVEL",
             title: novel.title,
             subtitle: novel.authorDisplayName,
+            rank: rank,
+            fallbackSystemImage: "book.closed",
             isSelected: isSelected,
             action: action
         )

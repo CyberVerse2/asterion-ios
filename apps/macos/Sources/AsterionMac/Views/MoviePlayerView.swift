@@ -19,23 +19,22 @@ struct MoviePlayerView: View {
     var body: some View {
         Group {
             if store.isLoadingShow {
-                ProgressView("Opening \(route.title)…")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                PlayerLoadingState(message: "Opening \(route.title)…")
             } else if let error = store.showError {
-                ContentUnavailableView {
-                    Label("Couldn’t open this title", systemImage: "exclamationmark.triangle")
-                } description: {
-                    Text(error)
-                } actions: {
-                    Button("Try Again") { Task { await store.retryShow() } }
-                }
+                PlayerErrorState(
+                    title: "Couldn’t open this title",
+                    message: error,
+                    retry: { Task { await store.retryShow() } }
+                )
             } else if let show = store.show {
                 HStack(spacing: 0) {
                     if show.isSeries, showsEpisodeList {
                         episodeSidebar(show)
-                            .frame(width: 270)
+                            .frame(width: 290)
                             .transition(.move(edge: .leading).combined(with: .opacity))
-                        Divider()
+                        Rectangle()
+                            .fill(Color.asterionHairline)
+                            .frame(width: 1)
                     }
 
                     playerPane(show)
@@ -43,8 +42,7 @@ struct MoviePlayerView: View {
                 }
                 .animation(reduceMotion ? nil : AsterionMotion.sidebar, value: showsEpisodeList)
             } else {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                PlayerLoadingState(message: "Opening \(route.title)…")
             }
         }
         .frame(minWidth: 850, minHeight: 540)
@@ -78,106 +76,145 @@ struct MoviePlayerView: View {
     private func episodeSidebar(_ show: MovieShow) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Episodes")
+                        .font(.asterionTitle(16, weight: .bold))
+                        .foregroundStyle(Color.asterionText)
+                        .accessibilityAddTraits(.isHeader)
+                    Spacer(minLength: 8)
+                    Text(store.episodes.count.formatted())
+                        .font(.asterionMono(11, weight: .medium))
+                        .foregroundStyle(Color.asterionFaint)
+                        .accessibilityLabel("\(store.episodes.count) episodes")
+                }
                 Text(show.displayTitle)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.92))
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.asterionMuted)
                     .lineLimit(2)
-                Text("\(store.episodes.count) episodes")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.46))
             }
-            .padding(15)
-
-            Divider().overlay(.white.opacity(0.08))
+            .padding(.horizontal, 16)
+            .padding(.top, 16)
+            .padding(.bottom, 12)
 
             if availableSeasons.count > 1 {
-                Picker("Season", selection: seasonBinding) {
-                    ForEach(availableSeasons, id: \.self) { season in
-                        Text("Season \(season)").tag(season)
-                    }
-                }
-                .labelsHidden()
-                .pickerStyle(.menu)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 9)
-            }
-
-            List(episodesForSelectedSeason) { episode in
-                Button {
-                    Task { await store.play(episode) }
-                } label: {
-                    HStack(spacing: 10) {
-                        Text(String(episode.number))
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.white.opacity(0.38))
-                            .frame(width: 28, alignment: .trailing)
-                        Text(episode.title)
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.86))
-                        Spacer()
-                        if store.isLoadingStream, store.selectedEpisodeID == episode.id {
-                            ProgressView().controlSize(.small)
-                        } else if store.selectedEpisodeID == episode.id {
-                            Image(systemName: "play.fill")
-                                .font(.caption)
-                                .foregroundStyle(Color.asterionAccent)
+                Menu {
+                    Picker("Season", selection: seasonBinding) {
+                        ForEach(availableSeasons, id: \.self) { season in
+                            Text("Season \(season)").tag(season)
                         }
                     }
-                    .padding(.vertical, 5)
-                    .contentShape(Rectangle())
+                    .pickerStyle(.inline)
+                    .labelsHidden()
+                } label: {
+                    HStack(spacing: 6) {
+                        Text("Season")
+                            .font(.system(size: 12, weight: .semibold))
+                        Text(String(seasonBinding.wrappedValue))
+                            .font(.asterionMono(12, weight: .semibold))
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 8, weight: .bold))
+                    }
+                    .foregroundStyle(Color.asterionText.opacity(0.86))
+                    .padding(.horizontal, 12)
+                    .frame(height: 30)
+                    .background { PlayerChromeCapsule() }
+                    .contentShape(Capsule())
                 }
+                .menuStyle(.button)
+                .menuIndicator(.hidden)
                 .buttonStyle(.plain)
-                .listRowBackground(
-                    store.selectedEpisodeID == episode.id
-                        ? Color.asterionAccent.opacity(0.16)
-                        : Color.clear
-                )
-                .accessibilityLabel("Play \(episode.title), episode \(episode.number)")
-                .accessibilityAddTraits(store.selectedEpisodeID == episode.id ? .isSelected : [])
+                .fixedSize()
+                .accessibilityLabel("Season \(seasonBinding.wrappedValue)")
+                .padding(.horizontal, 14)
+                .padding(.bottom, 12)
             }
-            .listStyle(.sidebar)
-            .scrollContentBackground(.hidden)
+
+            Rectangle()
+                .fill(Color.asterionHairline)
+                .frame(height: 1)
+
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 2) {
+                        ForEach(episodesForSelectedSeason) { episode in
+                            episodeRow(episode)
+                                .id(episode.id)
+                        }
+                    }
+                    .padding(8)
+                }
+                .scrollIndicators(.hidden)
+                .onAppear {
+                    guard let selected = store.selectedEpisodeID else { return }
+                    proxy.scrollTo(selected, anchor: .center)
+                }
+            }
         }
-        .background(Color.black.opacity(0.94))
+        .background(Color.asterionSurface)
+    }
+
+    private func episodeRow(_ episode: MovieEpisode) -> some View {
+        let isSelected = store.selectedEpisodeID == episode.id
+
+        return Button {
+            Task { await store.play(episode) }
+        } label: {
+            PlayerEpisodeRowLabel(
+                number: String(episode.number),
+                title: episode.title,
+                isSelected: isSelected,
+                isLoading: store.isLoadingStream && isSelected,
+                progress: isSelected ? nil : partialProgress(for: episode)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Play \(episode.title), episode \(episode.number)")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private func partialProgress(for episode: MovieEpisode) -> Double? {
+        guard let show = store.show,
+              let progress = model.mediaProgressByKey[
+                  MediaAccountKey(mediaType: .movie, contentID: show.slug)
+              ],
+              progress.unitId == episode.id,
+              !progress.completed,
+              progress.percentage > 0.5,
+              progress.percentage < 99.5 else { return nil }
+        return progress.percentage / 100
     }
 
     private func playerPane(_ show: MovieShow) -> some View {
         VStack(spacing: 0) {
             playerToolbar(show)
-            Divider().overlay(.white.opacity(0.08))
             playerStage
 
             if store.selectedPlaybackOption?.kind == .web {
-                Label(
-                    "This player is supplied by a third party and may include external content.",
-                    systemImage: "globe"
+                PlayerThirdPartyNotice(
+                    text: "This player is supplied by a third party and may include external content."
                 )
-                .font(.caption)
-                .foregroundStyle(.white.opacity(0.44))
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 18)
-                .padding(.vertical, 9)
-                .background(.black)
             }
         }
     }
 
     private func playerToolbar(_ show: MovieShow) -> some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 8) {
             if show.isSeries {
                 Button {
                     showsEpisodeList.toggle()
                 } label: {
                     Image(systemName: "sidebar.left")
                 }
-                .help(showsEpisodeList ? "Hide Episodes" : "Show Episodes")
-                .accessibilityLabel(showsEpisodeList ? "Hide Episodes" : "Show Episodes")
+                .buttonStyle(PlayerChromeButtonStyle(isLit: showsEpisodeList))
+                .help(showsEpisodeList ? "Hide episodes" : "Show episodes")
+                .accessibilityLabel(showsEpisodeList ? "Hide episodes" : "Show episodes")
             }
 
-            Text(store.positionLabel)
-                .font(.system(size: 13, weight: .medium).monospacedDigit())
-                .foregroundStyle(.white.opacity(0.72))
-                .lineLimit(1)
+            PlayerTitleLabel(
+                title: show.displayTitle,
+                detail: show.isSeries ? toolbarEpisodeDetail : nil
+            )
+            .padding(.leading, show.isSeries ? 6 : 4)
 
             Spacer(minLength: 24)
                 .contentShape(Rectangle())
@@ -185,22 +222,24 @@ struct MoviePlayerView: View {
                 .allowsWindowActivationEvents(true)
                 .accessibilityHidden(true)
 
-            MediaWindowPinButton(isPinned: $keepsWindowOnTop)
+            PlayerPinButton(isPinned: $keepsWindowOnTop)
 
             if show.isSeries {
                 Button { Task { await store.playPrevious() } } label: {
                     Image(systemName: "backward.end.fill")
                 }
+                .buttonStyle(PlayerChromeButtonStyle())
                 .disabled(store.previousEpisode == nil || store.isLoadingStream)
-                .help("Previous Episode")
-                .accessibilityLabel("Previous Episode")
+                .help("Previous episode")
+                .accessibilityLabel("Previous episode")
 
                 Button { Task { await store.playNext() } } label: {
                     Image(systemName: "forward.end.fill")
                 }
+                .buttonStyle(PlayerChromeButtonStyle())
                 .disabled(store.nextEpisode == nil || store.isLoadingStream)
-                .help("Next Episode")
-                .accessibilityLabel("Next Episode")
+                .help("Next episode")
+                .accessibilityLabel("Next episode")
             }
 
             if store.playbackOptions.count > 1 {
@@ -232,41 +271,50 @@ struct MoviePlayerView: View {
                         }
                     }
                 } label: {
-                    Image(systemName: "slider.horizontal.3")
+                    PlayerChromeMenuLabel(systemImage: "slider.horizontal.3")
                 }
-                .menuStyle(.borderlessButton)
-                .help(store.selectedPlaybackOption?.title ?? "Playback Source")
+                .menuStyle(.button)
+                .menuIndicator(.hidden)
+                .buttonStyle(.plain)
+                .fixedSize()
+                .help(store.selectedPlaybackOption?.title ?? "Playback source")
+                .accessibilityLabel(store.selectedPlaybackOption?.title ?? "Playback source")
             }
         }
-        .buttonStyle(.plain)
-        .foregroundStyle(.white.opacity(0.72))
         .controlSize(.small)
-        .padding(.horizontal, 14)
-        .frame(height: 44)
-        .background(Color.black.opacity(0.96))
+        .padding(.horizontal, 12)
+        .frame(height: 48)
+        .background(Color.black)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color.asterionHairline)
+                .frame(height: 1)
+        }
+    }
+
+    /// "S1 E3 · Episode title" in the player bar; the show title sits beside it.
+    private var toolbarEpisodeDetail: String? {
+        guard let episode = store.selectedEpisode else { return nil }
+        let title = episode.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty, !title.lowercased().hasPrefix("episode") else {
+            return store.positionLabel
+        }
+        return "\(store.positionLabel) · \(title)"
     }
 
     @ViewBuilder
     private var playerStage: some View {
         Group {
             if store.isLoadingStream {
-                ProgressView("Preparing video…")
-                    .tint(.white)
-                    .foregroundStyle(.white)
+                PlayerLoadingState(message: "Preparing video…", artworkURL: store.show?.imageURL)
             } else if let error = store.streamError {
-                VStack(spacing: 12) {
-                    Image(systemName: "exclamationmark.triangle").font(.title)
-                    Text(error).multilineTextAlignment(.center)
-                    Button("Try Again") {
-                        Task { await retryStreamPreservingProgress() }
-                    }
-                }
-                .foregroundStyle(.white)
-                .padding()
+                PlayerErrorState(
+                    title: "This video didn’t load",
+                    message: error,
+                    retry: { Task { await retryStreamPreservingProgress() } }
+                )
             } else if preparingPlayback != nil {
-                ProgressView("Syncing your place…")
-                    .tint(.white)
-                    .foregroundStyle(.white)
+                PlayerLoadingState(message: "Syncing your place…", artworkURL: store.show?.imageURL)
             } else if let currentServerIndex = store.currentServerIndex,
                       let playback = activePlayback,
                       let sessionID = activePlaybackSessionID {
@@ -295,12 +343,11 @@ struct MoviePlayerView: View {
                     }
                 )
             } else {
-                ContentUnavailableView(
-                    "No video selected",
+                AsterionEmptyState(
                     systemImage: "play.rectangle",
-                    description: Text("Choose an episode or playback source.")
+                    title: "No video selected",
+                    message: "Choose an episode or playback source to start watching."
                 )
-                .foregroundStyle(.white)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

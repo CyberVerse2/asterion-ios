@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct FootballCatalogView: View {
+    @Environment(\.asterionTopInset) private var topInset
     @ObservedObject var store: FootballStore
     let section: FootballSection
     let query: String
@@ -22,35 +23,65 @@ struct FootballCatalogView: View {
     var body: some View {
         Group {
             if store.isLoading, store.matches.isEmpty {
-                ProgressView("Loading fixtures…")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        AsterionSkeleton(cornerRadius: 4).frame(width: 220, height: 18)
+                        Color.clear
+                            .frame(height: AsterionCardMetrics.matchHeight)
+                            .frame(maxWidth: .infinity)
+                            .overlay(alignment: .topLeading) {
+                                HStack(spacing: 16) {
+                                    ForEach(0..<4, id: \.self) { _ in
+                                        AsterionSkeleton(cornerRadius: 14)
+                                            .frame(width: AsterionCardMetrics.matchWidth, height: AsterionCardMetrics.matchHeight)
+                                    }
+                                }
+                                .fixedSize()
+                            }
+                            .clipped()
+                    }
+                    .padding(.horizontal, AsterionLayout.pageInset)
+                    .padding(.top, AsterionLayout.catalogContentTop(topInset))
+                }
+                .scrollDisabled(true)
             } else if let error = store.error, store.matches.isEmpty {
-                ContentUnavailableView {
-                    Label("Football unavailable", systemImage: "wifi.exclamationmark")
-                } description: {
-                    Text(error)
-                } actions: {
-                    Button("Try Again") { Task { await store.refresh(section: section) } }
+                AsterionEmptyState(
+                    systemImage: "wifi.exclamationmark",
+                    title: "Fixtures didn’t load",
+                    message: error
+                ) {
+                    Button("Try again") { Task { await store.refresh(section: section) } }
+                        .buttonStyle(.asterionSecondary)
                 }
             } else if store.matches.isEmpty {
-                ContentUnavailableView(
-                    normalizedQuery.isEmpty ? emptyTitle : "No matches found",
-                    systemImage: section == .live ? "sportscourt" : "calendar.badge.exclamationmark",
-                    description: Text(normalizedQuery.isEmpty ? emptyDescription : "Try a team or competition name.")
-                )
+                AsterionEmptyState(
+                    systemImage: section == .live ? "sportscourt" : "calendar",
+                    title: normalizedQuery.isEmpty ? emptyTitle : "No matches for “\(normalizedQuery)”",
+                    message: normalizedQuery.isEmpty ? emptyDescription : "Try a team or a competition name."
+                ) {
+                    if section == .live, normalizedQuery.isEmpty {
+                        Button {
+                            Task { await store.refresh(section: section) }
+                        } label: {
+                            Label("Check again", systemImage: "arrow.clockwise")
+                        }
+                        .buttonStyle(.asterionSecondary)
+                    }
+                }
             } else {
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 26, pinnedViews: [.sectionHeaders]) {
+                    LazyVStack(alignment: .leading, spacing: 36) {
                         catalogHeader
                         if let error = store.error {
                             refreshError(error)
                         }
                         ForEach(groupedMatches, id: \.date) { group in
-                            Section {
+                            VStack(alignment: .leading, spacing: 14) {
+                                dateHeader(group.date, count: group.matches.count)
                                 LazyVGrid(
-                                    columns: [GridItem(.adaptive(minimum: 330, maximum: 330), spacing: 18)],
+                                    columns: [GridItem(.adaptive(minimum: AsterionCardMetrics.matchWidth, maximum: AsterionCardMetrics.matchWidth), spacing: 16)],
                                     alignment: .leading,
-                                    spacing: 18
+                                    spacing: 16
                                 ) {
                                     ForEach(group.matches) { match in
                                         HomeMatchCard(
@@ -61,16 +92,13 @@ struct FootballCatalogView: View {
                                         }
                                     }
                                 }
-                            } header: {
-                                dateHeader(group.date)
                             }
                         }
                     }
-                    .frame(maxWidth: 760, alignment: .leading)
-                    .padding(.horizontal, 28)
-                    .padding(.top, 24)
-                    .padding(.bottom, 48)
-                    .frame(maxWidth: .infinity, alignment: .top)
+                    .padding(.horizontal, AsterionLayout.pageInset)
+                    .padding(.top, AsterionLayout.catalogContentTop(topInset))
+                    .padding(.bottom, 64)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
                 }
                 .hidingScrollIndicators()
             }
@@ -100,38 +128,52 @@ struct FootballCatalogView: View {
     }
 
     private var catalogHeader: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
             Text(section.catalogTitle)
-                .font(.asterionDisplay(24, weight: .semibold))
+                .font(.asterionTitle(18, weight: .bold))
+                .foregroundStyle(Color.asterionText)
             Text(section.catalogDescription)
-                .font(.callout)
+                .font(.system(size: 13))
                 .foregroundStyle(Color.asterionMuted)
+            Spacer()
+            Text("Updates every \(Int(refreshInterval.components.seconds))s")
+                .font(.asterionMono(11))
+                .foregroundStyle(Color.asterionFaint)
         }
-        .padding(.bottom, 2)
     }
 
     private func refreshError(_ error: String) -> some View {
         HStack(spacing: 12) {
             Label(error, systemImage: "wifi.exclamationmark")
-                .font(.caption)
-                .foregroundStyle(Color.asterionMuted)
+                .font(.system(size: 12.5))
+                .foregroundStyle(Color.asterionWarning)
             Spacer()
-            Button("Try Again") { Task { await store.refresh(section: section) } }
+            Button("Try again") { Task { await store.refresh(section: section) } }
+                .buttonStyle(.asterionSecondary)
                 .controlSize(.small)
         }
-        .padding(12)
-        .background(Color.asterionCard, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .padding(14)
+        .asterionPanel(cornerRadius: 12)
     }
 
-    private func dateHeader(_ date: Date) -> some View {
-        Text(date.formatted(.dateTime.weekday(.wide).month(.wide).day()))
-            .font(.asterionMono(11, weight: .semibold))
-            .tracking(1.1)
-            .foregroundStyle(Color.asterionMuted)
-            .textCase(.uppercase)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, 8)
-            .background(Color.asterionMediaCanvas)
+    private func dateHeader(_ date: Date, count: Int) -> some View {
+        HStack(spacing: 10) {
+            AsterionEyebrow(text: dayLabel(for: date), color: Color.asterionText.opacity(0.8))
+            Rectangle()
+                .fill(Color.asterionHairline)
+                .frame(height: 1)
+            Text("\(count)")
+                .font(.asterionMono(11))
+                .foregroundStyle(Color.asterionFaint)
+        }
+    }
+
+    private func dayLabel(for date: Date) -> String {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(date) { return "Today" }
+        if calendar.isDateInTomorrow(date) { return "Tomorrow" }
+        if calendar.isDateInYesterday(date) { return "Yesterday" }
+        return date.formatted(.dateTime.weekday(.wide).month(.wide).day())
     }
 
     private var emptyTitle: String {
@@ -139,9 +181,11 @@ struct FootballCatalogView: View {
     }
 
     private var emptyDescription: String {
-        section == .live
-            ? "Live fixtures will appear here as soon as play begins."
-            : "The football service has no fixtures for this section right now."
+        switch section {
+        case .live: "Matches appear here the moment they kick off. Schedule shows what’s coming up."
+        case .schedule: "No upcoming fixtures are listed yet. Live shows matches already in play."
+        case .popular: "No featured matches right now. Schedule lists every upcoming fixture."
+        }
     }
 }
 
@@ -154,14 +198,21 @@ struct FootballBadgeView: View {
             if case .success(let image) = phase {
                 image.resizable().scaledToFit()
             } else {
-                Image(systemName: "shield")
-                    .resizable()
-                    .scaledToFit()
-                    .padding(size * 0.18)
-                    .foregroundStyle(Color.asterionMuted)
+                Text(initials)
+                    .font(.system(size: size * 0.3, weight: .bold).width(.expanded))
+                    .foregroundStyle(.white.opacity(0.8))
+                    .frame(width: size * 0.82, height: size * 0.82)
+                    .background(Circle().fill(.white.opacity(0.1)))
+                    .overlay(Circle().strokeBorder(.white.opacity(0.18)))
             }
         }
         .frame(width: size, height: size)
         .accessibilityHidden(true)
+    }
+
+    private var initials: String {
+        let words = (team?.name ?? "").split(separator: " ").filter { !$0.isEmpty }
+        let letters = words.count > 1 ? words.prefix(2).compactMap(\.first) : Array((words.first ?? "").prefix(3))
+        return String(letters).uppercased()
     }
 }

@@ -86,6 +86,7 @@ struct AsterionApp: App {
         WindowGroup("Asterion", id: "main") {
             ContentView()
                 .containerBackground(Color.asterionMediaCanvas, for: .window)
+                .preferredColorScheme(.dark)
                 .environmentObject(model)
                 .environmentObject(mediaDownloads)
                 .environment(Clerk.shared)
@@ -113,6 +114,7 @@ struct AsterionApp: App {
         WindowGroup("Anime Player", for: AnimePlayerRoute.self) { $route in
             if let route {
                 AnimePlayerView(route: route)
+                    .preferredColorScheme(.dark)
                     .environmentObject(model)
                     .environmentObject(mediaDownloads)
             }
@@ -125,6 +127,7 @@ struct AsterionApp: App {
         WindowGroup("Asterion Player", for: MoviePlayerRoute.self) { $route in
             if let route {
                 MoviePlayerView(route: route)
+                    .preferredColorScheme(.dark)
                     .environmentObject(model)
                     .environmentObject(mediaDownloads)
             }
@@ -137,6 +140,7 @@ struct AsterionApp: App {
         WindowGroup("Asterion Live", for: FootballPlayerRoute.self) { $route in
             if let route {
                 FootballPlayerView(route: route)
+                    .preferredColorScheme(.dark)
             }
         }
         .defaultSize(width: 1_080, height: 700)
@@ -146,6 +150,8 @@ struct AsterionApp: App {
 
         Window("Sign In to Asterion", id: "authentication") {
             AsterionAuthenticationView()
+                .containerBackground(Color.asterionMediaCanvas, for: .window)
+                .preferredColorScheme(.dark)
                 .environmentObject(model)
                 .environment(Clerk.shared)
         }

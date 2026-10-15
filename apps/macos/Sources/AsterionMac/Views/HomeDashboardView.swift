@@ -53,13 +53,17 @@ struct HomeDashboardView: View {
     var body: some View {
         Group {
             if normalizedQuery.count == 1 {
-                ContentUnavailableView(
-                    "Keep typing",
+                AsterionEmptyState(
                     systemImage: "character.cursor.ibeam",
-                    description: Text("Enter at least two characters to search across Asterion.")
+                    title: "Keep typing",
+                    message: "Search needs at least two characters to look across novels, anime, films, and matches."
                 )
             } else if normalizedQuery.isEmpty {
-                dashboard
+                if freshItems.isEmpty, resumeItems.isEmpty, isLoadingDashboard {
+                    AsterionCatalogSkeleton()
+                } else {
+                    dashboard
+                }
             } else {
                 searchResults
             }
@@ -71,12 +75,21 @@ struct HomeDashboardView: View {
         }
     }
 
+    private var isLoadingDashboard: Bool {
+        animeStore.isLoadingCatalog || movieStore.isLoadingCatalog || model.isLoadingCatalog
+    }
+
+    private var heroItems: [HomeCatalogItem] {
+        Array(freshItems.prefix(6))
+    }
+
     private var dashboard: some View {
         ScrollView(.vertical) {
-            LazyVStack(alignment: .leading, spacing: 42) {
-                if !freshItems.isEmpty {
-                    featuredCard
-                        .padding(.horizontal, 32)
+            LazyVStack(alignment: .leading, spacing: AsterionLayout.sectionSpacing) {
+                if !heroItems.isEmpty {
+                    hero
+                } else {
+                    AsterionPageHeader("Home", subtitle: greeting)
                 }
 
                 if !resumeItems.isEmpty {
@@ -90,92 +103,104 @@ struct HomeDashboardView: View {
                 if !animeStore.seasonalTitles.isEmpty {
                     posterShelf(
                         title: animeStore.season.title,
-                        items: animeStore.seasonalTitles.map(HomeCatalogItem.anime)
+                        subtitle: "Airing this season",
+                        items: animeStore.seasonalTitles.map(HomeCatalogItem.anime),
+                        showsKind: false
                     )
                 }
 
-                if !freshItems.isEmpty {
+                if !movieStore.titles.isEmpty {
                     posterShelf(
-                        title: "Fresh across Asterion",
-                        items: freshItems
+                        title: "Films and series",
+                        subtitle: "Trending now",
+                        items: Array(movieStore.titles.prefix(16)).map(HomeCatalogItem.movie),
+                        showsKind: false
+                    )
+                }
+
+                if !model.trendingNovels.isEmpty {
+                    posterShelf(
+                        title: "Novels",
+                        subtitle: "What readers are returning to",
+                        items: Array(model.trendingNovels.prefix(16)).map(HomeCatalogItem.novel),
+                        showsKind: false
                     )
                 }
 
                 serviceNotices
+                    .padding(.horizontal, AsterionLayout.pageInset)
             }
-            .padding(.top, 32)
             .padding(.bottom, 64)
             .frame(maxWidth: .infinity, alignment: .top)
         }
         .hidingScrollIndicators()
     }
 
+    private var greeting: String {
+        let hour = Calendar.current.component(.hour, from: .now)
+        let part = switch hour {
+        case 5..<12: "Good morning"
+        case 12..<17: "Good afternoon"
+        default: "Good evening"
+        }
+        if let name = model.signedInUser?.name.split(separator: " ").first {
+            return "\(part), \(name)."
+        }
+        return "\(part)."
+    }
+
     @ViewBuilder
-    private var featuredCard: some View {
-        let items = Array(freshItems.prefix(8))
-        if !items.isEmpty {
-            let safeIndex = min(featuredIndex, items.count - 1)
-            let item = items[safeIndex]
-            AsterionFeatureCard(
-                imageURL: item.imageURL,
-                fallbackSystemImage: item.systemImage,
-                eyebrow: "FEATURED ACROSS ASTERION",
-                title: item.title,
-                summary: item.featureSummary,
-                previous: { moveFeatured(by: -1, items: items, selectedIndex: safeIndex) },
-                next: { moveFeatured(by: 1, items: items, selectedIndex: safeIndex) }
-            ) {
-                HStack(spacing: 14) {
-                    Label(item.badge.capitalized, systemImage: item.systemImage)
-                    Text(item.subtitle)
-                }
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.white.opacity(0.68))
-                .lineLimit(1)
-            } actions: {
-                Button { select(item) } label: {
-                    Label("Open", systemImage: "arrow.right")
-                        .font(.headline)
-                        .frame(width: 132)
-                }
-                .buttonStyle(.glassProminent)
-                .buttonBorderShape(.roundedRectangle(radius: 8))
-                .controlSize(.large)
-                .tint(.asterionAccent)
+    private var hero: some View {
+        let items = heroItems
+        let safeIndex = min(featuredIndex, items.count - 1)
+        let item = items[safeIndex]
+        AsterionHero(
+            imageURL: item.imageURL,
+            fallbackSystemImage: item.systemImage,
+            eyebrow: "New in \(item.kindTitle)",
+            title: item.title,
+            summary: item.featureSummary,
+            index: safeIndex,
+            count: items.count,
+            select: { featuredIndex = $0 }
+        ) {
+            HStack(spacing: 8) {
+                Text(item.badge)
+                Text("·")
+                Text(item.subtitle)
             }
+        } actions: {
+            Button { select(item) } label: {
+                Label(item.primaryActionTitle, systemImage: "arrow.right")
+            }
+            .buttonStyle(.asterionPrimary)
+            .keyboardShortcut(.defaultAction)
         }
     }
 
-    private func moveFeatured(by offset: Int, items: [HomeCatalogItem], selectedIndex: Int) {
-        guard !items.isEmpty else { return }
-        featuredIndex = (selectedIndex + offset + items.count) % items.count
-    }
-
     private var continueShelf: some View {
-        HomeSection(title: "Continue") {
+        HomeSection(title: "Continue", subtitle: "Pick up where you left off") {
             HomeHorizontalShelf(
                 items: resumeItems,
                 itemWidth: AsterionCardMetrics.landscapeWidth,
-                spacing: 18,
+                spacing: 16,
                 height: AsterionCardMetrics.landscapeShelfHeight,
                 card: { item in
                     HomeContinueCard(item: item) { resume(item) }
-                        .padding(.vertical, 3)
                 }
             )
         }
     }
 
     private var footballShelf: some View {
-        HomeSection(title: "Football", subtitle: "Live and upcoming matches.") {
+        HomeSection(title: "Football", subtitle: "Live and upcoming") {
             HomeHorizontalShelf(
                 items: Array(footballMatches.prefix(12)),
                 itemWidth: AsterionCardMetrics.matchWidth,
-                spacing: 14,
+                spacing: 16,
                 height: AsterionCardMetrics.matchShelfHeight,
                 card: { match in
                     HomeMatchCard(match: match) { selectFootball(match) }
-                        .padding(.vertical, 3)
                 }
             )
         }
@@ -183,17 +208,18 @@ struct HomeDashboardView: View {
 
     private func posterShelf(
         title: String,
-        items: [HomeCatalogItem]
+        subtitle: String?,
+        items: [HomeCatalogItem],
+        showsKind: Bool
     ) -> some View {
-        HomeSection(title: title) {
+        HomeSection(title: title, subtitle: subtitle) {
             HomeHorizontalShelf(
                 items: items,
                 itemWidth: AsterionCardMetrics.posterWidth,
                 spacing: 18,
                 height: AsterionCardMetrics.posterShelfHeight,
                 card: { item in
-                    HomePosterCard(item: item) { select(item) }
-                        .padding(.vertical, 3)
+                    HomePosterCard(item: item, showsKind: showsKind) { select(item) }
                 }
             )
         }
@@ -212,60 +238,74 @@ struct HomeDashboardView: View {
 
         if !notices.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
+                Text("Some shelves could not load")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(Color.asterionText)
                 ForEach(notices, id: \.self) { notice in
                     Label(notice, systemImage: "exclamationmark.triangle")
                         .font(.caption)
                         .foregroundStyle(Color.asterionMuted)
                 }
             }
-            .padding(14)
+            .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.asterionCard, in: RoundedRectangle(cornerRadius: 12))
+            .asterionPanel(cornerRadius: 14)
         }
     }
 
     private var searchResults: some View {
         Group {
             if (animeStore.isLoadingCatalog || movieStore.isLoadingCatalog), searchItems.isEmpty {
-                ProgressView("Searching Asterion…")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if searchItems.isEmpty, footballStore.matches.isEmpty {
-                ContentUnavailableView(
-                    "No results",
+                AsterionEmptyState(
                     systemImage: "magnifyingglass",
-                    description: Text("Try another title, author, team, or competition.")
+                    title: "Searching",
+                    message: "Looking for “\(normalizedQuery)” across novels, anime, films, and matches."
+                )
+            } else if searchItems.isEmpty, footballStore.matches.isEmpty {
+                AsterionEmptyState(
+                    systemImage: "magnifyingglass",
+                    title: "Nothing matches “\(normalizedQuery)”",
+                    message: "Try a shorter title, an author, a team, or a competition."
                 )
             } else {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 30) {
-                        HomeSection(
-                            title: "Search results",
-                            subtitle: "Results across novels, anime, movies, and TV shows."
-                        ) {
+                    VStack(alignment: .leading, spacing: AsterionLayout.sectionSpacing) {
+                        AsterionPageHeader(
+                            "Results",
+                            subtitle: "\(searchItems.count + footballStore.matches.count) matches for “\(normalizedQuery)”"
+                        )
+
+                        if !searchItems.isEmpty {
                             LazyVGrid(
-                                columns: [GridItem(.adaptive(minimum: 156, maximum: 168), spacing: 22)],
+                                columns: [GridItem(.adaptive(minimum: AsterionCardMetrics.posterWidth, maximum: AsterionCardMetrics.posterWidth), spacing: 20)],
                                 alignment: .leading,
-                                spacing: 26
+                                spacing: 28
                             ) {
                                 ForEach(searchItems) { item in
                                     HomePosterCard(item: item) { select(item) }
                                 }
                             }
+                            .padding(.horizontal, AsterionLayout.pageInset)
                         }
 
                         if !footballStore.matches.isEmpty {
-                            HomeSection(title: "Football", subtitle: "Matching live fixtures.") {
-                                LazyVStack(spacing: 10) {
+                            HomeSection(title: "Matches") {
+                                LazyVGrid(
+                                    columns: [GridItem(.adaptive(minimum: AsterionCardMetrics.matchWidth, maximum: AsterionCardMetrics.matchWidth), spacing: 16)],
+                                    alignment: .leading,
+                                    spacing: 16
+                                ) {
                                     ForEach(footballStore.matches) { match in
                                         HomeMatchCard(match: match) { selectFootball(match) }
                                     }
                                 }
+                                .padding(.horizontal, AsterionLayout.pageInset)
                             }
                         }
 
                         serviceNotices
+                            .padding(.horizontal, AsterionLayout.pageInset)
                     }
-                    .padding(.top, 26)
                     .padding(.bottom, 56)
                     .frame(maxWidth: .infinity, alignment: .top)
                 }

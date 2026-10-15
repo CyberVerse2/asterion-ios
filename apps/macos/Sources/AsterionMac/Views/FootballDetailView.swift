@@ -5,15 +5,29 @@ struct FootballDetailView: View {
     @EnvironmentObject private var model: AppModel
     @ObservedObject var store: FootballStore
 
+    @State private var streams: [FootballStream] = []
+    @State private var streamsMatchID: FootballMatch.ID?
+    @State private var isLoadingStreams = false
+
+    private let stageWidth: CGFloat = 860
+
+    /// The feed often labels fixtures only with the sport itself.
+    private var isGenericCategory: Bool {
+        guard let match = store.selectedMatch else { return true }
+        return ["football", "soccer", ""].contains(
+            match.category.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        )
+    }
+
     var body: some View {
         Group {
             if let match = store.selectedMatch {
                 detail(match)
             } else {
-                ContentUnavailableView(
-                    "Choose a match",
+                AsterionEmptyState(
                     systemImage: "sportscourt",
-                    description: Text("Select a fixture to see its teams and live status.")
+                    title: "Choose a match",
+                    message: "Select a fixture to see its teams and live status."
                 )
             }
         }
@@ -23,81 +37,133 @@ struct FootballDetailView: View {
 
     private func detail(_ match: FootballMatch) -> some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
-                VStack(alignment: .leading, spacing: 18) {
-                    status(match)
-                    Text(match.category.capitalized)
-                        .font(.system(size: 28, weight: .semibold))
-                    matchup(match)
+            VStack(spacing: AsterionLayout.sectionSpacing) {
+                faceOff(match)
+
+                VStack(alignment: .leading, spacing: 16) {
+                    sectionHeader("Streams", count: sourceDescription(match))
+                    streamList(match)
                 }
-                .padding(24)
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                watchAction(match)
 
-                Divider()
-
-                VStack(alignment: .leading, spacing: 13) {
-                    Text("Match details")
-                        .font(.asterionDisplay(20, weight: .semibold))
-                    metadataLine(icon: "calendar", value: match.kickoff.formatted(date: .complete, time: .shortened))
-                    metadataLine(icon: "sportscourt", value: match.category.capitalized)
-                    metadataLine(icon: "antenna.radiowaves.left.and.right", value: sourceDescription(match))
+                VStack(alignment: .leading, spacing: 16) {
+                    sectionHeader("Match details", count: nil)
+                    VStack(spacing: 0) {
+                        AsterionDetailFactRow(
+                            label: "Kickoff",
+                            value: match.kickoff.formatted(date: .complete, time: .shortened)
+                        )
+                        AsterionDetailRowDivider()
+                        if !isGenericCategory {
+                            AsterionDetailFactRow(label: "Competition", value: match.category.capitalized)
+                            AsterionDetailRowDivider()
+                        }
+                        AsterionDetailFactRow(label: "Status", value: statusDescription(match))
+                    }
+                    .asterionPanel(cornerRadius: 14)
                 }
             }
+            .frame(maxWidth: stageWidth)
+            .padding(.horizontal, AsterionLayout.pageInset)
+            .frame(maxWidth: .infinity)
             .asterionDetailPageFrame()
+            .background(alignment: .top) {
+                AsterionDetailBackdrop(url: match.posterURL)
+            }
         }
         .hidingScrollIndicators()
-    }
-
-    private func status(_ match: FootballMatch) -> some View {
-        HStack(spacing: 8) {
-            Circle()
-                .fill(match.isLive ? Color.asterionAccent : Color.asterionMuted)
-                .frame(width: 7, height: 7)
-            Text(match.isLive ? "LIVE NOW" : match.kickoff.formatted(.relative(presentation: .named)))
-                .font(.asterionMono(10, weight: .bold))
-                .tracking(1.3)
-                .foregroundStyle(match.isLive ? Color.asterionAccent : Color.asterionMuted)
+        .task(id: "\(match.id)#\(match.isLive)") {
+            await loadStreams(for: match)
         }
     }
 
-    private func matchup(_ match: FootballMatch) -> some View {
-        HStack(alignment: .top, spacing: 18) {
-            team(match.homeTeam, fallback: fallbackTeams(match).home)
-            Text("VS")
-                .font(.asterionMono(12, weight: .semibold))
-                .foregroundStyle(Color.asterionMuted)
-                .padding(.top, 29)
-            team(match.awayTeam, fallback: fallbackTeams(match).away)
+    // MARK: Face-off
+
+    private func faceOff(_ match: FootballMatch) -> some View {
+        VStack(spacing: 26) {
+            AsterionEyebrow(
+                text: isGenericCategory ? (match.isLive ? "In play" : "Upcoming match") : match.category,
+                color: .white.opacity(0.7)
+            )
+
+            HStack(alignment: .top, spacing: 20) {
+                team(match.homeTeam, fallback: fallbackTeams(match).home)
+                centerStatus(match)
+                    .padding(.top, 22)
+                team(match.awayTeam, fallback: fallbackTeams(match).away)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(match.displayTitle)
+            .accessibilityAddTraits(.isHeader)
+
+            watchAction(match)
         }
+        .padding(.top, 8)
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 18)
     }
 
     private func team(_ team: FootballTeam?, fallback: String) -> some View {
-        VStack(spacing: 12) {
-            FootballBadgeView(team: team, size: 78)
+        VStack(spacing: 16) {
+            FootballBadgeView(team: team, size: 84)
+                .shadow(color: .black.opacity(0.4), radius: 16, y: 8)
+                .background {
+                    Circle()
+                        .fill(
+                            RadialGradient(
+                                colors: [.white.opacity(0.10), .white.opacity(0)],
+                                center: .center,
+                                startRadius: 4,
+                                endRadius: 70
+                            )
+                        )
+                        .frame(width: 140, height: 140)
+                }
             Text(team?.name ?? fallback)
-                .font(.asterionDisplay(18, weight: .semibold))
+                .font(.asterionTitle(22, weight: .bold))
+                .foregroundStyle(.white)
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
+                .minimumScaleFactor(0.7)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity)
     }
 
+    @ViewBuilder
+    private func centerStatus(_ match: FootballMatch) -> some View {
+        VStack(spacing: 8) {
+            if match.isLive {
+                AsterionLiveBadge()
+                    .scaleEffect(1.25)
+                    .padding(.bottom, 4)
+                Text("vs")
+                    .font(.asterionMono(14, weight: .semibold))
+                    .foregroundStyle(Color.asterionMuted)
+            } else {
+                Text(match.kickoff.formatted(date: .omitted, time: .shortened))
+                    .font(.asterionMono(28, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                Text(match.kickoff.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated)))
+                    .font(.system(size: 12.5, weight: .medium))
+                    .foregroundStyle(Color.asterionMuted)
+                Text(match.kickoff.formatted(.relative(presentation: .named)))
+                    .font(.asterionMono(11, weight: .medium))
+                    .foregroundStyle(Color.asterionFaint)
+            }
+        }
+        .frame(width: 150)
+    }
+
     private func watchAction(_ match: FootballMatch) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(spacing: 12) {
             HStack(spacing: 10) {
                 Button {
                     openWindow(value: FootballPlayerRoute(match: match))
                 } label: {
                     Label(match.isLive ? "Watch live" : "Match not live", systemImage: "play.fill")
-                        .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.glassProminent)
-                .buttonBorderShape(.roundedRectangle(radius: 10))
-                .controlSize(.large)
-                .tint(.asterionAccent)
+                .buttonStyle(.asterionPrimary)
                 .keyboardShortcut(.return, modifiers: .command)
                 .disabled(!match.isLive || match.sources.isEmpty)
                 .help(match.isLive ? "Open in Asterion Live" : "This match is not live yet")
@@ -106,10 +172,8 @@ struct FootballDetailView: View {
             }
 
             if let error = model.mediaBookmarkError {
-                Label(error, systemImage: "exclamationmark.triangle")
-                    .font(.caption)
-                    .foregroundStyle(Color.asterionAccent)
-                    .fixedSize(horizontal: false, vertical: true)
+                AsterionDetailNotice(message: error)
+                    .multilineTextAlignment(.center)
             }
         }
     }
@@ -135,26 +199,168 @@ struct FootballDetailView: View {
             if isUpdating {
                 ProgressView()
                     .controlSize(.small)
-                    .frame(width: 72)
+                    .frame(width: 58)
             } else {
                 Label(isSaved ? "Saved" : "Save", systemImage: isSaved ? "bookmark.fill" : "bookmark")
-                    .frame(width: 72)
+                    .frame(minWidth: 58)
             }
         }
-        .buttonStyle(.bordered)
-        .controlSize(.large)
+        .buttonStyle(.asterionSecondary)
         .disabled(isUpdating)
         .help(isSaved ? "Remove saved match" : "Save this match to your account")
     }
 
-    private func metadataLine(icon: String, value: String) -> some View {
-        Label {
-            Text(value).lineLimit(2)
-        } icon: {
-            Image(systemName: icon).frame(width: 17)
+    // MARK: Streams
+
+    private func sectionHeader(_ title: String, count: String?) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(title)
+                .font(.asterionTitle(18, weight: .bold))
+                .foregroundStyle(Color.asterionText)
+                .accessibilityAddTraits(.isHeader)
+            Spacer(minLength: 8)
+            if let count {
+                Text(count)
+                    .font(.asterionMono(11.5, weight: .medium))
+                    .foregroundStyle(Color.asterionFaint)
+            }
         }
-        .font(.callout)
-        .foregroundStyle(Color.asterionMuted)
+    }
+
+    @ViewBuilder
+    private func streamList(_ match: FootballMatch) -> some View {
+        let loadedStreams = streamsMatchID == match.id ? streams : []
+
+        if match.sources.isEmpty {
+            AsterionEmptyState(
+                systemImage: "antenna.radiowaves.left.and.right",
+                title: "No streams listed",
+                message: "Providers usually appear shortly before kickoff. Check back closer to the match."
+            )
+            .frame(minHeight: 200)
+            .asterionPanel(cornerRadius: 14)
+        } else if !loadedStreams.isEmpty {
+            VStack(spacing: 0) {
+                ForEach(Array(loadedStreams.enumerated()), id: \.element.optionID) { index, stream in
+                    if index > 0 {
+                        AsterionDetailRowDivider()
+                    }
+                    streamRow(stream)
+                }
+            }
+            .asterionPanel(cornerRadius: 14)
+        } else {
+            VStack(spacing: 0) {
+                ForEach(Array(match.sources.enumerated()), id: \.offset) { index, source in
+                    if index > 0 {
+                        AsterionDetailRowDivider()
+                    }
+                    sourceRow(source, index: index, match: match)
+                }
+            }
+            .asterionPanel(cornerRadius: 14)
+        }
+    }
+
+    private func streamRow(_ stream: FootballStream) -> some View {
+        HStack(spacing: 16) {
+            Text(String(format: "%02d", stream.streamNumber))
+                .font(.asterionMono(12, weight: .medium))
+                .foregroundStyle(Color.asterionFaint)
+                .frame(minWidth: 24, alignment: .leading)
+
+            Text(stream.source.capitalized)
+                .font(.system(size: 13.5, weight: .semibold))
+                .foregroundStyle(Color.asterionText)
+                .lineLimit(1)
+
+            Spacer(minLength: 12)
+
+            HStack(spacing: 14) {
+                if stream.hd {
+                    Text("HD")
+                        .foregroundStyle(Color.asterionText)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                .strokeBorder(Color.white.opacity(0.28))
+                        }
+                }
+                if !stream.language.isEmpty {
+                    Text(stream.language.uppercased())
+                }
+                if let viewers = stream.viewers {
+                    Text("\(viewers.formatted(.number.notation(.compactName))) watching")
+                }
+            }
+            .font(.asterionMono(11, weight: .medium))
+            .foregroundStyle(Color.asterionMuted)
+        }
+        .padding(.horizontal, 18)
+        .frame(height: 48)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func sourceRow(_ source: FootballStreamSource, index: Int, match: FootballMatch) -> some View {
+        HStack(spacing: 16) {
+            Text(String(format: "%02d", index + 1))
+                .font(.asterionMono(12, weight: .medium))
+                .foregroundStyle(Color.asterionFaint)
+                .frame(minWidth: 24, alignment: .leading)
+
+            Text(source.source.capitalized)
+                .font(.system(size: 13.5, weight: .semibold))
+                .foregroundStyle(Color.asterionText)
+                .lineLimit(1)
+
+            Spacer(minLength: 12)
+
+            if match.isLive && isLoadingStreams {
+                AsterionSkeleton(cornerRadius: 3)
+                    .frame(width: 96, height: 9)
+            } else {
+                Text(match.isLive ? "Ready" : "At kickoff")
+                    .font(.asterionMono(11, weight: .medium))
+                    .foregroundStyle(Color.asterionMuted)
+            }
+        }
+        .padding(.horizontal, 18)
+        .frame(height: 48)
+        .accessibilityElement(children: .combine)
+    }
+
+    /// Reads stream quality, language, and audience for a live match so the
+    /// list can describe each source. Failures fall back to the provider list.
+    private func loadStreams(for match: FootballMatch) async {
+        guard match.isLive, !match.sources.isEmpty else {
+            streams = []
+            streamsMatchID = nil
+            return
+        }
+        guard streamsMatchID != match.id else { return }
+        isLoadingStreams = true
+        defer { isLoadingStreams = false }
+        do {
+            let fetched = try await FootballAPI.shared.fetchStreams(for: match)
+            guard !Task.isCancelled else { return }
+            streams = fetched.sorted { lhs, rhs in
+                if lhs.hd != rhs.hd { return lhs.hd }
+                return (lhs.viewers ?? 0) > (rhs.viewers ?? 0)
+            }
+            streamsMatchID = match.id
+        } catch {
+            guard !Task.isCancelled else { return }
+            streams = []
+            streamsMatchID = nil
+        }
+    }
+
+    // MARK: Text
+
+    private func statusDescription(_ match: FootballMatch) -> String {
+        if match.isLive { return "Live now" }
+        return "Kicks off \(match.kickoff.formatted(.relative(presentation: .named)))"
     }
 
     private func sourceDescription(_ match: FootballMatch) -> String {

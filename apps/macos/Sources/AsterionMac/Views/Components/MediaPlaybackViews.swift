@@ -161,12 +161,7 @@ private struct NativeDirectMediaPlayer: View {
         }
         .overlay(alignment: .top) {
             if let captionError = controller.captionError {
-                Label(captionError, systemImage: "captions.bubble.fill")
-                    .font(.caption)
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 7)
-                    .background(.red.opacity(0.82), in: Capsule())
+                PlayerNotice(message: captionError, systemImage: "captions.bubble.fill")
                     .padding(.top, 12)
             }
         }
@@ -778,11 +773,7 @@ private struct CaptionedMediaPlayer: View {
         Group {
             switch phase {
             case .loading:
-                ProgressView("Loading subtitles…")
-                    .tint(.white)
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(.black)
+                PlayerLoadingState(message: "Loading subtitles…")
             case .ready(let loadedTracks):
                 NativeDirectMediaPlayer(
                     url: url,
@@ -800,12 +791,7 @@ private struct CaptionedMediaPlayer: View {
                 )
                 .overlay(alignment: .topTrailing) {
                     if let subtitleWarning {
-                        Label(subtitleWarning, systemImage: "captions.bubble.fill")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 9)
-                            .background(.regularMaterial, in: Capsule())
+                        PlayerNotice(message: subtitleWarning, systemImage: "captions.bubble.fill")
                             .padding(16)
                             .transition(.move(edge: .top).combined(with: .opacity))
                     }
@@ -928,12 +914,11 @@ struct MovieFallbackPlayer: View {
                     )
                 }
             } else {
-                ContentUnavailableView(
-                    "No video selected",
+                AsterionEmptyState(
                     systemImage: "play.rectangle",
-                    description: Text("Choose a playback source.")
+                    title: "No video selected",
+                    message: "Choose a playback source to start watching."
                 )
-                .foregroundStyle(.white)
             }
         }
         .id(attemptID)
@@ -947,18 +932,344 @@ private struct PlayerFailureView: View {
     let retry: () -> Void
 
     var body: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.title)
-            Text(message)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 420)
-            Button("Try Again", action: retry)
+        PlayerErrorState(
+            title: "This video stopped playing",
+            message: message,
+            retry: retry
+        )
+    }
+}
+
+// MARK: - Player chrome
+
+/// Calm, centered loading treatment for player windows: the artwork's own
+/// light behind a small spinner and a single line of muted text.
+struct PlayerLoadingState: View {
+    let message: String
+    var artworkURL: URL?
+
+    var body: some View {
+        ZStack {
+            Color.black
+
+            ArtworkToneReader(url: artworkURL) { tone in
+                RadialGradient(
+                    colors: [tone.opacity(artworkURL == nil ? 0.10 : 0.26), tone.opacity(0.05), .clear],
+                    center: .center,
+                    startRadius: 4,
+                    endRadius: 340
+                )
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+
+            VStack(spacing: 14) {
+                ProgressView()
+                    .progressViewStyle(.circular)
+                    .controlSize(.small)
+                    .tint(Color.asterionText)
+                Text(message)
+                    .font(.system(size: 13))
+                    .foregroundStyle(Color.asterionMuted)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+            }
+            .padding(24)
+            .accessibilityElement(children: .combine)
         }
-        .foregroundStyle(.white)
-        .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.black.opacity(0.96))
+    }
+}
+
+/// Error state for player stages, with an optional retry.
+struct PlayerErrorState: View {
+    let title: String
+    let message: String
+    var retry: (() -> Void)?
+
+    var body: some View {
+        AsterionEmptyState(
+            systemImage: "exclamationmark.triangle",
+            title: title,
+            message: message
+        ) {
+            if let retry {
+                Button(action: retry) {
+                    Label("Try again", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(.asterionSecondary)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.black.opacity(0.96))
+    }
+}
+
+/// Small smoked notice that floats over video (captions, warnings).
+struct PlayerNotice: View {
+    let message: String
+    let systemImage: String
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Image(systemName: systemImage)
+                .foregroundStyle(Color.asterionWarning)
+            Text(message)
+                .foregroundStyle(Color.asterionText)
+        }
+        .font(.system(size: 12, weight: .medium))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color.black.opacity(0.72), in: Capsule())
+        .overlay(Capsule().strokeBorder(Color.white.opacity(0.10)))
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// Compact smoked capsule for player chrome. `isLit` turns it projector
+/// white, for toggles that are on.
+struct PlayerChromeButtonStyle: ButtonStyle {
+    var isLit = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        PlayerChromeButtonBody(configuration: configuration, isLit: isLit)
+    }
+}
+
+private struct PlayerChromeButtonBody: View {
+    let configuration: ButtonStyleConfiguration
+    let isLit: Bool
+    @Environment(\.isEnabled) private var isEnabled
+    @State private var isHovering = false
+
+    var body: some View {
+        configuration.label
+            .labelStyle(PlayerChromeLabelStyle())
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(
+                isLit
+                    ? Color.asterionMediaCanvas
+                    : Color.asterionText.opacity(isEnabled ? (isHovering ? 1 : 0.82) : 0.3)
+            )
+            .padding(.horizontal, 9)
+            .frame(minWidth: 30, minHeight: 30)
+            .background {
+                PlayerChromeCapsule(
+                    isLit: isLit,
+                    highlight: configuration.isPressed ? 0.12 : (isHovering && isEnabled ? 0.06 : 0)
+                )
+            }
+            .scaleEffect(configuration.isPressed ? 0.96 : 1)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+            .animation(.easeOut(duration: 0.15), value: isHovering)
+            .contentShape(Capsule())
+            .onHover { isHovering = $0 }
+    }
+}
+
+private struct PlayerChromeLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 6) {
+            configuration.icon
+            configuration.title
+        }
+    }
+}
+
+/// The capsule behind a chrome control, also used for menu labels.
+struct PlayerChromeCapsule: View {
+    var isLit = false
+    var highlight: Double = 0
+
+    var body: some View {
+        Capsule()
+            .fill(isLit ? Color.asterionText : Color.white.opacity(0.06 + highlight))
+            .overlay {
+                Capsule().strokeBorder(Color.white.opacity(isLit ? 0 : 0.10))
+            }
+            .shadow(color: .white.opacity(isLit ? 0.18 : 0), radius: 8)
+    }
+}
+
+/// Icon label for a `Menu` in player chrome. Pair with
+/// `.menuStyle(.button)` and `.buttonStyle(.plain)`.
+struct PlayerChromeMenuLabel: View {
+    let systemImage: String
+    var title: String?
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: systemImage)
+            if let title {
+                Text(title)
+                    .lineLimit(1)
+            }
+        }
+        .font(.system(size: 12, weight: .semibold))
+        .foregroundStyle(Color.asterionText.opacity(0.82))
+        .padding(.horizontal, 9)
+        .frame(minWidth: 30, minHeight: 30)
+        .background { PlayerChromeCapsule() }
+        .contentShape(Capsule())
+    }
+}
+
+/// Keep-on-top toggle styled for player chrome.
+struct PlayerPinButton: View {
+    @Binding var isPinned: Bool
+
+    var body: some View {
+        Button {
+            isPinned.toggle()
+        } label: {
+            Image(systemName: isPinned ? "pin.fill" : "pin")
+        }
+        .buttonStyle(PlayerChromeButtonStyle(isLit: isPinned))
+        .help(isPinned ? "Stop keeping window on top" : "Keep window on top")
+        .accessibilityLabel(isPinned ? "Stop keeping window on top" : "Keep window on top")
+        .accessibilityValue(isPinned ? "On" : "Off")
+    }
+}
+
+/// Title block for a player bar: the title in the title-card face at a
+/// modest size, the episode position beside it in muted mono.
+struct PlayerTitleLabel: View {
+    let title: String
+    var detail: String?
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(title)
+                .font(.asterionTitle(13.5, weight: .semibold))
+                .foregroundStyle(Color.asterionText)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .layoutPriority(1)
+            if let detail, !detail.isEmpty, detail != title {
+                Text(detail)
+                    .font(.asterionMono(11.5, weight: .medium))
+                    .foregroundStyle(Color.asterionMuted)
+                    .lineLimit(1)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// Row in a player's episode panel: mono number, title, and a line of light
+/// for a partially watched episode. The current episode is lit white.
+struct PlayerEpisodeRowLabel: View {
+    let number: String
+    let title: String
+    let isSelected: Bool
+    let isLoading: Bool
+    var progress: Double?
+
+    @State private var isHovering = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 12) {
+                Text(number)
+                    .font(.asterionMono(11.5, weight: .medium))
+                    .foregroundStyle(isSelected ? Color.asterionMediaCanvas.opacity(0.55) : Color.asterionFaint)
+                    .frame(minWidth: 26, alignment: .trailing)
+
+                Text(title)
+                    .font(.system(size: 13, weight: isSelected ? .semibold : .medium))
+                    .foregroundStyle(isSelected ? Color.asterionMediaCanvas : Color.asterionText.opacity(0.88))
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                if isLoading {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .environment(\.colorScheme, isSelected ? .light : .dark)
+                } else if isSelected {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(Color.asterionMediaCanvas)
+                        .accessibilityHidden(true)
+                }
+            }
+
+            if let progress {
+                AsterionLightLine(fraction: progress, height: 2)
+                    .padding(.leading, 38)
+                    .padding(.trailing, 4)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 9)
+        .background {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(isSelected ? Color.asterionText : Color.white.opacity(isHovering ? 0.05 : 0))
+        }
+        .shadow(color: .white.opacity(isSelected ? 0.12 : 0), radius: 10)
+        .contentShape(Rectangle())
+        .onHover { isHovering = $0 }
+        .animation(.easeOut(duration: 0.15), value: isHovering)
+    }
+}
+
+/// Numbered cell for long episode runs.
+struct PlayerEpisodeGridCell: View {
+    let number: String
+    let isSelected: Bool
+    let isLoading: Bool
+    var progress: Double?
+
+    @State private var isHovering = false
+
+    var body: some View {
+        ZStack {
+            Text(number)
+                .font(.asterionMono(12.5, weight: .semibold))
+                .opacity(isLoading ? 0 : 1)
+            if isLoading {
+                ProgressView()
+                    .controlSize(.mini)
+                    .environment(\.colorScheme, isSelected ? .light : .dark)
+            }
+        }
+        .foregroundStyle(isSelected ? Color.asterionMediaCanvas : Color.asterionText.opacity(0.82))
+        .frame(maxWidth: .infinity)
+        .frame(height: 38)
+        .background(
+            isSelected ? Color.asterionText : Color.white.opacity(isHovering ? 0.10 : 0.06),
+            in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(Color.white.opacity(isSelected ? 0 : 0.06))
+        }
+        .overlay(alignment: .bottom) {
+            if let progress {
+                AsterionLightLine(fraction: progress, height: 2)
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 5)
+                    .accessibilityHidden(true)
+            }
+        }
+        .shadow(color: .white.opacity(isSelected ? 0.16 : 0), radius: 8)
+        .contentShape(Rectangle())
+        .onHover { isHovering = $0 }
+        .animation(.easeOut(duration: 0.15), value: isHovering)
+    }
+}
+
+/// Footnote under third-party web players.
+struct PlayerThirdPartyNotice: View {
+    let text: String
+
+    var body: some View {
+        Label(text, systemImage: "globe")
+            .font(.system(size: 11))
+            .foregroundStyle(Color.asterionFaint)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 8)
+            .background(Color.black)
     }
 }
 

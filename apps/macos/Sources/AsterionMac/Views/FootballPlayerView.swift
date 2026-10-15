@@ -14,9 +14,11 @@ struct FootballPlayerView: View {
                 .frame(minWidth: 620, maxWidth: .infinity, maxHeight: .infinity)
 
             if showsSources {
-                Divider().overlay(.white.opacity(0.08))
+                Rectangle()
+                    .fill(Color.asterionHairline)
+                    .frame(width: 1)
                 sourceSidebar
-                    .frame(width: 260)
+                    .frame(width: 280)
                     .transition(.move(edge: .trailing).combined(with: .opacity))
             }
         }
@@ -36,36 +38,35 @@ struct FootballPlayerView: View {
     private var playerPane: some View {
         VStack(spacing: 0) {
             playerToolbar
-            Divider().overlay(.white.opacity(0.08))
             playerStage
 
-            Label(
-                "The live player is supplied by a third party and may include external content.",
-                systemImage: "globe"
+            PlayerThirdPartyNotice(
+                text: "The live player is supplied by a third party and may include external content."
             )
-            .font(.caption)
-            .foregroundStyle(.white.opacity(0.42))
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 18)
-            .padding(.vertical, 9)
-            .background(.black)
         }
     }
 
     private var playerToolbar: some View {
-        HStack(spacing: 12) {
-            Circle()
-                .fill(Color.asterionAccent)
-                .frame(width: 7, height: 7)
-            Text("LIVE")
-                .font(.system(size: 11, weight: .bold).monospaced())
-                .tracking(1)
-                .foregroundStyle(Color.asterionAccent)
+        HStack(spacing: 8) {
+            Group {
+                if route.match.isLive {
+                    AsterionLiveBadge()
+                } else {
+                    Text(route.match.kickoff.formatted(date: .omitted, time: .shortened))
+                        .font(.asterionMono(11, weight: .semibold))
+                        .foregroundStyle(Color.asterionMuted)
+                        .accessibilityLabel(
+                            "Kickoff \(route.match.kickoff.formatted(date: .omitted, time: .shortened))"
+                        )
+                }
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 24)
+            .background(Color.white.opacity(0.06), in: Capsule())
+            .overlay(Capsule().strokeBorder(Color.white.opacity(0.08)))
 
-            Text(route.match.displayTitle)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.white.opacity(0.78))
-                .lineLimit(1)
+            PlayerTitleLabel(title: route.match.displayTitle)
+                .padding(.leading, 4)
 
             Spacer(minLength: 24)
                 .contentShape(Rectangle())
@@ -73,57 +74,60 @@ struct FootballPlayerView: View {
                 .allowsWindowActivationEvents(true)
                 .accessibilityHidden(true)
 
-            MediaWindowPinButton(isPinned: $keepsWindowOnTop)
-
             if let selected = store.selectedStream {
-                Text(selected.displayName)
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.48))
+                Text(streamSummary(selected))
+                    .font(.asterionMono(11, weight: .medium))
+                    .foregroundStyle(Color.asterionMuted)
                     .lineLimit(1)
+                    .accessibilityLabel("Playing \(selected.displayName)")
             }
+
+            PlayerPinButton(isPinned: $keepsWindowOnTop)
 
             Button {
                 showsSources.toggle()
             } label: {
                 Image(systemName: "sidebar.right")
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(.white.opacity(0.72))
+            .buttonStyle(PlayerChromeButtonStyle(isLit: showsSources))
             .disabled(store.streams.count < 2)
-            .help(showsSources ? "Hide Sources" : "Show Sources")
-            .accessibilityLabel(showsSources ? "Hide Sources" : "Show Sources")
+            .help(showsSources ? "Hide sources" : "Show sources")
+            .accessibilityLabel(showsSources ? "Hide sources" : "Show sources")
         }
         .controlSize(.small)
-        .padding(.horizontal, 14)
-        .frame(height: 44)
-        .background(Color.black.opacity(0.96))
+        .padding(.horizontal, 12)
+        .frame(height: 48)
+        .background(Color.black)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color.asterionHairline)
+                .frame(height: 1)
+        }
     }
 
     @ViewBuilder
     private var playerStage: some View {
         Group {
             if store.isLoading {
-                ProgressView("Preparing live video…")
-                    .tint(.white)
-                    .foregroundStyle(.white)
+                PlayerLoadingState(
+                    message: "Preparing live video…",
+                    artworkURL: route.match.posterURL
+                )
             } else if let error = store.error {
-                VStack(spacing: 12) {
-                    Image(systemName: "exclamationmark.triangle").font(.title)
-                    Text(error).multilineTextAlignment(.center)
-                    Button("Try Again") { Task { await store.retry() } }
-                }
-                .foregroundStyle(.white)
-                .padding()
+                PlayerErrorState(
+                    title: "The live video didn’t load",
+                    message: error,
+                    retry: { Task { await store.retry() } }
+                )
             } else if let stream = store.selectedStream {
                 MediaWebPlayer(url: stream.embedURL)
                     .id(stream.optionID)
             } else {
-                ContentUnavailableView(
-                    "No live source",
+                AsterionEmptyState(
                     systemImage: "play.slash",
-                    description: Text("This match has no playable source right now.")
+                    title: "No live source",
+                    message: "This match has no playable source right now. Check back closer to kickoff."
                 )
-                .foregroundStyle(.white)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -133,55 +137,56 @@ struct FootballPlayerView: View {
     private var sourceSidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("STREAMS")
-                    .font(.system(size: 11, weight: .bold).monospaced())
-                    .tracking(1.4)
-                    .foregroundStyle(.white.opacity(0.42))
-                Text("Choose another live source")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.46))
-            }
-            .padding(15)
-
-            Divider().overlay(.white.opacity(0.08))
-
-            List(store.streams, id: \.optionID) { stream in
-                Button {
-                    store.choose(stream)
-                } label: {
-                    HStack(spacing: 10) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(stream.source.capitalized)
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundStyle(.white.opacity(0.86))
-                            Text(sourceMetadata(stream))
-                                .font(.caption2)
-                                .foregroundStyle(.white.opacity(0.42))
-                        }
-                        Spacer()
-                        if store.selectedStreamID == stream.optionID {
-                            Image(systemName: "play.fill")
-                                .font(.caption)
-                                .foregroundStyle(Color.asterionAccent)
-                        }
-                    }
-                    .padding(.vertical, 5)
-                    .contentShape(Rectangle())
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Streams")
+                        .font(.asterionTitle(16, weight: .bold))
+                        .foregroundStyle(Color.asterionText)
+                        .accessibilityAddTraits(.isHeader)
+                    Spacer(minLength: 8)
+                    Text(store.streams.count.formatted())
+                        .font(.asterionMono(11, weight: .medium))
+                        .foregroundStyle(Color.asterionFaint)
+                        .accessibilityLabel("\(store.streams.count) streams")
                 }
-                .buttonStyle(.plain)
-                .listRowBackground(
-                    store.selectedStreamID == stream.optionID
-                        ? Color.asterionAccent.opacity(0.16)
-                        : Color.clear
-                )
-                .accessibilityLabel("Play \(stream.displayName)")
-                .accessibilityValue(sourceMetadata(stream))
-                .accessibilityAddTraits(store.selectedStreamID == stream.optionID ? .isSelected : [])
+                Text("Choose another live source")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.asterionMuted)
             }
-            .listStyle(.sidebar)
-            .scrollContentBackground(.hidden)
+            .padding(.horizontal, 16)
+            .padding(.top, 16)
+            .padding(.bottom, 12)
+
+            Rectangle()
+                .fill(Color.asterionHairline)
+                .frame(height: 1)
+
+            ScrollView {
+                LazyVStack(spacing: 2) {
+                    ForEach(store.streams, id: \.optionID) { stream in
+                        let isSelected = store.selectedStreamID == stream.optionID
+                        Button {
+                            store.choose(stream)
+                        } label: {
+                            FootballStreamRow(stream: stream, isSelected: isSelected)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Play \(stream.displayName)")
+                        .accessibilityValue(sourceMetadata(stream))
+                        .accessibilityAddTraits(isSelected ? .isSelected : [])
+                    }
+                }
+                .padding(8)
+            }
+            .scrollIndicators(.hidden)
         }
-        .background(Color.black.opacity(0.94))
+        .background(Color.asterionSurface)
+    }
+
+    private func streamSummary(_ stream: FootballStream) -> String {
+        var parts = [stream.source.capitalized]
+        if stream.hd { parts.append("HD") }
+        if !stream.language.isEmpty { parts.append(stream.language.uppercased()) }
+        return parts.joined(separator: " · ")
     }
 
     private func sourceMetadata(_ stream: FootballStream) -> String {
@@ -190,5 +195,75 @@ struct FootballPlayerView: View {
         if stream.hd { parts.append("HD") }
         if let viewers = stream.viewers { parts.append("\(viewers.formatted()) watching") }
         return parts.joined(separator: " · ")
+    }
+}
+
+/// A stream in the live source panel: source name over mono HD, language,
+/// and viewer metadata. The playing stream is lit white.
+private struct FootballStreamRow: View {
+    let stream: FootballStream
+    let isSelected: Bool
+
+    @State private var isHovering = false
+
+    private var ink: Color { isSelected ? .asterionMediaCanvas : .asterionText }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text(stream.source.capitalized)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(ink.opacity(isSelected ? 1 : 0.9))
+                    .lineLimit(1)
+
+                HStack(spacing: 7) {
+                    if stream.hd {
+                        Text("HD")
+                            .font(.asterionMono(9.5, weight: .bold))
+                            .foregroundStyle(ink.opacity(0.8))
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1.5)
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                    .strokeBorder(ink.opacity(0.35))
+                            }
+                    }
+                    if !stream.language.isEmpty {
+                        Text(stream.language.uppercased())
+                            .font(.asterionMono(10.5, weight: .medium))
+                            .foregroundStyle(ink.opacity(0.6))
+                    }
+                    if let viewers = stream.viewers {
+                        Text("\(viewers.formatted()) watching")
+                            .font(.asterionMono(10.5, weight: .medium))
+                            .foregroundStyle(ink.opacity(0.6))
+                    }
+                }
+                .lineLimit(1)
+            }
+
+            Spacer(minLength: 6)
+
+            if isSelected {
+                Image(systemName: "play.fill")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(Color.asterionMediaCanvas)
+                    .accessibilityHidden(true)
+            } else {
+                Text("#\(stream.streamNumber)")
+                    .font(.asterionMono(10.5, weight: .medium))
+                    .foregroundStyle(Color.asterionFaint)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(isSelected ? Color.asterionText : Color.white.opacity(isHovering ? 0.05 : 0))
+        }
+        .shadow(color: .white.opacity(isSelected ? 0.12 : 0), radius: 10)
+        .contentShape(Rectangle())
+        .onHover { isHovering = $0 }
+        .animation(.easeOut(duration: 0.15), value: isHovering)
     }
 }

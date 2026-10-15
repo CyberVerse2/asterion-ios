@@ -16,23 +16,23 @@ struct MovieDetailView: View {
     var body: some View {
         Group {
             if store.isLoadingDetail {
-                ProgressView("Opening title…")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                AsterionDetailSkeleton(accessibilityLabel: "Opening title…")
             } else if let error = store.detailError {
-                ContentUnavailableView {
-                    Label("Couldn’t open this title", systemImage: "exclamationmark.triangle")
-                } description: {
-                    Text(error)
-                } actions: {
-                    Button("Try Again") { Task { await store.retryDetail() } }
+                AsterionEmptyState(
+                    systemImage: "exclamationmark.triangle",
+                    title: "Couldn’t open this title",
+                    message: error
+                ) {
+                    Button("Try again") { Task { await store.retryDetail() } }
+                        .buttonStyle(.asterionSecondary)
                 }
             } else if let show = store.show {
                 detail(show)
             } else {
-                ContentUnavailableView(
-                    "Choose a title",
+                AsterionEmptyState(
                     systemImage: "film",
-                    description: Text("Select a movie or TV show to see its details.")
+                    title: "Choose a title",
+                    message: "Select a movie or TV show to see its details."
                 )
             }
         }
@@ -50,44 +50,57 @@ struct MovieDetailView: View {
     }
 
     private func detail(_ show: MovieShow) -> some View {
-        ZStack(alignment: .top) {
-            ambientBackdrop(show)
+        ScrollView {
+            VStack(alignment: .leading, spacing: AsterionLayout.sectionSpacing) {
+                hero(show)
+                    .asterionDetailInset()
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 34) {
-                    hero(show)
-
-                    if !factDetails(for: show).isEmpty {
-                        movieCredits(show)
-                    }
-
-                    if show.isSeries {
-                        detailSection(title: "Episodes", trailing: "\(store.episodes.count) available") {
-                            episodeBrowser(show)
-                        }
-                    }
-
-                    if !show.actors.isEmpty {
-                        detailSection(
-                            title: "Cast",
-                            trailing: show.actors.count == 1 ? "1 person" : "\(show.actors.count) people"
-                        ) {
-                            castShelf(show)
-                        }
-                    }
-
-                    if !recommendations(for: show).isEmpty {
-                        detailSection(title: "You Might Like") {
-                            recommendationShelf(show)
-                        }
+                if show.isSeries {
+                    AsterionDetailSection(
+                        title: "Episodes",
+                        count: "\(store.episodes.count) available",
+                        bleedsContent: !episodesForSelectedSeason.isEmpty
+                    ) {
+                        seasonMenu
+                    } content: {
+                        episodeBrowser(show)
                     }
                 }
-                .asterionDetailPageFrame()
-                .id("detail-top")
+
+                if !show.actors.isEmpty {
+                    AsterionDetailSection(
+                        title: "Cast",
+                        count: show.actors.count == 1 ? "1 person" : "\(show.actors.count) people",
+                        bleedsContent: true
+                    ) {
+                        castShelf(show)
+                    }
+                }
+
+                if !factDetails(for: show).isEmpty {
+                    AsterionDetailSection(title: "Details") {
+                        movieCredits(show)
+                    }
+                }
+
+                if !recommendations(for: show).isEmpty {
+                    AsterionDetailSection(
+                        title: "More like this",
+                        count: String(recommendations(for: show).count),
+                        bleedsContent: true
+                    ) {
+                        recommendationShelf(show)
+                    }
+                }
             }
-            .hidingScrollIndicators()
-            .scrollPosition(id: $scrollPosition, anchor: .top)
+            .asterionDetailPageFrame()
+            .background(alignment: .top) {
+                AsterionDetailBackdrop(url: show.imageURL)
+            }
+            .id("detail-top")
         }
+        .hidingScrollIndicators()
+        .scrollPosition(id: $scrollPosition, anchor: .top)
         .background(Color.asterionMediaCanvas)
         .task(id: show.id) {
             showsFullSynopsis = false
@@ -107,156 +120,93 @@ struct MovieDetailView: View {
         }
     }
 
-    private func ambientBackdrop(_ show: MovieShow) -> some View {
-        AsyncImage(url: show.imageURL) { phase in
-            if case .success(let image) = phase {
-                image
-                    .resizable()
-                    .scaledToFill()
-                    .blur(radius: 42)
-                    .saturation(0.8)
-            } else {
-                Color.clear
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .frame(height: 590)
-        .clipped()
-        .opacity(0.4)
-        .overlay(Color.black.opacity(0.36))
-        .mask {
-            LinearGradient(
-                colors: [.black, .black.opacity(0.82), .clear],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        }
-        .backgroundExtensionEffect()
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
-    }
-
     private func hero(_ show: MovieShow) -> some View {
-        HStack(alignment: .top, spacing: 38) {
-            AsyncImage(url: show.imageURL) { phase in
-                if case .success(let image) = phase {
-                    image.resizable().scaledToFill()
-                } else {
-                    Color.asterionCard
-                }
-            }
-            .frame(width: 230, height: 330)
-            .clipped()
-            .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 17, style: .continuous)
-                    .stroke(.white.opacity(0.13))
-            }
-            .shadow(color: .black.opacity(0.34), radius: 24, y: 14)
+        let target = watchTarget(for: show)
+        let targetEpisode = target.flatMap { target in
+            store.episodes.first { $0.id == target.unitID }
+        }
 
-            VStack(alignment: .leading, spacing: 16) {
-                Text(show.isSeries ? "TV SERIES" : "MOVIE")
-                    .font(.system(size: 11, weight: .bold))
-                    .tracking(1.4)
-                    .foregroundStyle(Color.asterionText.opacity(0.72))
-
-                Text(show.displayTitle)
-                    .font(.system(size: 40, weight: .bold))
-                    .foregroundStyle(Color.asterionText)
-                    .lineLimit(3)
-                    .minimumScaleFactor(0.82)
-                    .textSelection(.enabled)
-
-                let ratings = ratingDetails(for: show)
-                if !ratings.isEmpty {
-                    ratingStrip(ratings)
-                }
-
-                watchAction(show)
-
-                if let summary = show.description, !summary.isEmpty {
-                    Text(summary)
-                        .font(.system(size: 15))
-                        .foregroundStyle(Color.asterionText.opacity(0.84))
-                        .lineSpacing(4)
-                        .lineLimit(showsFullSynopsis ? nil : 3)
-                        .frame(maxWidth: 650, alignment: .leading)
-                        .textSelection(.enabled)
-
-                    if summary.count > 240 {
-                        Button(showsFullSynopsis ? "Show less" : "More") {
-                            showsFullSynopsis.toggle()
+        return AsterionDetailHero(
+            imageURL: show.imageURL,
+            fallbackSystemImage: show.isSeries ? "tv" : "film",
+            eyebrow: eyebrow(for: show),
+            title: show.displayTitle,
+            byline: show.director.flatMap(detailValue).map { "Directed by \($0)" },
+            metadata: heroMetadata(for: show),
+            secondaryMetadata: ratingDetails(for: show).map { "\($0.source) \($0.value)" },
+            summary: show.description,
+            showsFullSummary: $showsFullSynopsis
+        ) {
+            watchActions(show)
+        } footer: {
+            if case let .resume(percentage) = target?.action, percentage > 0 {
+                AsterionDetailProgress(
+                    fraction: percentage / 100,
+                    caption: show.isSeries
+                        ? targetEpisode.map { episode in
+                            episode.title.isEmpty
+                                ? "S\(episode.season) E\(episode.number)"
+                                : "S\(episode.season) E\(episode.number) · \(episode.title)"
                         }
-                        .buttonStyle(.link)
-                        .font(.caption.weight(.semibold))
-                        .tint(.asterionText)
-                    }
-                }
+                        : nil
+                )
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .frame(minHeight: 350)
-    }
 
-    private func ratingStrip(_ ratings: [MovieDetailRating]) -> some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 0) {
-                ForEach(Array(ratings.enumerated()), id: \.element.id) { index, rating in
-                    if index > 0 {
-                        Divider()
-                            .frame(height: 24)
-                            .padding(.horizontal, 14)
-                    }
-                    ratingBadge(rating)
-                }
+            if let error = model.mediaBookmarkError {
+                AsterionDetailNotice(message: error)
             }
-            VStack(alignment: .leading, spacing: 10) {
-                ForEach(ratings) { ratingBadge($0) }
+
+            if let downloadError {
+                AsterionDetailNotice(message: downloadError)
             }
         }
     }
 
-    private func ratingBadge(_ rating: MovieDetailRating) -> some View {
-        HStack(spacing: 7) {
-            Image(systemName: "star.fill")
-                .font(.caption)
-                .foregroundStyle(Color.asterionText.opacity(0.72))
-            Text(rating.source)
-                .foregroundStyle(Color.asterionMuted)
-            Text(rating.value)
-                .fontWeight(.semibold)
-                .foregroundStyle(Color.asterionText)
-        }
-        .font(.callout)
+    private func eyebrow(for show: MovieShow) -> String {
+        let year = show.releaseYear.flatMap(detailValue)
+            ?? show.releaseDate.flatMap(detailValue).map { String($0.prefix(4)) }
+        return [show.isSeries ? "Series" : "Film", year]
+            .compactMap { $0 }
+            .joined(separator: " · ")
+    }
+
+    private func heroMetadata(for show: MovieShow) -> [String] {
+        let seasonCount = Set(store.episodes.map(\.season)).count
+        let genres = show.genres.prefix(3).joined(separator: ", ")
+        return [
+            show.isSeries && seasonCount > 0
+                ? "\(seasonCount) \(seasonCount == 1 ? "season" : "seasons")"
+                : nil,
+            show.isSeries && !store.episodes.isEmpty ? "\(store.episodes.count) episodes" : nil,
+            show.duration.flatMap(detailValue),
+            genres.isEmpty ? nil : genres,
+            show.country.flatMap(detailValue),
+        ].compactMap { $0 }
     }
 
     private func movieCredits(_ show: MovieShow) -> some View {
         let facts = factDetails(for: show)
         return LazyVGrid(
             columns: [
-                GridItem(.flexible(), spacing: 28, alignment: .leading),
-                GridItem(.flexible(), spacing: 28, alignment: .leading),
+                GridItem(.flexible(), spacing: 0, alignment: .leading),
+                GridItem(.flexible(), spacing: 0, alignment: .leading),
             ],
             alignment: .leading,
             spacing: 0
         ) {
-            ForEach(facts) { fact in
-                HStack(alignment: .firstTextBaseline, spacing: 14) {
-                    Text(fact.label.uppercased())
-                        .font(.caption2.weight(.bold))
-                        .tracking(0.7)
-                        .foregroundStyle(Color.asterionMuted)
-                        .frame(width: 104, alignment: .leading)
-                    Text(fact.value)
-                        .font(.callout.weight(.medium))
-                        .foregroundStyle(Color.asterionText.opacity(0.88))
-                        .textSelection(.enabled)
-                    Spacer(minLength: 0)
-                }
-                .padding(.vertical, 15)
-                .overlay(alignment: .top) { Divider() }
+            ForEach(Array(facts.enumerated()), id: \.element.id) { index, fact in
+                AsterionDetailFactRow(label: fact.label, value: fact.value)
+                    .overlay(alignment: .top) {
+                        if index >= 2 {
+                            Rectangle()
+                                .fill(Color.asterionHairline)
+                                .frame(height: 1)
+                        }
+                    }
             }
         }
+        .padding(.vertical, 4)
+        .asterionPanel(cornerRadius: 14)
     }
 
     private func ratingDetails(for show: MovieShow) -> [MovieDetailRating] {
@@ -293,23 +243,25 @@ struct MovieDetailView: View {
     }
 
     private func castShelf(_ show: MovieShow) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 14) {
             ScrollView(.horizontal) {
-                LazyHStack(spacing: 12) {
+                LazyHStack(spacing: 10) {
                     ForEach(Array(visibleCast(for: show)), id: \.self) { actor in
                         Text(actor)
-                            .font(.callout.weight(.semibold))
-                            .foregroundStyle(Color.asterionText.opacity(0.88))
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(Color.asterionText.opacity(0.9))
                             .lineLimit(1)
                             .padding(.horizontal, 16)
-                            .padding(.vertical, 10)
-                            .background(.thinMaterial, in: Capsule())
-                            .overlay { Capsule().stroke(.white.opacity(0.08)) }
+                            .frame(height: 34)
+                            .background(Capsule().fill(Color.asterionSurface))
+                            .overlay { Capsule().strokeBorder(Color.asterionBorder) }
+                            .textSelection(.enabled)
                     }
                 }
                 .padding(.vertical, 2)
                 .scrollTargetLayout()
             }
+            .contentMargins(.horizontal, AsterionLayout.pageInset, for: .scrollContent)
             .hidingScrollIndicators()
             .scrollTargetBehavior(.viewAligned)
 
@@ -317,77 +269,53 @@ struct MovieDetailView: View {
                 Button(showsFullCast ? "Show less" : "Show all cast") {
                     showsFullCast.toggle()
                 }
-                .buttonStyle(.link)
-                .font(.caption.weight(.semibold))
-                .tint(.asterionText)
+                .buttonStyle(AsterionDetailTextButtonStyle())
+                .asterionDetailInset()
             }
         }
     }
 
     private func recommendationShelf(_ show: MovieShow) -> some View {
-        ScrollView(.horizontal) {
-            LazyHStack(spacing: 15) {
-                ForEach(recommendations(for: show)) { title in
-                    AsterionPosterCard(
-                        imageURL: title.imageURL,
-                        badge: title.isSeries ? "SERIES" : "MOVIE",
-                        title: title.displayTitle,
-                        subtitle: [title.isSeries ? "TV Series" : "Movie", title.year]
-                            .compactMap { $0 }
-                            .joined(separator: " · ")
-                    ) {
-                        Task { await store.select(title, force: true) }
-                    }
-                }
+        HomeHorizontalShelf(
+            items: recommendations(for: show),
+            itemWidth: AsterionCardMetrics.posterWidth,
+            spacing: 18,
+            height: AsterionCardMetrics.posterShelfHeight
+        ) { title in
+            AsterionPosterCard(
+                imageURL: title.imageURL,
+                title: title.displayTitle,
+                subtitle: [title.isSeries ? "TV Series" : "Movie", title.year]
+                    .compactMap { $0 }
+                    .joined(separator: " · "),
+                fallbackSystemImage: title.isSeries ? "tv" : "film"
+            ) {
+                Task { await store.select(title, force: true) }
             }
-            .padding(.vertical, 2)
-            .scrollTargetLayout()
         }
-        .hidingScrollIndicators()
-        .scrollTargetBehavior(.viewAligned)
     }
 
     private func recommendations(for show: MovieShow) -> [MovieTitle] {
         Array(store.titles.lazy.filter { $0.slug != show.slug }.prefix(10))
     }
 
-    private func watchAction(_ show: MovieShow) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 10) {
-                Button {
-                    openPlayer(show: show, episode: preferredEpisode(for: show))
-                } label: {
-                    Label(watchButtonTitle(show), systemImage: "play.fill")
-                        .lineLimit(1)
-                        .padding(.horizontal, 12)
-                }
-                .buttonStyle(.glassProminent)
-                .buttonBorderShape(.roundedRectangle(radius: 10))
-                .controlSize(.large)
-                .tint(.asterionAccent)
-                .keyboardShortcut(.return, modifiers: .command)
-                .disabled(show.isSeries ? store.episodes.isEmpty : false)
-                .help("Open in Asterion Player")
-
-                mediaBookmarkButton(show)
-
-                movieCollectionDownloadButton(show)
-            }
-
-            if let error = model.mediaBookmarkError {
-                Label(error, systemImage: "exclamationmark.triangle")
-                    .font(.caption)
-                    .foregroundStyle(Color.asterionAccent)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            if let downloadError {
-                Label(downloadError, systemImage: "exclamationmark.triangle")
-                    .font(.caption)
-                    .foregroundStyle(Color.asterionAccent)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+    @ViewBuilder
+    private func watchActions(_ show: MovieShow) -> some View {
+        Button {
+            openPlayer(show: show, episode: preferredEpisode(for: show))
+        } label: {
+            Label(watchButtonTitle(show), systemImage: "play.fill")
+                .lineLimit(1)
         }
+        .layoutPriority(1)
+        .buttonStyle(.asterionPrimary)
+        .keyboardShortcut(.return, modifiers: .command)
+        .disabled(show.isSeries ? store.episodes.isEmpty : false)
+        .help("Open in Asterion Player")
+
+        mediaBookmarkButton(show)
+
+        movieCollectionDownloadButton(show)
     }
 
     private func mediaBookmarkButton(_ show: MovieShow) -> some View {
@@ -411,108 +339,90 @@ struct MovieDetailView: View {
             if isUpdating {
                 ProgressView()
                     .controlSize(.small)
-                    .frame(width: 20)
+                    .frame(width: 16)
             } else {
-                Label(isSaved ? "Saved" : "Save", systemImage: isSaved ? "bookmark.fill" : "bookmark")
-                    .labelStyle(.iconOnly)
-                    .frame(width: 20)
+                Image(systemName: isSaved ? "bookmark.fill" : "bookmark")
+                    .frame(width: 16)
+                    .contentTransition(.symbolEffect(.replace))
             }
         }
-        .buttonStyle(.bordered)
-        .controlSize(.large)
-        .tint(Color.asterionText)
+        .buttonStyle(.asterionSecondary)
         .disabled(isUpdating)
         .help(isSaved ? "Remove from saved movies" : "Save this title to your account")
         .accessibilityLabel(isSaved ? "Remove from saved movies" : "Save this title")
     }
 
-    private func episodeBrowser(_ show: MovieShow) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            if availableSeasons.count > 1 {
+    @ViewBuilder
+    private var seasonMenu: some View {
+        if availableSeasons.count > 1 {
+            Menu {
                 Picker("Season", selection: seasonBinding) {
                     ForEach(availableSeasons, id: \.self) { season in
                         Text("Season \(season)").tag(season)
                     }
                 }
-                .pickerStyle(.menu)
+                .pickerStyle(.inline)
                 .labelsHidden()
-                .frame(maxWidth: 150, alignment: .leading)
+            } label: {
+                Text("Season \(seasonBinding.wrappedValue)")
+                    .font(.system(size: 12.5, weight: .semibold).monospacedDigit())
             }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .padding(.horizontal, 14)
+            .asterionSmokedCapsule(height: 30)
+            .accessibilityLabel("Season")
+            .accessibilityValue("Season \(seasonBinding.wrappedValue)")
+        }
+    }
 
-            if episodesForSelectedSeason.isEmpty {
-                ContentUnavailableView("No episodes", systemImage: "film.stack")
-            } else {
-                ScrollView(.horizontal) {
-                    LazyHStack(spacing: 15) {
-                        ForEach(episodesForSelectedSeason) { episode in
-                            movieEpisodeCard(show: show, episode: episode)
-                        }
+    @ViewBuilder
+    private func episodeBrowser(_ show: MovieShow) -> some View {
+        if episodesForSelectedSeason.isEmpty {
+            AsterionEmptyState(
+                systemImage: "film.stack",
+                title: "No episodes yet",
+                message: "Episodes appear here as soon as they’re released."
+            )
+            .frame(minHeight: 220)
+            .asterionPanel(cornerRadius: 14)
+        } else {
+            ScrollView(.horizontal) {
+                LazyHStack(alignment: .top, spacing: 16) {
+                    ForEach(episodesForSelectedSeason) { episode in
+                        movieEpisodeCard(show: show, episode: episode)
                     }
-                    .padding(.vertical, 2)
-                    .scrollTargetLayout()
                 }
-                .hidingScrollIndicators()
-                .scrollTargetBehavior(.viewAligned)
+                .padding(.vertical, 6)
+                .scrollTargetLayout()
             }
+            .contentMargins(.horizontal, AsterionLayout.pageInset, for: .scrollContent)
+            .hidingScrollIndicators()
+            .scrollTargetBehavior(.viewAligned)
         }
     }
 
     private func movieEpisodeCard(show: MovieShow, episode: MovieEpisode) -> some View {
         let progress = episodeProgress(for: episode, in: show)
-
-        return VStack(alignment: .leading, spacing: 0) {
-            Button {
-                openPlayer(show: show, episode: episode)
-            } label: {
-                ZStack(alignment: .topLeading) {
-                    AsyncImage(url: show.imageURL) { phase in
-                        if case .success(let image) = phase {
-                            image
-                                .resizable()
-                                .scaledToFill()
-                                .scaleEffect(1.08 + CGFloat(episode.number % 3) * 0.05)
-                                .offset(x: CGFloat((episode.number % 3) - 1) * 10)
-                        } else {
-                            Color.asterionCard
-                        }
-                    }
-                    .frame(width: AsterionCardMetrics.episodeWidth, height: AsterionCardMetrics.episodeHeight)
-                    .clipped()
-
-                    Text(String(episode.number))
-                        .font(.caption.monospacedDigit().weight(.semibold))
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 6)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
-                        .padding(10)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help(episodeProgressHelp(progress, episode: episode))
-
-            HStack(spacing: 9) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(episode.title.isEmpty ? "Episode \(episode.number)" : episode.title)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(Color.asterionText)
-                        .lineLimit(1)
-                    Text(movieEpisodeStatus(progress))
-                        .font(.caption)
-                        .foregroundStyle(Color.asterionMuted)
-                }
-
-                Spacer(minLength: 4)
-                movieDownloadButton(show: show, episode: episode)
-            }
-            .padding(11)
+        let fraction: Double? = progress.flatMap { progress in
+            progress.isCompleted ? nil : progress.percentage / 100
         }
-        .frame(width: AsterionCardMetrics.episodeWidth)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(.white.opacity(0.09))
+
+        return AsterionEpisodeCard(
+            imageURL: show.imageURL,
+            numberLabel: String(format: "S%d · E%02d", episode.season, episode.number),
+            artworkVariant: episode.number,
+            title: episode.title.isEmpty ? "Episode \(episode.number)" : episode.title,
+            status: movieEpisodeStatus(progress),
+            progress: fraction,
+            isCurrent: progress?.isCurrent == true,
+            isWatched: progress?.isCompleted == true,
+            help: episodeProgressHelp(progress, episode: episode),
+            accessibilityLabel: episodeProgressHelp(progress, episode: episode)
+        ) {
+            openPlayer(show: show, episode: episode)
+        } accessory: {
+            movieDownloadButton(show: show, episode: episode)
         }
     }
 
@@ -542,15 +452,13 @@ struct MovieDetailView: View {
                 ProgressView(value: record?.progress ?? 0)
                     .progressViewStyle(.circular)
                     .controlSize(.small)
+                    .tint(Color.asterionText)
                     .frame(width: 30, height: 30)
             } else {
-                Image(systemName: label.icon)
-                    .font(.system(size: 13, weight: .semibold))
-                    .symbolRenderingMode(.hierarchical)
-                    .foregroundStyle(Color.asterionText.opacity(0.82))
-                    .frame(width: 30, height: 30)
-                    .background(.ultraThinMaterial, in: Circle())
-                    .overlay { Circle().stroke(.white.opacity(0.08)) }
+                AsterionDetailCircleIcon(
+                    systemImage: label.icon,
+                    tint: record?.phase == .completed ? .asterionSuccess : .asterionText
+                )
             }
         }
         .buttonStyle(.plain)
@@ -571,13 +479,10 @@ struct MovieDetailView: View {
         return Button {
             presentMovieDownload(show: show, selectedEpisode: nil)
         } label: {
-            Label("Download", systemImage: "arrow.down.to.line")
-                .labelStyle(.iconOnly)
-                .frame(width: 20)
+            Image(systemName: "arrow.down.to.line")
+                .frame(width: 16)
         }
-        .buttonStyle(.bordered)
-        .controlSize(.large)
-        .tint(Color.asterionText)
+        .buttonStyle(.asterionSecondary)
         .disabled(show.isSeries && store.episodes.isEmpty)
         .help(help)
         .accessibilityLabel(help)
@@ -737,10 +642,7 @@ struct MovieDetailView: View {
         if !show.isSeries {
             return switch target.action {
             case .start, .next: "Watch movie"
-            case let .resume(percentage):
-                Int(percentage.rounded()) > 0
-                    ? "Continue movie · \(Int(percentage.rounded()))%"
-                    : "Continue movie"
+            case .resume: "Resume movie"
             case .rewatch: "Watch movie again"
             }
         }
@@ -749,10 +651,7 @@ struct MovieDetailView: View {
         }
         return switch target.action {
         case .start: "Watch S\(episode.season) E\(episode.number)"
-        case let .resume(percentage):
-            Int(percentage.rounded()) > 0
-                ? "Continue S\(episode.season) E\(episode.number) · \(Int(percentage.rounded()))%"
-                : "Continue S\(episode.season) E\(episode.number)"
+        case .resume: "Resume S\(episode.season) E\(episode.number)"
         case .next: "Watch next · S\(episode.season) E\(episode.number)"
         case .rewatch: "Watch S\(episode.season) E\(episode.number) again"
         }
@@ -826,37 +725,6 @@ struct MovieDetailView: View {
             )
         )
     }
-
-    private func metadataLine(icon: String, value: String) -> some View {
-        Label {
-            Text(value).lineLimit(1)
-        } icon: {
-            Image(systemName: icon).frame(width: 16)
-        }
-        .font(.caption)
-        .foregroundStyle(Color.asterionMuted)
-    }
-
-    private func detailSection<Content: View>(
-        title: String,
-        trailing: String? = nil,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text(title)
-                    .font(.system(size: 22, weight: .bold))
-                Spacer()
-                if let trailing {
-                    Text(trailing)
-                        .font(.caption)
-                        .foregroundStyle(Color.asterionMuted)
-                }
-            }
-            content()
-        }
-    }
-
 }
 
 private struct MovieDownloadUnit: Identifiable, Sendable {

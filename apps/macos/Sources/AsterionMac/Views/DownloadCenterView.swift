@@ -14,6 +14,8 @@ struct DownloadCenterView: View {
         self.presentation = presentation
     }
 
+    private var isLibrary: Bool { presentation == .library }
+
     private var activeCount: Int {
         model.offlineDownloads.count(where: { $0.isDownloading }) + mediaDownloads.activeCount
     }
@@ -21,6 +23,11 @@ struct DownloadCenterView: View {
     private var completedCount: Int {
         model.offlineDownloads.count(where: { $0.phase == .completed })
             + mediaDownloads.completedCount
+    }
+
+    private var failedCount: Int {
+        model.offlineDownloads.count(where: { $0.phase == .failed })
+            + mediaDownloads.downloads.count(where: { $0.phase == .failed })
     }
 
     private var novelDownloads: [OfflineDownload] {
@@ -39,138 +46,456 @@ struct DownloadCenterView: View {
         novelDownloads.isEmpty && animeDownloads.isEmpty && movieDownloads.isEmpty
     }
 
+    private var metrics: DownloadRowMetrics {
+        isLibrary ? .library : .compact
+    }
+
     var body: some View {
+        Group {
+            if isLibrary {
+                libraryBody
+            } else {
+                popoverBody
+            }
+        }
+        .background(Color.asterionMediaCanvas)
+    }
+
+    // MARK: Presentations
+
+    private var libraryBody: some View {
+        Group {
+            if isEmpty {
+                VStack(alignment: .leading, spacing: 0) {
+                    AsterionPageHeader("Downloads", subtitle: downloadSummary)
+                    emptyState
+                }
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        AsterionPageHeader("Downloads", subtitle: downloadSummary)
+                        downloadSections
+                            .frame(maxWidth: 920, alignment: .leading)
+                            .padding(.horizontal, AsterionLayout.pageInset)
+                            .padding(.top, 30)
+                            .padding(.bottom, 56)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                }
+                .hidingScrollIndicators()
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private var popoverBody: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 3) {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
                     Text("Downloads")
-                        .font(.asterionDisplay(presentation == .library ? 24 : 18, weight: .semibold))
+                        .font(.asterionTitle(18, weight: .bold))
                         .foregroundStyle(Color.asterionText)
+                        .accessibilityAddTraits(.isHeader)
                     Text(downloadSummary)
-                        .font(.caption)
+                        .font(.system(size: 12))
                         .foregroundStyle(Color.asterionMuted)
                 }
                 Spacer()
                 if activeCount > 0 {
                     ProgressView()
                         .controlSize(.small)
-                        .tint(Color.asterionAccent)
+                        .tint(Color.asterionText)
                 }
             }
-            .padding(presentation == .library ? 22 : 18)
+            .padding(16)
 
-            Divider()
+            Rectangle()
+                .fill(Color.asterionHairline)
+                .frame(height: 1)
 
             if isEmpty {
-                ContentUnavailableView {
-                    Label("No downloads", systemImage: "arrow.down.circle")
-                } description: {
-                    Text("Download a novel, movie, or episode to enjoy it offline.")
-                }
-                .frame(maxWidth: .infinity, minHeight: 180, maxHeight: .infinity)
+                emptyState
+                    .frame(minHeight: 220)
             } else {
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        if let storageError = mediaDownloads.storageError {
-                            Label(storageError, systemImage: "exclamationmark.triangle.fill")
-                                .font(.caption)
-                                .foregroundStyle(Color.red)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .padding(18)
-                            Divider()
-                        }
+                    downloadSections
+                        .padding(16)
+                }
+                .scrollIndicators(.hidden)
+                .frame(maxHeight: 480)
+            }
+        }
+        .frame(width: 360, alignment: .topLeading)
+    }
 
-                        downloadGroup(
-                            title: "Novels",
-                            systemImage: "books.vertical.fill",
-                            count: novelDownloads.count
-                        ) {
-                            ForEach(novelDownloads) { download in
-                                DownloadRow(download: download)
-                                if download.id != novelDownloads.last?.id {
-                                    Divider()
-                                }
-                            }
-                        }
+    private var emptyState: some View {
+        AsterionEmptyState(
+            systemImage: "arrow.down.circle",
+            title: "No downloads",
+            message: "Download a novel, film, or episode and it will be here to enjoy offline."
+        )
+    }
 
-                        downloadGroup(
-                            title: "Anime",
-                            systemImage: "sparkles.tv.fill",
-                            count: animeDownloads.count
-                        ) {
-                            ForEach(animeDownloads) { download in
-                                MediaDownloadRow(download: download)
-                                if download.id != animeDownloads.last?.id {
-                                    Divider()
-                                }
-                            }
-                        }
+    // MARK: Sections
 
-                        downloadGroup(
-                            title: "Movies & TV",
-                            systemImage: "film.stack.fill",
-                            count: movieDownloads.count
-                        ) {
-                            ForEach(movieDownloads) { download in
-                                MediaDownloadRow(download: download)
-                                if download.id != movieDownloads.last?.id {
-                                    Divider()
-                                }
+    private var downloadSections: some View {
+        let activeNovels = novelDownloads.filter(\.isDownloading)
+        let activeMedia = mediaDownloads.downloads.filter(\.isActive)
+        let settledNovels = novelDownloads.filter { !$0.isDownloading }
+        let settledAnime = animeDownloads.filter { !$0.isActive }
+        let settledMovies = movieDownloads.filter { !$0.isActive }
+
+        return VStack(alignment: .leading, spacing: isLibrary ? 36 : 22) {
+            if let storageError = mediaDownloads.storageError {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                    Text(storageError)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .font(.system(size: 12.5, weight: .medium))
+                .foregroundStyle(Color.asterionWarning)
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .asterionPanel(cornerRadius: 12)
+                .accessibilityElement(children: .combine)
+            }
+
+            if !activeNovels.isEmpty || !activeMedia.isEmpty {
+                section(title: "Downloading", count: activeNovels.count + activeMedia.count) {
+                    panel(prominent: true) {
+                        ForEach(Array(activeNovels.enumerated()), id: \.element.id) { index, download in
+                            if index > 0 { ActivityRowSeparator(leadingInset: metrics.separatorInset) }
+                            DownloadRow(download: download, metrics: metrics)
+                        }
+                        ForEach(Array(activeMedia.enumerated()), id: \.element.id) { index, download in
+                            if index > 0 || !activeNovels.isEmpty {
+                                ActivityRowSeparator(leadingInset: metrics.separatorInset)
                             }
+                            MediaDownloadRow(download: download, metrics: metrics)
                         }
                     }
                 }
-                .scrollIndicators(.hidden)
-                .frame(maxHeight: presentation == .popover ? 480 : .infinity)
+            }
+
+            if !settledNovels.isEmpty {
+                section(title: "Novels", count: settledNovels.count) {
+                    panel {
+                        ForEach(Array(settledNovels.enumerated()), id: \.element.id) { index, download in
+                            if index > 0 { ActivityRowSeparator(leadingInset: metrics.separatorInset) }
+                            DownloadRow(download: download, metrics: metrics)
+                        }
+                    }
+                }
+            }
+
+            if !settledAnime.isEmpty {
+                section(title: "Anime", count: settledAnime.count) {
+                    mediaPanel(settledAnime)
+                }
+            }
+
+            if !settledMovies.isEmpty {
+                section(title: "Films & series", count: settledMovies.count) {
+                    mediaPanel(settledMovies)
+                }
             }
         }
-        .frame(
-            maxWidth: presentation == .library ? .infinity : nil,
-            maxHeight: presentation == .library ? .infinity : nil,
-            alignment: .topLeading
-        )
-        .frame(width: presentation == .popover ? 360 : nil)
-        .background(Color.asterionMediaCanvas)
     }
 
-    private func downloadGroup<Content: View>(
+    private func mediaPanel(_ downloads: [MediaDownloadRecord]) -> some View {
+        let groups = groupedBySeries(downloads)
+        return panel {
+            ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
+                if index > 0 { ActivityRowSeparator(leadingInset: metrics.separatorInset) }
+                if group.downloads.count == 1, let download = group.downloads.first {
+                    MediaDownloadRow(download: download, metrics: metrics)
+                } else {
+                    DownloadSeriesGroup(group: group, metrics: metrics)
+                }
+            }
+        }
+    }
+
+    /// Keeps the newest-first order while collecting episodes of one series.
+    private func groupedBySeries(_ downloads: [MediaDownloadRecord]) -> [DownloadSeries] {
+        var order: [String] = []
+        var buckets: [String: [MediaDownloadRecord]] = [:]
+        for download in downloads {
+            let key = "\(download.mediaType.rawValue):\(download.contentID)"
+            if buckets[key] == nil { order.append(key) }
+            buckets[key, default: []].append(download)
+        }
+        return order.map { DownloadSeries(id: $0, downloads: buckets[$0] ?? []) }
+    }
+
+    private func section<Content: View>(
         title: String,
-        systemImage: String,
         count: Int,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 8) {
-                Label(title, systemImage: systemImage)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color.asterionText)
-                Spacer()
+        VStack(alignment: .leading, spacing: isLibrary ? 14 : 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                if isLibrary {
+                    Text(title)
+                        .font(.asterionTitle(18, weight: .bold))
+                        .foregroundStyle(Color.asterionText)
+                        .accessibilityAddTraits(.isHeader)
+                } else {
+                    AsterionEyebrow(text: title)
+                        .accessibilityAddTraits(.isHeader)
+                }
+                Spacer(minLength: 8)
                 Text(count, format: .number)
-                    .font(.caption.monospacedDigit().weight(.medium))
-                    .foregroundStyle(Color.asterionMuted)
+                    .font(.asterionMono(11.5, weight: .medium))
+                    .foregroundStyle(Color.asterionFaint)
+                    .accessibilityLabel(count == 1 ? "1 item" : "\(count) items")
             }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 10)
-            .background(Color.asterionSurface.opacity(0.72))
+            .padding(.horizontal, 4)
 
-            if count == 0 {
-                Text("No downloaded \(title.lowercased())")
-                    .font(.caption)
-                    .foregroundStyle(Color.asterionMuted)
-                    .padding(.horizontal, 18)
-                    .padding(.vertical, 14)
-            } else {
-                content()
-            }
-            Divider()
+            content()
         }
     }
 
-    private var downloadSummary: String {
-        if activeCount > 0 {
-            return "\(activeCount) downloading · \(completedCount) available offline"
+    private func panel<Content: View>(
+        prominent: Bool = false,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(spacing: 0) {
+            content()
         }
-        return completedCount == 1 ? "1 item available offline" : "\(completedCount) items available offline"
+        .clipShape(RoundedRectangle(cornerRadius: prominent ? 16 : 14, style: .continuous))
+        .asterionPanel(cornerRadius: prominent ? 16 : 14, fill: prominent ? .asterionCard : .asterionSurface)
+        .shadow(color: .black.opacity(prominent ? 0.28 : 0), radius: 18, y: 8)
+    }
+
+    private var downloadSummary: String {
+        var parts: [String]
+        if activeCount > 0 {
+            parts = ["\(activeCount) downloading", "\(completedCount) available offline"]
+        } else {
+            parts = [completedCount == 1 ? "1 item available offline" : "\(completedCount) items available offline"]
+        }
+        if failedCount > 0 {
+            parts.append("\(failedCount) failed")
+        }
+        return parts.joined(separator: " · ")
+    }
+}
+
+// MARK: - Rows
+
+private struct DownloadSeries: Identifiable {
+    let id: String
+    let downloads: [MediaDownloadRecord]
+
+    var title: String { downloads.first?.contentTitle ?? "" }
+    var imageURL: URL? { downloads.first(where: { $0.imageURL != nil })?.imageURL }
+    var failedCount: Int { downloads.count(where: { $0.phase == .failed }) }
+}
+
+/// One series with several downloaded episodes: a summary row that expands
+/// to the individual episodes.
+private struct DownloadSeriesGroup: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isExpanded = false
+    @State private var isHovering = false
+
+    let group: DownloadSeries
+    let metrics: DownloadRowMetrics
+
+    private var summary: String {
+        let qualities = Set(group.downloads.compactMap(\.downloadQuality?.title))
+        var parts = ["\(group.downloads.count) episodes"]
+        if qualities.count == 1, let quality = qualities.first {
+            parts.append(quality)
+        }
+        if group.failedCount > 0 {
+            parts.append("\(group.failedCount) failed")
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Button {
+                withAnimation(reduceMotion ? nil : .snappy(duration: 0.25)) {
+                    isExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: metrics.spacing) {
+                    ActivityThumbnail(
+                        url: group.imageURL,
+                        fallbackSystemImage: group.downloads.first?.mediaType.systemImage ?? "play.rectangle",
+                        width: metrics.thumbnailWidth,
+                        height: metrics.thumbnailHeight
+                    )
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(group.title)
+                            .font(.asterionDisplay(metrics.isCompact ? 13 : 14, weight: .semibold))
+                            .foregroundStyle(Color.asterionText)
+                            .lineLimit(1)
+                        Text(summary)
+                            .font(.system(size: metrics.isCompact ? 11.5 : 12.5))
+                            .foregroundStyle(group.failedCount > 0 ? Color.asterionWarning : Color.asterionMuted)
+                    }
+                    Spacer(minLength: 8)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(Color.asterionMuted)
+                        .rotationEffect(.degrees(isExpanded ? 0 : -90))
+                        .frame(width: 38, height: 38)
+                }
+                .padding(.horizontal, metrics.horizontalPadding)
+                .padding(.vertical, metrics.verticalPadding)
+                .background(Color.white.opacity(isHovering ? 0.035 : 0))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .onHover { isHovering = $0 }
+            .accessibilityLabel(group.title)
+            .accessibilityValue(summary)
+            .accessibilityHint(isExpanded ? "Hides episodes" : "Shows episodes")
+
+            if isExpanded {
+                VStack(spacing: 0) {
+                    ForEach(group.downloads) { download in
+                        ActivityRowSeparator(leadingInset: metrics.separatorInset)
+                        MediaDownloadRow(download: download, metrics: metrics, isNested: true)
+                    }
+                }
+                .background(Color.black.opacity(0.14))
+                .transition(.opacity)
+            }
+        }
+    }
+}
+
+private struct DownloadRowMetrics {
+    let thumbnailWidth: CGFloat
+    let thumbnailHeight: CGFloat
+    let horizontalPadding: CGFloat
+    let verticalPadding: CGFloat
+    let spacing: CGFloat
+    let isCompact: Bool
+
+    var separatorInset: CGFloat { horizontalPadding + thumbnailWidth + spacing }
+
+    static let library = DownloadRowMetrics(
+        thumbnailWidth: 44,
+        thumbnailHeight: 66,
+        horizontalPadding: 16,
+        verticalPadding: 12,
+        spacing: 16,
+        isCompact: false
+    )
+
+    static let compact = DownloadRowMetrics(
+        thumbnailWidth: 30,
+        thumbnailHeight: 45,
+        horizontalPadding: 12,
+        verticalPadding: 10,
+        spacing: 12,
+        isCompact: true
+    )
+}
+
+/// Shared layout for a download row: thumbnail, title, detail, optional
+/// light-line progress, trailing actions, and an inline error.
+private struct DownloadRowLayout<Actions: View>: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isHovering = false
+
+    let metrics: DownloadRowMetrics
+    let imageURL: URL?
+    let fallbackSystemImage: String
+    let title: String
+    let detail: String
+    var hidesThumbnail = false
+    let isFailed: Bool
+    let progress: Double?
+    let actionError: String?
+    @ViewBuilder let actions: () -> Actions
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: metrics.spacing) {
+                if hidesThumbnail {
+                    Color.clear.frame(width: metrics.thumbnailWidth, height: 1)
+                } else {
+                    ActivityThumbnail(
+                        url: imageURL,
+                        fallbackSystemImage: fallbackSystemImage,
+                        width: metrics.thumbnailWidth,
+                        height: metrics.thumbnailHeight
+                    )
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .font(.asterionDisplay(metrics.isCompact ? 13 : 14, weight: .semibold))
+                        .foregroundStyle(Color.asterionText)
+                        .lineLimit(1)
+                    Text(detail)
+                        .font(.system(size: metrics.isCompact ? 11.5 : 12.5))
+                        .foregroundStyle(isFailed ? Color.asterionWarning : Color.asterionMuted)
+                        .lineLimit(2)
+
+                    if let progress {
+                        HStack(spacing: 10) {
+                            AsterionLightLine(fraction: progress, height: 3)
+                            Text(progress, format: .percent.precision(.fractionLength(0)))
+                                .font(.asterionMono(11, weight: .medium))
+                                .foregroundStyle(Color.asterionText)
+                                .frame(minWidth: 34, alignment: .trailing)
+                        }
+                        .padding(.top, 6)
+                    }
+                }
+                .accessibilityElement(children: .combine)
+
+                Spacer(minLength: 8)
+
+                HStack(spacing: 8) {
+                    actions()
+                }
+                .controlSize(metrics.isCompact ? .small : .regular)
+            }
+
+            if let actionError {
+                Label(actionError, systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.asterionWarning)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, metrics.thumbnailWidth + metrics.spacing)
+            }
+        }
+        .padding(.horizontal, metrics.horizontalPadding)
+        .padding(.vertical, metrics.verticalPadding)
+        .background(Color.white.opacity(isHovering ? 0.035 : 0))
+        .contentShape(Rectangle())
+        .onHover { isHovering = $0 }
+        .animation(reduceMotion ? nil : AsterionMotion.hover, value: isHovering)
+    }
+}
+
+/// Smoked, icon-only capsule for row actions (cancel, remove).
+private struct DownloadIconButton: View {
+    let systemImage: String
+    let accessibilityLabel: String
+    var isWorking = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            if isWorking {
+                ProgressView().controlSize(.mini)
+            } else {
+                Image(systemName: systemImage)
+                    .font(.system(size: 12, weight: .semibold))
+            }
+        }
+        .buttonStyle(.asterionSecondary)
+        .accessibilityLabel(accessibilityLabel)
     }
 }
 
@@ -178,120 +503,99 @@ private struct MediaDownloadRow: View {
     @Environment(\.openWindow) private var openWindow
     @EnvironmentObject private var mediaDownloads: MediaDownloadManager
     let download: MediaDownloadRecord
+    let metrics: DownloadRowMetrics
+    var isNested = false
     @State private var actionError: String?
     @State private var isWorking = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 12) {
-                Image(systemName: phaseIcon)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(phaseColor)
-                    .frame(width: 20)
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(download.contentTitle)
-                        .font(.asterionDisplay(14, weight: .semibold))
-                        .foregroundStyle(Color.asterionText)
-                        .lineLimit(1)
-                    Text(downloadDetailText)
-                        .font(.caption)
-                        .foregroundStyle(download.phase == .failed ? Color.red : Color.asterionMuted)
-                        .lineLimit(2)
-                }
-
-                Spacer()
-
-                if download.isActive {
-                    HStack(spacing: 6) {
-                        Text(download.progress, format: .percent.precision(.fractionLength(0)))
-                            .font(.caption.monospacedDigit().weight(.semibold))
-                            .foregroundStyle(Color.asterionAccent)
-                        removeButton(icon: "xmark")
-                            .help("Cancel download")
-                    }
-                } else if download.phase == .failed {
-                    HStack(spacing: 6) {
-                        Button("Retry") {
-                            Task { await retry() }
-                        }
-                        removeButton(icon: "trash")
-                            .help("Remove failed download")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .disabled(isWorking)
-                } else {
-                    HStack(spacing: 6) {
-                        Button {
-                            openDownloadedItem()
-                        } label: {
-                            Label("Play", systemImage: "play.fill")
-                        }
-                        .help("Play downloaded copy")
-
-                        Button {
-                            Task { await remove() }
-                        } label: {
-                            if isWorking {
-                                ProgressView().controlSize(.small)
-                            } else {
-                                Image(systemName: "trash")
-                            }
-                        }
-                        .help("Remove downloaded copy")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .disabled(isWorking)
-                }
-            }
-
+        DownloadRowLayout(
+            metrics: metrics,
+            imageURL: download.imageURL,
+            fallbackSystemImage: download.mediaType.systemImage,
+            title: isNested ? unitLabel : download.contentTitle,
+            detail: isNested ? nestedDetailText : downloadDetailText,
+            hidesThumbnail: isNested,
+            isFailed: download.phase == .failed,
+            progress: download.isActive ? download.progress : nil,
+            actionError: actionError
+        ) {
             if download.isActive {
-                ProgressView(value: download.progress)
-                    .tint(Color.asterionAccent)
+                DownloadIconButton(systemImage: "xmark", accessibilityLabel: "Cancel download", isWorking: isWorking) {
+                    Task { await remove() }
+                }
+                .help("Cancel download")
+                .disabled(isWorking)
+            } else if download.phase == .failed {
+                Button {
+                    Task { await retry() }
+                } label: {
+                    if metrics.isCompact {
+                        Image(systemName: "arrow.clockwise")
+                            .accessibilityLabel("Retry")
+                    } else {
+                        Text("Retry")
+                    }
+                }
+                .buttonStyle(.asterionSecondary)
+                .help("Retry download")
+                .disabled(isWorking)
+
+                DownloadIconButton(systemImage: "trash", accessibilityLabel: "Remove failed download", isWorking: isWorking) {
+                    Task { await remove() }
+                }
+                .help("Remove failed download")
+                .disabled(isWorking)
+            } else {
+                Button {
+                    openDownloadedItem()
+                } label: {
+                    if metrics.isCompact {
+                        Image(systemName: "play.fill")
+                            .accessibilityLabel("Play")
+                    } else {
+                        Label("Play", systemImage: "play.fill")
+                    }
+                }
+                .buttonStyle(.asterionSecondary)
+                .help("Play downloaded copy")
+                .disabled(isWorking)
+
+                DownloadIconButton(systemImage: "trash", accessibilityLabel: "Remove downloaded copy", isWorking: isWorking) {
+                    Task { await remove() }
+                }
+                .help("Remove downloaded copy")
+                .disabled(isWorking)
             }
-
-            if let actionError {
-                Label(actionError, systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption)
-                    .foregroundStyle(Color.red)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 14)
-    }
-
-    private var phaseIcon: String {
-        switch download.phase {
-        case .preparing, .downloading: "arrow.down.circle.fill"
-        case .completed: "checkmark.circle.fill"
-        case .failed: "exclamationmark.triangle.fill"
         }
     }
 
-    private var phaseColor: Color {
-        switch download.phase {
-        case .preparing, .downloading: Color.asterionAccent
-        case .completed: Color.green
-        case .failed: Color.red
+    private var unitLabel: String {
+        if download.mediaType == .movie, download.movieEpisode == nil {
+            return "Film"
         }
+        return download.detailLabel
     }
 
-    private var statusText: String {
+    private var nestedDetailText: String {
         switch download.phase {
-        case .preparing: "Preparing…"
-        case .downloading: "Downloading"
-        case .completed: "Available offline"
         case .failed: download.errorMessage ?? "Download failed"
+        case .preparing: "Preparing…"
+        default: download.downloadQuality?.title ?? "Available offline"
         }
     }
 
     private var downloadDetailText: String {
-        [download.detailLabel, download.downloadQuality?.title, statusText]
-            .compactMap { $0 }
-            .joined(separator: " · ")
+        switch download.phase {
+        case .preparing:
+            [unitLabel, download.downloadQuality?.title, "Preparing…"].compactMap { $0 }.joined(separator: " · ")
+        case .downloading:
+            [unitLabel, download.downloadQuality?.title].compactMap { $0 }.joined(separator: " · ")
+        case .completed:
+            [unitLabel, download.downloadQuality?.title].compactMap { $0 }.joined(separator: " · ")
+        case .failed:
+            [unitLabel, download.errorMessage ?? "Download failed"].joined(separator: " · ")
+        }
     }
 
     private func retry() async {
@@ -314,21 +618,6 @@ private struct MediaDownloadRow: View {
         } catch {
             actionError = error.localizedDescription
         }
-    }
-
-    private func removeButton(icon: String) -> some View {
-        Button {
-            Task { await remove() }
-        } label: {
-            if isWorking {
-                ProgressView().controlSize(.mini)
-            } else {
-                Image(systemName: icon)
-            }
-        }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
-        .disabled(isWorking)
     }
 
     private func openDownloadedItem() {
@@ -359,102 +648,63 @@ private struct DownloadRow: View {
     @Environment(\.openWindow) private var openWindow
     @EnvironmentObject private var model: AppModel
     let download: OfflineDownload
+    let metrics: DownloadRowMetrics
     @State private var actionError: String?
     @State private var isRemoving = false
     @State private var isOpening = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 12) {
-                Image(systemName: phaseIcon)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(phaseColor)
-                    .frame(width: 20)
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(download.novelTitle)
-                        .font(.asterionDisplay(14, weight: .semibold))
-                        .foregroundStyle(Color.asterionText)
-                        .lineLimit(1)
-                    Text(statusText)
-                        .font(.caption)
-                        .foregroundStyle(download.phase == .failed ? Color.red : Color.asterionMuted)
-                        .lineLimit(2)
-                }
-
-                Spacer()
-
-                if download.phase == .downloading, download.totalChapters > 0 {
-                    Text(download.progress, format: .percent.precision(.fractionLength(0)))
-                        .font(.caption.monospacedDigit().weight(.semibold))
-                        .foregroundStyle(Color.asterionAccent)
-                } else if download.phase == .failed,
-                          let novel = model.novel(id: download.novelID) {
-                    Button("Retry") {
-                        Task { await retry(novel: novel) }
-                    }
-                    .buttonStyle(.bordered)
+        DownloadRowLayout(
+            metrics: metrics,
+            imageURL: model.novel(id: download.novelID)?.imageURL.flatMap(URL.init(string:)),
+            fallbackSystemImage: "book.closed",
+            title: download.novelTitle,
+            detail: statusText,
+            isFailed: download.phase == .failed,
+            progress: download.phase == .downloading && download.totalChapters > 0 ? download.progress : nil,
+            actionError: actionError
+        ) {
+            if download.phase == .downloading, download.totalChapters == 0 {
+                ProgressView()
                     .controlSize(.small)
-                } else if download.phase == .completed {
-                    HStack(spacing: 6) {
-                        Button {
-                            Task { await openDownload() }
-                        } label: {
-                            if isOpening {
-                                ProgressView().controlSize(.small)
-                            } else {
-                                Label("Read", systemImage: "book.fill")
-                            }
-                        }
-                        .help("Read downloaded novel")
-
-                        Button {
-                            Task { await removeDownload() }
-                        } label: {
-                            if isRemoving {
-                                ProgressView()
-                                    .controlSize(.small)
-                            } else {
-                                Image(systemName: "trash")
-                            }
-                        }
-                        .help("Remove downloaded copy")
+                    .tint(Color.asterionText)
+            } else if download.phase == .failed,
+                      let novel = model.novel(id: download.novelID) {
+                Button {
+                    Task { await retry(novel: novel) }
+                } label: {
+                    if metrics.isCompact {
+                        Image(systemName: "arrow.clockwise")
+                            .accessibilityLabel("Retry")
+                    } else {
+                        Text("Retry")
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .disabled(isRemoving || isOpening)
                 }
+                .buttonStyle(.asterionSecondary)
+                .help("Retry download")
+            } else if download.phase == .completed {
+                Button {
+                    Task { await openDownload() }
+                } label: {
+                    if isOpening {
+                        ProgressView().controlSize(.small)
+                    } else if metrics.isCompact {
+                        Image(systemName: "book.fill")
+                            .accessibilityLabel("Read")
+                    } else {
+                        Label("Read", systemImage: "book.fill")
+                    }
+                }
+                .buttonStyle(.asterionSecondary)
+                .help("Read downloaded novel")
+                .disabled(isRemoving || isOpening)
+
+                DownloadIconButton(systemImage: "trash", accessibilityLabel: "Remove downloaded copy", isWorking: isRemoving) {
+                    Task { await removeDownload() }
+                }
+                .help("Remove downloaded copy")
+                .disabled(isRemoving || isOpening)
             }
-
-            if download.phase == .downloading {
-                ProgressView(value: download.progress)
-                    .tint(Color.asterionAccent)
-            }
-
-            if let actionError {
-                Label(actionError, systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption)
-                    .foregroundStyle(Color.red)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 14)
-    }
-
-    private var phaseIcon: String {
-        switch download.phase {
-        case .downloading: "arrow.down.circle.fill"
-        case .completed: "checkmark.circle.fill"
-        case .failed: "exclamationmark.triangle.fill"
-        }
-    }
-
-    private var phaseColor: Color {
-        switch download.phase {
-        case .downloading: Color.asterionAccent
-        case .completed: Color.green
-        case .failed: Color.red
         }
     }
 
@@ -464,6 +714,9 @@ private struct DownloadRow: View {
             if download.totalChapters == 0 { return "Preparing chapters…" }
             return "\(download.completedChapters) of \(download.totalChapters) chapters"
         case .completed:
+            if download.totalChapters > 0 {
+                return download.totalChapters == 1 ? "1 chapter" : "\(download.totalChapters) chapters"
+            }
             return "Available offline"
         case .failed:
             return download.errorMessage ?? "Download failed"

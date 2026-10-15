@@ -9,27 +9,27 @@ enum AsterionClerkTheme {
             colors: .init(
                 primary: .asterionAccent,
                 background: .asterionSurface,
-                input: .asterionBackground,
-                danger: .red,
-                success: Color(red: 0.20, green: 0.46, blue: 0.31),
-                warning: Color(red: 0.68, green: 0.43, blue: 0.16),
+                input: .asterionMediaCanvas,
+                danger: Color(hex: 0xF0645C),
+                success: .asterionSuccess,
+                warning: .asterionWarning,
                 foreground: .asterionText,
                 mutedForeground: .asterionMuted,
-                primaryForeground: .white,
+                primaryForeground: .asterionMediaCanvas,
                 inputForeground: .asterionText,
                 neutral: .asterionMuted,
-                ring: .asterionAccent,
+                ring: Color.white.opacity(0.42),
                 muted: .asterionCard,
-                secondaryButtonBackground: .asterionBackground,
+                secondaryButtonBackground: .asterionCard,
                 secondaryButtonForeground: .asterionText,
                 shadow: .black,
                 border: .asterionBorder
             ),
             fonts: .init(
-                largeTitle: .asterionDisplay(30, weight: .semibold),
-                title: .asterionDisplay(26, weight: .semibold),
-                title2: .asterionDisplay(22, weight: .semibold),
-                title3: .asterionDisplay(19, weight: .semibold),
+                largeTitle: .asterionTitle(26, weight: .heavy),
+                title: .asterionTitle(22, weight: .bold),
+                title2: .asterionTitle(19, weight: .bold),
+                title3: .asterionTitle(16, weight: .bold),
                 headline: .system(size: 15, weight: .semibold),
                 subheadline: .system(size: 13),
                 body: .system(size: 14),
@@ -44,8 +44,11 @@ enum AsterionClerkTheme {
 }
 
 struct AccountSummaryView: View {
+    @Environment(\.asterionTopInset) private var topInset
     @EnvironmentObject private var model: AppModel
     @Environment(\.openWindow) private var openWindow
+    @State private var presentsProfileEditor = false
+    @State private var clerkTheme = AsterionClerkTheme.make()
 
     var body: some View {
         Group {
@@ -64,134 +67,134 @@ struct AccountSummaryView: View {
                 signedOutProfile
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.asterionMediaCanvas)
+        .sheet(isPresented: $presentsProfileEditor) {
+            UserProfileView()
+                .environment(Clerk.shared)
+                .environment(\.clerkTheme, clerkTheme)
+                .hidingScrollIndicators()
+        }
     }
+
+    // MARK: Signed in
 
     private func signedInProfile(_ user: AppModel.SignedInUser) -> some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 30) {
+            VStack(alignment: .leading, spacing: AsterionLayout.sectionSpacing) {
                 profileHeader(user)
                 profileStats
                 currentlyReading
                 continueWatching
                 recentViewing
                 savedMedia
+                accountActions
             }
-            .frame(maxWidth: 900, alignment: .leading)
-            .padding(.horizontal, 30)
-            .padding(.top, 28)
-            .padding(.bottom, 48)
-            .frame(maxWidth: .infinity, alignment: .top)
+            .frame(maxWidth: 920, alignment: .leading)
+            .padding(.horizontal, AsterionLayout.pageInset)
+            .padding(.top, topInset + 22)
+            .padding(.bottom, 56)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .background(alignment: .top) {
+                if user.imageURL != nil {
+                    ArtworkGlow(url: user.imageURL, height: 460, intensity: 0.45)
+                }
+            }
         }
         .hidingScrollIndicators()
     }
 
     private func profileHeader(_ user: AppModel.SignedInUser) -> some View {
-        HStack(spacing: 22) {
+        HStack(alignment: .center, spacing: 24) {
             ReaderAvatar(user: user, size: 88)
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("ASTERION PROFILE")
-                    .font(.asterionMono(10, weight: .semibold))
-                    .tracking(1.4)
-                    .foregroundStyle(Color.asterionAccent)
-
                 Text(user.name)
-                    .font(.asterionDisplay(32, weight: .semibold))
+                    .font(.asterionTitle(30, weight: .heavy))
                     .foregroundStyle(Color.asterionText)
                     .lineLimit(2)
+                    .minimumScaleFactor(0.75)
+                    .accessibilityAddTraits(.isHeader)
 
                 if let email = user.email {
                     Text(email)
-                        .font(.callout)
+                        .font(.system(size: 13.5))
                         .foregroundStyle(Color.asterionMuted)
                         .textSelection(.enabled)
                 }
+
+                SyncStatusChip(hasIssue: model.accountError != nil)
+                    .padding(.top, 6)
             }
 
             Spacer(minLength: 12)
-
-            Label("Signed in", systemImage: "person.crop.circle.badge.checkmark")
-                .font(.caption.weight(.medium))
-                .foregroundStyle(Color.asterionAccent)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                .background(Color.asterionAccentSoft, in: Capsule())
         }
-        .padding(24)
-        .stableAccountSurface(cornerRadius: 16)
     }
 
     private var profileStats: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            SectionHeading(title: "Your Asterion", subtitle: "Everything you have saved, read, and watched.")
+        let stats: [ProfileStat] = [
+            ProfileStat(
+                value: model.libraryNovelIDs.count,
+                label: model.libraryNovelIDs.count == 1 ? "Novel saved" : "Novels saved"
+            ),
+            ProfileStat(value: model.mediaStats.savedAnime, label: "Anime saved"),
+            ProfileStat(value: model.mediaStats.savedMovies, label: "Films saved"),
+            ProfileStat(value: model.mediaStats.savedMatches, label: "Matches saved"),
+            ProfileStat(
+                value: model.mediaStats.animeEpisodesCompleted + model.mediaStats.movieUnitsCompleted,
+                label: "Finished"
+            ),
+            ProfileStat(value: model.mediaStats.activityLast30Days, label: "Last 30 days"),
+        ]
 
-            LazyVGrid(
-                columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3),
-                spacing: 12
-            ) {
-                ProfileStatCard(
-                    value: String(model.libraryNovelIDs.count),
-                    label: model.libraryNovelIDs.count == 1 ? "Saved story" : "Saved stories",
-                    icon: "books.vertical.fill"
-                )
-                ProfileStatCard(
-                    value: String(model.mediaStats.savedAnime),
-                    label: "Saved anime",
-                    icon: "play.rectangle.on.rectangle.fill"
-                )
-                ProfileStatCard(
-                    value: String(model.mediaStats.savedMovies),
-                    label: "Saved movies",
-                    icon: "film.fill"
-                )
-                ProfileStatCard(
-                    value: String(model.mediaStats.savedMatches),
-                    label: "Saved matches",
-                    icon: "sportscourt.fill"
-                )
-                ProfileStatCard(
-                    value: String(model.mediaStats.animeEpisodesCompleted + model.mediaStats.movieUnitsCompleted),
-                    label: "Finished watches",
-                    icon: "checkmark.circle.fill"
-                )
-                ProfileStatCard(
-                    value: String(model.mediaStats.activityLast30Days),
-                    label: "Items watched · last 30 days",
-                    icon: "calendar.badge.clock"
-                )
+        return AccountSection(title: "Your Asterion", subtitle: "Everything you have saved, read, and watched.") {
+            ViewThatFits(in: .horizontal) {
+                ProfileStatRow(stats: stats)
+                VStack(spacing: 0) {
+                    ProfileStatRow(stats: Array(stats.prefix(3)))
+                    Rectangle().fill(Color.asterionHairline).frame(height: 1)
+                    ProfileStatRow(stats: Array(stats.suffix(3)))
+                }
             }
+            .asterionPanel(cornerRadius: 16)
         }
     }
 
     private var currentlyReading: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            SectionHeading(title: "Currently reading", subtitle: "Continue from your latest synced chapter.")
-
+        AccountSection(title: "Currently reading", subtitle: "Continue from your latest synced chapter.") {
             if model.continueReadingEntries.isEmpty {
-                HStack(spacing: 14) {
+                HStack(spacing: 16) {
                     Image(systemName: "book.closed")
-                        .font(.title2)
-                        .foregroundStyle(Color.asterionAccent)
+                        .font(.system(size: 20, weight: .light))
+                        .foregroundStyle(Color.asterionMuted)
+                        .frame(width: 52)
                     VStack(alignment: .leading, spacing: 3) {
                         Text("Your next story is waiting")
-                            .font(.asterionDisplay(17, weight: .semibold))
+                            .font(.asterionDisplay(14.5, weight: .semibold))
                             .foregroundStyle(Color.asterionText)
                         Text("Open a novel and start reading to see it here.")
-                            .font(.callout)
+                            .font(.system(size: 12.5))
                             .foregroundStyle(Color.asterionMuted)
                     }
                 }
-                .padding(20)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 18)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .stableAccountSurface(cornerRadius: 12)
+                .asterionPanel(cornerRadius: 14)
             } else {
-                VStack(alignment: .leading, spacing: 0) {
+                AccountRowPanel {
                     ForEach(Array(model.continueReadingEntries.prefix(3).enumerated()), id: \.element.id) { index, entry in
-                        if index > 0 {
-                            Divider()
-                        }
-                        ReadingActivityRow(entry: entry) {
+                        if index > 0 { ActivityRowSeparator() }
+                        ActivityTimelineRow(
+                            imageURL: entry.novel.imageURL.flatMap(URL.init(string:)),
+                            fallbackSystemImage: "book.closed",
+                            title: entry.novel.title,
+                            detail: readingDetail(entry),
+                            fraction: min(1, max(0, entry.progress.percentage / 100)),
+                            actionTitle: "Continue",
+                            actionSystemImage: "book.fill",
+                            actionAccessibilityLabel: "Continue reading \(entry.novel.title)"
+                        ) {
                             openWindow(
                                 value: ReaderRoute(
                                     novelID: entry.novel.id,
@@ -201,8 +204,6 @@ struct AccountSummaryView: View {
                         }
                     }
                 }
-                .padding(.horizontal, 18)
-                .stableAccountSurface(cornerRadius: 14)
             }
         }
     }
@@ -210,22 +211,37 @@ struct AccountSummaryView: View {
     @ViewBuilder
     private var continueWatching: some View {
         if !model.continueWatching.isEmpty {
-            VStack(alignment: .leading, spacing: 16) {
-                SectionHeading(
-                    title: "Continue watching",
-                    subtitle: "Resume the latest episode or movie saved to your account."
-                )
-
-                VStack(alignment: .leading, spacing: 0) {
+            AccountSection(
+                title: "Continue watching",
+                subtitle: "Resume the latest episode or movie saved to your account."
+            ) {
+                AccountRowPanel {
                     ForEach(Array(model.continueWatching.prefix(4).enumerated()), id: \.element.id) { index, progress in
-                        if index > 0 { Divider() }
-                        MediaProgressRow(progress: progress) {
+                        if index > 0 { ActivityRowSeparator() }
+                        ActivityTimelineRow(
+                            imageURL: progress.imageURL,
+                            fallbackSystemImage: progress.mediaType.systemImage,
+                            title: progress.title,
+                            detail: ActivityDetail.playback(
+                                title: progress.title,
+                                unitTitle: progress.unitTitle,
+                                seasonNumber: progress.seasonNumber,
+                                episodeNumber: progress.episodeNumber,
+                                mediaType: progress.mediaType,
+                                positionSeconds: progress.positionSeconds,
+                                durationSeconds: progress.durationSeconds,
+                                completed: progress.completed
+                            ),
+                            fraction: min(1, max(0, progress.percentage / 100)),
+                            canAct: progress.mediaType != .football,
+                            select: { openPlayback(progress) },
+                            selectHelp: "Continue \(progress.title)",
+                            actionAccessibilityLabel: "Continue \(progress.title), \(progress.unitTitle ?? progress.mediaType.title)"
+                        ) {
                             openPlayback(progress)
                         }
                     }
                 }
-                .padding(.horizontal, 18)
-                .stableAccountSurface(cornerRadius: 14)
             }
         }
     }
@@ -233,22 +249,31 @@ struct AccountSummaryView: View {
     @ViewBuilder
     private var recentViewing: some View {
         if !model.mediaHistory.isEmpty {
-            VStack(alignment: .leading, spacing: 16) {
-                SectionHeading(
-                    title: "Watch history",
-                    subtitle: "Your latest anime episodes, series, and movies."
-                )
-
-                VStack(alignment: .leading, spacing: 0) {
+            AccountSection(
+                title: "Watch history",
+                subtitle: "Your latest anime episodes, series, and movies."
+            ) {
+                AccountRowPanel {
                     ForEach(Array(model.mediaHistory.prefix(6).enumerated()), id: \.element.id) { index, history in
-                        if index > 0 { Divider() }
-                        MediaHistoryRow(history: history) {
+                        if index > 0 { ActivityRowSeparator() }
+                        ActivityTimelineRow(
+                            imageURL: history.imageURL,
+                            fallbackSystemImage: history.mediaType.systemImage,
+                            title: history.title,
+                            detail: historyDetail(history),
+                            timestamp: history.lastViewedAt.formatted(.relative(presentation: .named)),
+                            fraction: history.completed ? nil : min(1, max(0, history.percentage / 100)),
+                            actionTitle: history.completed ? "Watch again" : "Resume",
+                            actionSystemImage: history.completed ? "arrow.counterclockwise" : "play.fill",
+                            canAct: history.mediaType != .football,
+                            select: { openPlayback(history) },
+                            selectHelp: "Watch \(history.title) again",
+                            actionAccessibilityLabel: "Watch \(history.title), \(history.unitTitle ?? history.mediaType.title) again"
+                        ) {
                             openPlayback(history)
                         }
                     }
                 }
-                .padding(.horizontal, 18)
-                .stableAccountSurface(cornerRadius: 14)
             }
         }
     }
@@ -256,15 +281,13 @@ struct AccountSummaryView: View {
     @ViewBuilder
     private var savedMedia: some View {
         if !model.mediaBookmarks.isEmpty {
-            VStack(alignment: .leading, spacing: 16) {
-                SectionHeading(
-                    title: "Saved for later",
-                    subtitle: "Anime, movies, and matches bookmarked across Asterion."
-                )
-
-                VStack(alignment: .leading, spacing: 0) {
+            AccountSection(
+                title: "Saved for later",
+                subtitle: "Anime, movies, and matches bookmarked across Asterion."
+            ) {
+                AccountRowPanel {
                     ForEach(Array(model.mediaBookmarks.prefix(8).enumerated()), id: \.element.id) { index, bookmark in
-                        if index > 0 { Divider() }
+                        if index > 0 { ActivityRowSeparator() }
                         MediaBookmarkRow(
                             bookmark: bookmark,
                             isUpdating: model.isUpdatingMediaBookmark(bookmark.key),
@@ -274,118 +297,165 @@ struct AccountSummaryView: View {
                         )
                     }
                 }
-                .padding(.horizontal, 18)
-                .stableAccountSurface(cornerRadius: 14)
             }
         }
     }
 
+    private var accountActions: some View {
+        AccountSection(title: "Account", subtitle: "Your identity, sync, and session on this Mac.") {
+            VStack(alignment: .leading, spacing: 0) {
+                if let error = model.accountError {
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                        .font(.system(size: 12.5, weight: .medium))
+                        .foregroundStyle(Color.asterionWarning)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(16)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    ActivityRowSeparator(leadingInset: 0)
+                }
+
+                AccountActionRow(
+                    title: "Profile",
+                    detail: "Name, photo, email, and security."
+                ) {
+                    Button {
+                        presentsProfileEditor = true
+                    } label: {
+                        Label("Manage profile", systemImage: "person.crop.circle")
+                    }
+                    .buttonStyle(.asterionSecondary)
+                }
+
+                ActivityRowSeparator(leadingInset: 0)
+
+                AccountActionRow(
+                    title: "Automatic saving",
+                    detail: "Bookmarks, reading position, watch progress, and history save on this Mac first, then sync to your account when available."
+                ) {
+                    EmptyView()
+                }
+
+                ActivityRowSeparator(leadingInset: 0)
+
+                AccountActionRow(
+                    title: "Sign out",
+                    detail: "End the session on this Mac. Everything stays saved to your account."
+                ) {
+                    Button(role: .destructive) {
+                        Task { await model.signOut() }
+                    } label: {
+                        Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right")
+                    }
+                    .buttonStyle(.asterionSecondary)
+                }
+            }
+            .asterionPanel(cornerRadius: 14)
+        }
+    }
+
+    // MARK: Signed out and restoring
+
     private var restoringProfile: some View {
-        accountMessage(
-            kicker: "YOUR ASTERION",
-            title: "Restoring your profile.",
-            detail: "Checking the saved account on this Mac."
+        AsterionEmptyState(
+            systemImage: "person.crop.circle",
+            title: "Restoring your profile",
+            message: "Checking the saved account on this Mac."
         ) {
             ProgressView()
                 .controlSize(.small)
-                .padding(.top, 6)
         }
     }
 
     private var restoreFailedProfile: some View {
-        accountMessage(
-            kicker: "YOUR ASTERION",
-            title: "Your profile could not be restored.",
-            detail: "Asterion still has a saved account on this Mac, but the session did not come back. Try again, or sign in once more."
+        AsterionEmptyState(
+            systemImage: "person.crop.circle.badge.exclamationmark",
+            title: "Your profile could not be restored",
+            message: "Asterion still has a saved account on this Mac, but the session did not come back. Try again, or sign in once more."
         ) {
-            if let error = model.accountError {
-                Label(error, systemImage: "exclamationmark.triangle.fill")
-                    .font(.callout)
-                    .foregroundStyle(Color.asterionAccent)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: 560, alignment: .leading)
-            }
-
-            HStack(spacing: 10) {
-                Button {
-                    Task { await model.retryAccountSessionRestore() }
-                } label: {
-                    Label("Try Again", systemImage: "arrow.clockwise")
+            VStack(spacing: 16) {
+                if let error = model.accountError {
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(Color.asterionWarning)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: 420)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
 
-                Button {
-                    openWindow(id: "authentication")
-                } label: {
-                    Label("Sign In", systemImage: "person.crop.circle.badge.plus")
+                HStack(spacing: 10) {
+                    Button {
+                        Task { await model.retryAccountSessionRestore() }
+                    } label: {
+                        Label("Try again", systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(.asterionSecondary)
+
+                    Button {
+                        openWindow(id: "authentication")
+                    } label: {
+                        Label("Sign in", systemImage: "person.crop.circle.badge.plus")
+                    }
+                    .buttonStyle(.asterionPrimary)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(.asterionAccent)
-                .controlSize(.large)
             }
-            .padding(.top, 6)
         }
     }
 
     private var signedOutProfile: some View {
-        accountMessage(
-            kicker: "YOUR ASTERION",
-            title: "Make Asterion yours.",
-            detail: "A profile keeps saved stories, shows, films, matches, and every reading or watching position together."
+        AsterionEmptyState(
+            systemImage: "person.crop.circle",
+            title: "Make Asterion yours",
+            message: "A profile keeps saved stories, shows, films, matches, and every reading or watching position together."
         ) {
-            Button {
-                openWindow(id: "authentication")
-            } label: {
-                Label("Sign In or Create Account", systemImage: "person.crop.circle.badge.plus")
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(.asterionAccent)
-            .controlSize(.large)
-            .padding(.top, 6)
+            VStack(spacing: 32) {
+                VStack(spacing: 14) {
+                    Button {
+                        openWindow(id: "authentication")
+                    } label: {
+                        Label("Sign in", systemImage: "person.crop.circle.badge.plus")
+                    }
+                    .buttonStyle(.asterionPrimary)
+                    .help("Sign in or create an account")
 
-            VStack(spacing: 0) {
-                ProfileBenefit(icon: "bookmark", title: "Save anything", detail: "Keep novels, anime, movies, and matches together.")
-                Divider()
-                ProfileBenefit(icon: "play.circle", title: "Never lose your place", detail: "Reading and watching progress follows your account.")
-                Divider()
-                ProfileBenefit(icon: "chart.bar", title: "See your story", detail: "Your profile turns activity into useful personal stats.")
+                    if let error = model.accountError {
+                        Label(error, systemImage: "exclamationmark.triangle.fill")
+                            .font(.system(size: 12.5))
+                            .foregroundStyle(Color.asterionWarning)
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: 420)
+                    }
+                }
+
+                HStack(alignment: .top, spacing: 28) {
+                    ProfileBenefit(icon: "bookmark", title: "Save anything", detail: "Keep novels, anime, movies, and matches together.")
+                    ProfileBenefit(icon: "play.circle", title: "Never lose your place", detail: "Reading and watching progress follows your account.")
+                    ProfileBenefit(icon: "chart.bar", title: "See your story", detail: "Your profile turns activity into useful personal stats.")
+                }
+                .controlSize(.regular)
             }
-            .padding(.horizontal, 22)
-            .stableAccountSurface(cornerRadius: 14)
         }
     }
 
-    private func accountMessage<Content: View>(
-        kicker: String,
-        title: String,
-        detail: String,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 30) {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text(kicker)
-                        .font(.asterionMono(10, weight: .semibold))
-                        .tracking(1.4)
-                        .foregroundStyle(Color.asterionAccent)
-                    Text(title)
-                        .font(.asterionDisplay(36, weight: .semibold))
-                        .foregroundStyle(Color.asterionText)
-                    Text(detail)
-                        .font(.asterionDisplay(17))
-                        .foregroundStyle(Color.asterionMuted)
-                        .lineSpacing(4)
-                        .frame(maxWidth: 560, alignment: .leading)
-                }
+    // MARK: Helpers
 
-                content()
-            }
-            .frame(maxWidth: 900, alignment: .leading)
-            .padding(34)
-            .frame(maxWidth: .infinity, alignment: .top)
-        }
-        .hidingScrollIndicators()
+    private func readingDetail(_ entry: AppModel.ContinueReadingEntry) -> String {
+        let percent = "\(Int(min(100, max(0, entry.progress.percentage)).rounded()))%"
+        let author = entry.novel.authorDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return author.isEmpty ? "Current chapter · \(percent)" : "\(author) · \(percent)"
+    }
+
+    private func historyDetail(_ history: MediaHistoryEntry) -> String {
+        ActivityDetail.playback(
+            title: history.title,
+            unitTitle: history.unitTitle,
+            seasonNumber: history.seasonNumber,
+            episodeNumber: history.episodeNumber,
+            mediaType: history.mediaType,
+            positionSeconds: history.positionSeconds,
+            durationSeconds: history.durationSeconds,
+            completed: history.completed
+        )
     }
 
     private func descriptor(for bookmark: MediaBookmark) -> MediaItemDescriptor {
@@ -486,50 +556,61 @@ struct AccountView: View {
         }
     }
 
+    private func pageTitle(_ title: String, subtitle: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.asterionTitle(24, weight: .heavy))
+                .foregroundStyle(Color.asterionText)
+                .accessibilityAddTraits(.isHeader)
+            Text(subtitle)
+                .font(.system(size: 13.5))
+                .foregroundStyle(Color.asterionMuted)
+        }
+    }
+
+    private func errorLabel(_ error: String) -> some View {
+        Label(error, systemImage: "exclamationmark.triangle.fill")
+            .font(.system(size: 12.5, weight: .medium))
+            .foregroundStyle(Color.asterionWarning)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
     private func signedInAccount(_ user: AppModel.SignedInUser) -> some View {
         Group {
-            VStack(alignment: .leading, spacing: 5) {
-                Text("Account & sync")
-                    .font(.asterionDisplay(26, weight: .semibold))
-                    .foregroundStyle(Color.asterionText)
-                Text("Manage your identity and Asterion session.")
-                    .font(.callout)
-                    .foregroundStyle(Color.asterionMuted)
-            }
+            pageTitle("Account & sync", subtitle: "Manage your identity and Asterion session.")
 
             VStack(alignment: .leading, spacing: 18) {
                 HStack(spacing: 14) {
                     ReaderAvatar(user: user, size: 54)
                     VStack(alignment: .leading, spacing: 3) {
                         Text(user.name)
-                            .font(.asterionDisplay(18, weight: .semibold))
+                            .font(.asterionDisplay(17, weight: .semibold))
                             .foregroundStyle(Color.asterionText)
                         if let email = user.email {
                             Text(email)
-                                .font(.caption)
+                                .font(.system(size: 12))
                                 .foregroundStyle(Color.asterionMuted)
                                 .lineLimit(1)
                                 .textSelection(.enabled)
                         }
+                        SyncStatusChip(hasIssue: model.accountError != nil)
+                            .padding(.top, 4)
                     }
                 }
 
                 Button {
                     presentsProfileEditor = true
                 } label: {
-                    Label("Manage Profile", systemImage: "person.crop.circle")
+                    Label("Manage profile", systemImage: "person.crop.circle")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.glassProminent)
-                .buttonBorderShape(.roundedRectangle(radius: 10))
-                .controlSize(.large)
-                .tint(.asterionAccent)
+                .buttonStyle(.asterionPrimary)
             }
             .accountCard()
 
-            VStack(alignment: .leading, spacing: 16) {
-                Label("Automatic saving", systemImage: "externaldrive.badge.checkmark")
-                    .font(.asterionDisplay(17, weight: .semibold))
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Automatic saving")
+                    .font(.asterionDisplay(15, weight: .semibold))
                     .foregroundStyle(Color.asterionText)
                 AccountStatusRow(label: "Library", value: "\(model.libraryNovelIDs.count) saved")
                 AccountStatusRow(label: "Reading progress", value: "\(model.continueReadingEntries.count) active")
@@ -537,140 +618,87 @@ struct AccountView: View {
                 AccountStatusRow(label: "Watch progress", value: "\(model.continueWatching.count) active")
                 AccountStatusRow(label: "Watch history", value: "\(model.mediaStats.historyEntries) entries")
                 Text("Asterion saves bookmarks, reading position, watch progress, and history on this Mac first, then sends them to your account when sync is available.")
-                    .font(.caption)
+                    .font(.system(size: 12))
                     .foregroundStyle(Color.asterionMuted)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .accountCard()
 
             if let error = model.accountError {
-                Label(error, systemImage: "exclamationmark.triangle.fill")
-                    .font(.callout)
-                    .foregroundStyle(Color.asterionAccent)
-                    .fixedSize(horizontal: false, vertical: true)
+                errorLabel(error)
                     .accountCard()
             }
 
             Button(role: .destructive) {
                 Task { await model.signOut() }
             } label: {
-                Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
+                Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right")
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.bordered)
-            .controlSize(.large)
+            .buttonStyle(.asterionSecondary)
         }
     }
 
     private var signedOutAccount: some View {
-        Group {
-            VStack(alignment: .leading, spacing: 5) {
-                Text("Welcome to Asterion")
-                    .font(.asterionDisplay(26, weight: .semibold))
-                    .foregroundStyle(Color.asterionText)
-                Text("Sign in to begin your personal library.")
-                    .font(.callout)
-                    .foregroundStyle(Color.asterionMuted)
-            }
+        VStack(spacing: 0) {
+            AsterionEmptyState(
+                systemImage: "person.crop.circle",
+                title: "Keep your place",
+                message: "Create an account or sign in to sync bookmarks, reading progress, watch progress, and history."
+            ) {
+                VStack(spacing: 14) {
+                    Button {
+                        openWindow(id: "authentication")
+                    } label: {
+                        Label("Sign in", systemImage: "person.crop.circle.badge.plus")
+                    }
+                    .buttonStyle(.asterionPrimary)
+                    .help("Sign in or create an account")
 
-            VStack(alignment: .leading, spacing: 18) {
-                Image(systemName: "person.crop.circle")
-                    .font(.system(size: 42, weight: .thin))
-                    .foregroundStyle(Color.asterionAccent)
-                Text("Keep your place")
-                    .font(.asterionDisplay(21, weight: .semibold))
-                    .foregroundStyle(Color.asterionText)
-                Text("Create an account or sign in to sync bookmarks, reading progress, watch progress, and history.")
-                    .font(.callout)
-                    .foregroundStyle(Color.asterionMuted)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Button("Sign In or Create Account") {
-                    openWindow(id: "authentication")
+                    if let error = model.accountError {
+                        errorLabel(error)
+                            .multilineTextAlignment(.center)
+                    }
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(.asterionAccent)
-                .controlSize(.large)
-                .frame(maxWidth: .infinity)
-            }
-            .accountCard()
-
-            if let error = model.accountError {
-                Label(error, systemImage: "exclamationmark.triangle.fill")
-                    .font(.callout)
-                    .foregroundStyle(Color.asterionAccent)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accountCard()
             }
         }
     }
 
     private var restoringAccount: some View {
-        Group {
-            VStack(alignment: .leading, spacing: 5) {
-                Text("Restoring your profile")
-                    .font(.asterionDisplay(26, weight: .semibold))
-                    .foregroundStyle(Color.asterionText)
-                Text("Checking the saved account on this Mac.")
-                    .font(.callout)
-                    .foregroundStyle(Color.asterionMuted)
-            }
-
-            VStack(alignment: .leading, spacing: 18) {
-                ProgressView()
-                    .controlSize(.regular)
-                Text("This usually takes a moment after opening Asterion.")
-                    .font(.callout)
-                    .foregroundStyle(Color.asterionMuted)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .accountCard()
+        AsterionEmptyState(
+            systemImage: "person.crop.circle",
+            title: "Restoring your profile",
+            message: "Checking the saved account on this Mac. This usually takes a moment after opening Asterion."
+        ) {
+            ProgressView()
+                .controlSize(.small)
         }
     }
 
     private var restoreFailedAccount: some View {
-        Group {
-            VStack(alignment: .leading, spacing: 5) {
-                Text("Profile could not be restored")
-                    .font(.asterionDisplay(26, weight: .semibold))
-                    .foregroundStyle(Color.asterionText)
-                Text("Try again, or sign in once more to reconnect this Mac.")
-                    .font(.callout)
-                    .foregroundStyle(Color.asterionMuted)
-            }
-
-            VStack(alignment: .leading, spacing: 18) {
-                Image(systemName: "person.crop.circle.badge.exclamationmark")
-                    .font(.system(size: 42, weight: .thin))
-                    .foregroundStyle(Color.asterionAccent)
-                Text("Your saved account is still on this Mac, but the session did not come back.")
-                    .font(.callout)
-                    .foregroundStyle(Color.asterionMuted)
-                    .fixedSize(horizontal: false, vertical: true)
-
+        AsterionEmptyState(
+            systemImage: "person.crop.circle.badge.exclamationmark",
+            title: "Profile could not be restored",
+            message: "Your saved account is still on this Mac, but the session did not come back. Try again, or sign in once more to reconnect."
+        ) {
+            VStack(spacing: 14) {
                 if let error = model.accountError {
-                    Label(error, systemImage: "exclamationmark.triangle.fill")
-                        .font(.callout)
-                        .foregroundStyle(Color.asterionAccent)
-                        .fixedSize(horizontal: false, vertical: true)
+                    errorLabel(error)
+                        .multilineTextAlignment(.center)
                 }
 
-                Button("Try Again") {
-                    Task { await model.retryAccountSessionRestore() }
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
-                .frame(maxWidth: .infinity)
+                HStack(spacing: 10) {
+                    Button("Try again") {
+                        Task { await model.retryAccountSessionRestore() }
+                    }
+                    .buttonStyle(.asterionSecondary)
 
-                Button("Sign In") {
-                    openWindow(id: "authentication")
+                    Button("Sign in") {
+                        openWindow(id: "authentication")
+                    }
+                    .buttonStyle(.asterionPrimary)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(.asterionAccent)
-                .controlSize(.large)
-                .frame(maxWidth: .infinity)
             }
-            .accountCard()
         }
     }
 }
@@ -681,21 +709,17 @@ struct AsterionAuthenticationView: View {
     @Environment(\.dismissWindow) private var dismissWindow
 
     var body: some View {
-        VStack(spacing: 18) {
-            HStack(spacing: 8) {
-                Image("AsterionMark", bundle: .module)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 21, height: 27)
-                Text("ASTERION")
-                    .font(.asterionDisplay(15, weight: .semibold))
-                    .tracking(2.2)
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Sign in")
+                    .font(.asterionTitle(24, weight: .heavy))
                     .foregroundStyle(Color.asterionText)
-                Spacer()
-                Text("YOUR ASTERION")
-                    .font(.asterionMono(9, weight: .semibold))
-                    .tracking(1.2)
-                    .foregroundStyle(Color.asterionAccent)
+                    .accessibilityAddTraits(.isHeader)
+                Text("Sync bookmarks, history, and your place in every story.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Color.asterionMuted)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
             }
             .padding(.horizontal, 2)
 
@@ -708,16 +732,11 @@ struct AsterionAuthenticationView: View {
                 .clipShape(.rect(cornerRadius: 16))
                 .overlay {
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(Color.asterionBorder, lineWidth: 1)
+                        .strokeBorder(Color.asterionBorder, lineWidth: 1)
                 }
-
-            Text("Your bookmarks, history, and reading or watching position stay synced across Asterion.")
-                .font(.caption)
-                .foregroundStyle(Color.asterionMuted)
-                .multilineTextAlignment(.center)
         }
         .padding(24)
-        .frame(width: 438, height: 548)
+        .frame(width: 438, height: 548, alignment: .top)
         .background(Color.asterionMediaCanvas)
         .onChange(of: clerk.user?.id) {
             guard clerk.user != nil else { return }
@@ -728,6 +747,8 @@ struct AsterionAuthenticationView: View {
         }
     }
 }
+
+// MARK: - Components
 
 private struct ReaderAvatar: View {
     let user: AppModel.SignedInUser
@@ -740,236 +761,191 @@ private struct ReaderAvatar: View {
             } else {
                 Image(systemName: "person.crop.circle.fill")
                     .resizable()
-                    .foregroundStyle(Color.asterionMuted)
+                    .foregroundStyle(Color.asterionFaint)
             }
         }
         .frame(width: size, height: size)
         .clipShape(Circle())
         .overlay {
-            Circle().stroke(Color.asterionSurface, lineWidth: 3)
+            Circle().strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
         }
-        .shadow(color: .black.opacity(0.10), radius: 8, y: 3)
+        .padding(size * 0.06)
+        .background {
+            Circle()
+                .fill(Color.white.opacity(0.035))
+                .overlay(Circle().strokeBorder(Color.white.opacity(0.09), lineWidth: 1))
+        }
+        .shadow(color: .white.opacity(0.08), radius: size * 0.2)
         .accessibilityLabel("Profile photo for \(user.name)")
     }
 }
 
-private struct SectionHeading: View {
+private struct SyncStatusChip: View {
+    let hasIssue: Bool
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Circle()
+                .fill(hasIssue ? Color.asterionWarning : Color.asterionSuccess)
+                .frame(width: 6, height: 6)
+                .shadow(color: (hasIssue ? Color.asterionWarning : Color.asterionSuccess).opacity(0.7), radius: 3)
+            Text(hasIssue ? "Needs attention" : "Synced")
+                .font(.system(size: 11.5, weight: .semibold))
+                .foregroundStyle(Color.asterionText.opacity(0.88))
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(Color.white.opacity(0.06), in: Capsule())
+        .overlay(Capsule().strokeBorder(Color.asterionBorder))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(hasIssue ? "Signed in, sync needs attention" : "Signed in, synced")
+    }
+}
+
+private struct AccountSection<Content: View>: View {
     let title: String
     let subtitle: String
+    @ViewBuilder let content: () -> Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(title)
-                .font(.asterionDisplay(22, weight: .semibold))
-                .foregroundStyle(Color.asterionText)
-            Text(subtitle)
-                .font(.callout)
-                .foregroundStyle(Color.asterionMuted)
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text(title)
+                    .font(.asterionTitle(18, weight: .bold))
+                    .foregroundStyle(Color.asterionText)
+                    .accessibilityAddTraits(.isHeader)
+                Text(subtitle)
+                    .font(.system(size: 13))
+                    .foregroundStyle(Color.asterionMuted)
+                    .lineLimit(1)
+            }
+            content()
         }
     }
 }
 
-private struct ProfileStatCard: View {
-    let value: String
+private struct AccountRowPanel<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        VStack(spacing: 0) {
+            content()
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .asterionPanel(cornerRadius: 14)
+    }
+}
+
+private struct ProfileStat: Identifiable {
+    let value: Int
     let label: String
-    let icon: String
+
+    var id: String { label }
+}
+
+private struct ProfileStatRow: View {
+    let stats: [ProfileStat]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Image(systemName: icon)
-                .font(.callout.weight(.semibold))
-                .foregroundStyle(Color.asterionAccent)
-                .frame(width: 30, height: 30)
-                .background(Color.asterionAccentSoft, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            Text(value)
-                .font(.asterionDisplay(25, weight: .semibold))
-                .foregroundStyle(Color.asterionText)
-                .monospacedDigit()
-            Text(label)
-                .font(.caption)
-                .foregroundStyle(Color.asterionMuted)
+        HStack(spacing: 0) {
+            ForEach(Array(stats.enumerated()), id: \.element.id) { index, stat in
+                if index > 0 {
+                    Rectangle()
+                        .fill(Color.asterionHairline)
+                        .frame(width: 1)
+                        .padding(.vertical, 16)
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(stat.value, format: .number)
+                        .font(.asterionTitle(30, weight: .heavy))
+                        .foregroundStyle(Color.asterionText)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                    Text(stat.label)
+                        .font(.system(size: 12))
+                        .foregroundStyle(Color.asterionMuted)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 20)
+                .frame(minWidth: 112, idealWidth: 112, maxWidth: .infinity, alignment: .leading)
+                .accessibilityElement(children: .combine)
+            }
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .stableAccountSurface(cornerRadius: 12)
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
 
-private struct ReadingActivityRow: View {
-    let entry: AppModel.ContinueReadingEntry
-    let action: () -> Void
-
-    private var progress: Double {
-        min(1, max(0, entry.progress.percentage / 100))
-    }
+private struct AccountActionRow<Trailing: View>: View {
+    let title: String
+    let detail: String
+    @ViewBuilder let trailing: () -> Trailing
 
     var body: some View {
         HStack(spacing: 16) {
-            CoverView(novel: entry.novel, width: 62, height: 88)
-
-            VStack(alignment: .leading, spacing: 7) {
-                Text(entry.novel.title)
-                    .font(.asterionDisplay(17, weight: .semibold))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.asterionDisplay(14, weight: .semibold))
                     .foregroundStyle(Color.asterionText)
-                    .lineLimit(1)
-                Text(entry.novel.authorDisplayName)
-                    .font(.caption)
+                Text(detail)
+                    .font(.system(size: 12.5))
                     .foregroundStyle(Color.asterionMuted)
-                    .lineLimit(1)
-                GeometryReader { geometry in
-                    ZStack(alignment: .leading) {
-                        Capsule()
-                            .fill(Color.asterionProgressTrack)
-                        Capsule()
-                            .fill(Color.asterionAccent)
-                            .frame(width: geometry.size.width * progress)
-                    }
-                }
-                .frame(height: 5)
-                .accessibilityLabel("Chapter progress")
-                .accessibilityValue("\(Int(entry.progress.percentage)) percent")
-                HStack {
-                    Text("Chapter progress")
-                    Spacer()
-                    Text("\(Int(entry.progress.percentage))%")
-                        .monospacedDigit()
-                }
-                .font(.caption2)
-                .foregroundStyle(Color.asterionMuted)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-
-            Button(action: action) {
-                Text("Continue")
-            }
-            .buttonStyle(.glass)
-            .controlSize(.small)
-            .tint(.asterionAccent)
+            Spacer(minLength: 12)
+            trailing()
         }
-        .padding(.vertical, 15)
-    }
-}
-
-private struct MediaProgressRow: View {
-    let progress: MediaPlaybackProgress
-    let action: () -> Void
-
-    private var fraction: Double {
-        min(1, max(0, progress.percentage / 100))
-    }
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 14) {
-                MediaCoverView(url: progress.imageURL, width: 54, height: 76)
-
-                VStack(alignment: .leading, spacing: 6) {
-                    Label(progress.mediaType.title, systemImage: progress.mediaType.systemImage)
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(Color.asterionAccent)
-                    Text(progress.title)
-                        .font(.asterionDisplay(16, weight: .semibold))
-                        .foregroundStyle(Color.asterionText)
-                        .lineLimit(1)
-                    Text(progress.unitTitle ?? progress.mediaType.title)
-                        .font(.caption)
-                        .foregroundStyle(Color.asterionMuted)
-                        .lineLimit(1)
-                    ProgressView(value: fraction)
-                        .tint(.asterionAccent)
-                        .accessibilityLabel("Watch progress")
-                        .accessibilityValue("\(Int(progress.percentage)) percent")
-                }
-
-                Spacer(minLength: 8)
-                Image(systemName: "play.fill")
-                    .foregroundStyle(Color.asterionAccent)
-                    .accessibilityHidden(true)
-            }
-            .padding(.vertical, 13)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Continue \(progress.title), \(progress.unitTitle ?? progress.mediaType.title)")
-    }
-}
-
-private struct MediaHistoryRow: View {
-    let history: MediaHistoryEntry
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 14) {
-                MediaCoverView(url: history.imageURL, width: 46, height: 64)
-
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(history.title)
-                        .font(.asterionDisplay(15, weight: .semibold))
-                        .foregroundStyle(Color.asterionText)
-                        .lineLimit(1)
-                    HStack(spacing: 6) {
-                        Label(history.unitTitle ?? history.mediaType.title, systemImage: history.mediaType.systemImage)
-                        Text("·")
-                        Text(history.lastViewedAt.formatted(.relative(presentation: .named)))
-                    }
-                    .font(.caption)
-                    .foregroundStyle(Color.asterionMuted)
-                }
-
-                Spacer(minLength: 8)
-                if history.completed {
-                    Label("Finished", systemImage: "checkmark.circle.fill")
-                        .labelStyle(.iconOnly)
-                        .foregroundStyle(Color.asterionAccent)
-                        .help("Finished")
-                } else {
-                    Image(systemName: "play.fill")
-                        .foregroundStyle(Color.asterionMuted)
-                        .accessibilityHidden(true)
-                }
-            }
-            .padding(.vertical, 11)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Watch \(history.title), \(history.unitTitle ?? history.mediaType.title) again")
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
     }
 }
 
 private struct MediaBookmarkRow: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isHovering = false
+
     let bookmark: MediaBookmark
     let isUpdating: Bool
     let remove: () -> Void
 
     var body: some View {
-        HStack(spacing: 14) {
-            MediaCoverView(url: bookmark.imageURL, width: 46, height: 64)
+        HStack(spacing: 16) {
+            ActivityThumbnail(url: bookmark.imageURL, fallbackSystemImage: bookmark.mediaType.systemImage)
 
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(bookmark.title)
-                    .font(.asterionDisplay(15, weight: .semibold))
+                    .font(.asterionDisplay(14.5, weight: .semibold))
                     .foregroundStyle(Color.asterionText)
                     .lineLimit(1)
-                Label(bookmark.subtitle ?? bookmark.mediaType.title, systemImage: bookmark.mediaType.systemImage)
-                    .font(.caption)
+                Text(bookmark.subtitle ?? bookmark.mediaType.title)
+                    .font(.system(size: 12.5))
                     .foregroundStyle(Color.asterionMuted)
                     .lineLimit(1)
             }
+            .accessibilityElement(children: .combine)
 
             Spacer(minLength: 8)
+
             Button(action: remove) {
                 if isUpdating {
-                    ProgressView().controlSize(.small)
+                    ProgressView().controlSize(.mini)
                 } else {
                     Image(systemName: "bookmark.slash")
+                        .font(.system(size: 12, weight: .semibold))
                 }
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.asterionSecondary)
             .disabled(isUpdating)
             .help("Remove bookmark")
             .accessibilityLabel("Remove \(bookmark.title) from saved items")
         }
-        .padding(.vertical, 11)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(Color.white.opacity(isHovering ? 0.04 : 0))
+        .onHover { isHovering = $0 }
+        .animation(reduceMotion ? nil : AsterionMotion.hover, value: isHovering)
     }
 }
 
@@ -979,22 +955,22 @@ private struct ProfileBenefit: View {
     let detail: String
 
     var body: some View {
-        HStack(spacing: 16) {
+        VStack(spacing: 6) {
             Image(systemName: icon)
-                .font(.title3)
-                .foregroundStyle(Color.asterionAccent)
-                .frame(width: 28)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(.asterionDisplay(16, weight: .semibold))
-                    .foregroundStyle(Color.asterionText)
-                Text(detail)
-                    .font(.callout)
-                    .foregroundStyle(Color.asterionMuted)
-            }
+                .font(.system(size: 16, weight: .regular))
+                .foregroundStyle(Color.asterionMuted)
+                .frame(height: 22)
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color.asterionText)
+            Text(detail)
+                .font(.system(size: 12))
+                .foregroundStyle(Color.asterionMuted)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.vertical, 18)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(width: 160)
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -1008,11 +984,10 @@ private struct AccountStatusRow: View {
                 .foregroundStyle(Color.asterionMuted)
             Spacer()
             Text(value)
-                .fontWeight(.medium)
+                .font(.asterionMono(12.5, weight: .medium))
                 .foregroundStyle(Color.asterionText)
-                .monospacedDigit()
         }
-        .font(.callout)
+        .font(.system(size: 13))
     }
 }
 
@@ -1020,17 +995,6 @@ private extension View {
     func accountCard() -> some View {
         padding(18)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .stableAccountSurface(cornerRadius: 12)
-    }
-
-    func stableAccountSurface(cornerRadius: CGFloat) -> some View {
-        background(
-            Color.asterionSurface,
-            in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .stroke(Color.asterionBorder, lineWidth: 1)
-        }
+            .asterionPanel(cornerRadius: 14)
     }
 }

@@ -42,9 +42,9 @@ struct MediaDownloadPlannerView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider()
+            Rectangle().fill(Color.asterionHairline).frame(height: 1)
             episodeList
-            Divider()
+            Rectangle().fill(Color.asterionHairline).frame(height: 1)
             footer
         }
         .frame(minWidth: 500, idealWidth: 560, minHeight: 420, idealHeight: 560)
@@ -53,92 +53,112 @@ struct MediaDownloadPlannerView: View {
 
     private var header: some View {
         HStack(alignment: .center, spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 5) {
                 Text(title)
-                    .font(.asterionDisplay(19, weight: .semibold))
+                    .font(.asterionTitle(20, weight: .bold))
                     .foregroundStyle(Color.asterionText)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .accessibilityAddTraits(.isHeader)
                 Text(selectionSummary)
-                    .font(.caption)
+                    .font(.system(size: 12.5))
                     .foregroundStyle(Color.asterionMuted)
             }
 
             Spacer()
 
             Button("Clear") { selectedItemIDs.removeAll() }
+                .buttonStyle(.asterionSecondary)
                 .disabled(selectedItemIDs.isEmpty)
-            Button("Select All") { selectedItemIDs = selectableItemIDs }
+            Button("Select all") { selectedItemIDs = selectableItemIDs }
+                .buttonStyle(.asterionSecondary)
                 .disabled(selectedItemIDs == selectableItemIDs)
         }
-        .padding(20)
+        .padding(.horizontal, 24)
+        .padding(.vertical, 20)
     }
 
     private var episodeList: some View {
-        List {
-            ForEach(groups) { group in
-                Section {
-                    ForEach(group.items) { item in
-                        Toggle(isOn: itemBinding(item)) {
-                            HStack(spacing: 12) {
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text(item.title)
-                                        .font(.body.weight(.medium))
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 24) {
+                ForEach(groups) { group in
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(spacing: 10) {
+                            Button {
+                                toggle(group)
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Image(systemName: groupSelectionIcon(group))
+                                        .font(.system(size: 13, weight: .semibold))
                                         .foregroundStyle(Color.asterionText)
-                                    if let detail = item.detail {
-                                        Text(detail)
-                                            .font(.caption)
-                                            .foregroundStyle(Color.asterionMuted)
-                                    }
+                                    Text(group.title)
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundStyle(Color.asterionText)
+                                        .lineLimit(1)
                                 }
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .help("Select or clear every episode in \(group.title)")
+                            .accessibilityLabel(group.title)
+                            .accessibilityValue(groupSelectionValue(group))
+                            .accessibilityHint("Selects or clears every episode in this group")
 
-                                Spacer()
+                            Spacer()
 
-                                if let status = item.status {
-                                    Text(status)
-                                        .font(.caption.weight(.semibold))
-                                        .foregroundStyle(Color.asterionMuted)
+                            Text(group.countLabel)
+                                .font(.asterionMono(11, weight: .medium))
+                                .foregroundStyle(Color.asterionFaint)
+                        }
+                        .padding(.horizontal, 4)
+
+                        VStack(spacing: 0) {
+                            ForEach(Array(group.items.enumerated()), id: \.element.id) { index, item in
+                                if index > 0 {
+                                    Rectangle()
+                                        .fill(Color.asterionHairline)
+                                        .frame(height: 1)
+                                        .padding(.leading, 44)
                                 }
+                                PlannerItemRow(item: item, isOn: itemBinding(item))
                             }
                         }
-                        .toggleStyle(.checkbox)
-                        .disabled(item.isUnavailable)
-                    }
-                } header: {
-                    HStack {
-                        Button {
-                            toggle(group)
-                        } label: {
-                            Label(group.title, systemImage: groupSelectionIcon(group))
-                                .font(.caption.weight(.semibold))
-                        }
-                        .buttonStyle(.plain)
-                        Spacer()
-                        Text(group.countLabel)
-                            .font(.caption)
-                            .foregroundStyle(Color.asterionMuted)
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .asterionPanel(cornerRadius: 14)
                     }
                 }
             }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 20)
         }
-        .listStyle(.inset)
+        .hidingScrollIndicators()
     }
 
     private var footer: some View {
         HStack(spacing: 14) {
-            Picker("Quality", selection: $quality) {
-                ForEach(MediaDownloadQuality.allCases) { option in
-                    Text(option.title).tag(option)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 4) {
+                    ForEach(MediaDownloadQuality.allCases) { option in
+                        QualityChip(option: option, isSelected: quality == option) {
+                            quality = option
+                        }
+                    }
                 }
-            }
-            .frame(width: 170)
+                .padding(3)
+                .background(Color.asterionSurface, in: Capsule())
+                .overlay(Capsule().strokeBorder(Color.asterionBorder))
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("Quality")
 
-            Text(quality.selectionDetail)
-                .font(.caption)
-                .foregroundStyle(Color.asterionMuted)
+                Text(quality.selectionDetail)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(Color.asterionMuted)
+            }
 
             Spacer()
 
             Button("Cancel") { dismiss() }
+                .buttonStyle(.asterionSecondary)
                 .keyboardShortcut(.cancelAction)
 
             Button {
@@ -147,12 +167,13 @@ struct MediaDownloadPlannerView: View {
             } label: {
                 Label(downloadButtonTitle, systemImage: "arrow.down.circle.fill")
             }
-            .buttonStyle(.borderedProminent)
-            .tint(.asterionAccent)
+            .buttonStyle(.asterionPrimary)
             .keyboardShortcut(.defaultAction)
             .disabled(selectedItemIDs.isEmpty)
         }
-        .padding(20)
+        .padding(.horizontal, 24)
+        .padding(.vertical, 18)
+        .background(Color.asterionSurface.opacity(0.5))
     }
 
     private var selectableItemIDs: Set<String> {
@@ -165,7 +186,17 @@ struct MediaDownloadPlannerView: View {
     }
 
     private var downloadButtonTitle: String {
-        selectedItemIDs.count == 1 ? "Download 1" : "Download \(selectedItemIDs.count)"
+        let count = selectedItemIDs.count
+        if groups.count == 1, groups.first?.id == "movie" {
+            return count == 1 ? "Download" : "Download \(count)"
+        }
+        return count == 1 ? "Download 1 episode" : "Download \(count) episodes"
+    }
+
+    private func groupSelectionValue(_ group: MediaDownloadPlannerGroup) -> String {
+        let groupIDs = selectableIDs(in: group)
+        let selectedCount = groupIDs.intersection(selectedItemIDs).count
+        return "\(selectedCount) of \(groupIDs.count) selected"
     }
 
     private func itemBinding(_ item: MediaDownloadPlannerItem) -> Binding<Bool> {
@@ -200,5 +231,72 @@ struct MediaDownloadPlannerView: View {
         if selectedCount == 0 { return "square" }
         if selectedCount == groupIDs.count { return "checkmark.square.fill" }
         return "minus.square.fill"
+    }
+}
+
+private struct PlannerItemRow: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isHovering = false
+
+    let item: MediaDownloadPlannerItem
+    @Binding var isOn: Bool
+
+    var body: some View {
+        Toggle(isOn: $isOn) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(item.title)
+                        .font(.system(size: 13.5, weight: .medium))
+                        .foregroundStyle(item.isUnavailable ? Color.asterionMuted : Color.asterionText)
+                        .lineLimit(1)
+                    if let detail = item.detail {
+                        Text(detail)
+                            .font(.system(size: 12))
+                            .foregroundStyle(Color.asterionMuted)
+                            .lineLimit(1)
+                    }
+                }
+
+                Spacer()
+
+                if let status = item.status {
+                    Text(status)
+                        .font(.asterionMono(11, weight: .medium))
+                        .foregroundStyle(Color.asterionMuted)
+                }
+            }
+            .padding(.leading, 6)
+        }
+        .toggleStyle(.checkbox)
+        .disabled(item.isUnavailable)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white.opacity(isHovering && !item.isUnavailable ? 0.04 : 0))
+        .contentShape(Rectangle())
+        .onHover { isHovering = $0 }
+        .animation(reduceMotion ? nil : AsterionMotion.hover, value: isHovering)
+    }
+}
+
+private struct QualityChip: View {
+    let option: MediaDownloadQuality
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(option.title)
+                .font(.asterionMono(12, weight: .semibold))
+                .foregroundStyle(isSelected ? Color.asterionMediaCanvas : Color.asterionMuted)
+                .padding(.horizontal, 11)
+                .frame(height: 26)
+                .background(isSelected ? Color.asterionText : Color.clear, in: Capsule())
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .help(option.selectionDetail)
+        .accessibilityLabel(option.title)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }

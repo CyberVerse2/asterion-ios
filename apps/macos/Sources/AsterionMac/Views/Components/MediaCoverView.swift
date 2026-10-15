@@ -5,8 +5,10 @@ struct MediaCoverView: View {
     var width: CGFloat = 150
     var height: CGFloat = 210
 
+    private var cornerRadius: CGFloat { max(6, min(10, width * 0.06)) }
+
     var body: some View {
-        AsyncImage(url: url) { phase in
+        AsyncImage(url: url, transaction: Transaction(animation: .easeOut(duration: 0.25))) { phase in
             switch phase {
             case .success(let image):
                 image.resizable().scaledToFill()
@@ -19,32 +21,25 @@ struct MediaCoverView: View {
             }
         }
         .frame(width: width, height: height)
-        .clipShape(RoundedRectangle(cornerRadius: max(6, width * 0.06), style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: max(6, width * 0.06), style: .continuous)
-                .stroke(Color.asterionBorder, lineWidth: 1)
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .strokeBorder(Color.asterionBorder, lineWidth: 1)
         }
-        .shadow(color: Color.black.opacity(0.10), radius: width * 0.08, y: width * 0.035)
+        .shadow(color: Color.black.opacity(0.28), radius: width * 0.08, y: width * 0.035)
     }
 
     private var fallback: some View {
-        Color.asterionCard
+        Color.asterionSurface
             .overlay {
-                Image(systemName: "play.rectangle.fill")
-                    .font(.system(size: width * 0.25, weight: .light))
-                    .foregroundStyle(Color.asterionAccent.opacity(0.7))
+                Image(systemName: "play.rectangle")
+                    .font(.system(size: max(12, width * 0.2), weight: .light))
+                    .foregroundStyle(Color.asterionFaint)
             }
     }
 
     private var loadingFallback: some View {
-        fallback.overlay(alignment: .bottomTrailing) {
-            Image(systemName: "hourglass")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(Color.asterionMuted)
-                .padding(6)
-                .background(Color.asterionSurface.opacity(0.94), in: Circle())
-                .padding(7)
-                .accessibilityLabel("Loading cover artwork")
-        }
+        Color.asterionSurface
+            .accessibilityLabel("Loading cover artwork")
     }
 }

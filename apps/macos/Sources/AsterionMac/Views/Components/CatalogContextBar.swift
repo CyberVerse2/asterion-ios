@@ -13,8 +13,8 @@ struct CatalogContextBar: View {
 
     var body: some View {
         ScrollView(.horizontal) {
-            GlassEffectContainer(spacing: 8) {
-                HStack(spacing: 8) {
+            HStack(spacing: 10) {
+                HStack(spacing: 2) {
                     switch destination {
                     case .novels:
                         sectionButton("Discover", value: AppSection.discover, selection: $novelSection)
@@ -29,14 +29,12 @@ struct CatalogContextBar: View {
                         sectionButton("Upcoming", value: AnimeSection.upcoming, selection: $animeSection)
                         sectionButton("Completed", value: AnimeSection.completed, selection: $animeSection)
                         sectionButton("Schedule", value: AnimeSection.schedule, selection: $animeSection)
-                        animeFilterMenus
 
                     case .movies:
                         sectionButton("Discover", value: MovieSection.discover, selection: $movieSection)
                         sectionButton("Movies", value: MovieSection.movies, selection: $movieSection)
                         sectionButton("TV Shows", value: MovieSection.tvShows, selection: $movieSection)
                         sectionButton("Popular", value: MovieSection.popular, selection: $movieSection)
-                        movieGenreMenu
 
                     case .football:
                         sectionButton("Live", value: FootballSection.live, selection: $footballSection)
@@ -47,15 +45,34 @@ struct CatalogContextBar: View {
                         EmptyView()
                     }
                 }
-                .padding(.horizontal, 18)
-                .padding(.vertical, 8)
-                .padding(.top, 10)
+                .padding(3)
+                .glassEffect(.regular, in: Capsule())
+
+                switch destination {
+                case .anime:
+                    animeFilterMenus
+                case .movies:
+                    movieGenreMenu
+                default:
+                    EmptyView()
+                }
             }
+            .padding(.horizontal, AsterionLayout.pageInset)
+            .padding(.vertical, 4)
         }
         .scrollIndicators(.never, axes: .horizontal)
-        .frame(height: 58)
-        .background(.bar)
-        .overlay(alignment: .bottom) { Divider() }
+        .frame(height: AsterionLayout.sectionBarHeight)
+        .animation(.spring(duration: 0.32, bounce: 0.12), value: selectionKey)
+    }
+
+    private var selectionKey: String {
+        switch destination {
+        case .novels: novelSection.rawValue
+        case .anime: animeSection.rawValue
+        case .movies: movieSection.rawValue
+        case .football: footballSection.rawValue
+        default: ""
+        }
     }
 
     @ViewBuilder
@@ -83,8 +100,12 @@ struct CatalogContextBar: View {
             }
         } label: {
             Label("Genres", systemImage: "square.grid.2x2")
+                .font(.system(size: 12.5, weight: .semibold))
         }
-        .controlSize(.small)
+        .menuStyle(.button)
+        .buttonStyle(.glass)
+        .buttonBorderShape(.capsule)
+        .fixedSize()
         .help("Filter anime by genre")
         .task {
             await animeStore.loadGenresIfNeeded()
@@ -99,8 +120,12 @@ struct CatalogContextBar: View {
             }
         } label: {
             Label("Types", systemImage: "rectangle.stack")
+                .font(.system(size: 12.5, weight: .semibold))
         }
-        .controlSize(.small)
+        .menuStyle(.button)
+        .buttonStyle(.glass)
+        .buttonBorderShape(.capsule)
+        .fixedSize()
         .help("Filter anime by type")
     }
 
@@ -128,8 +153,12 @@ struct CatalogContextBar: View {
             }
         } label: {
             Label("Genres", systemImage: "square.grid.2x2")
+                .font(.system(size: 12.5, weight: .semibold))
         }
-        .controlSize(.small)
+        .menuStyle(.button)
+        .buttonStyle(.glass)
+        .buttonBorderShape(.capsule)
+        .fixedSize()
         .help("Filter movies and TV shows by genre")
         .task {
             await movieStore.loadGenresIfNeeded()
@@ -145,41 +174,25 @@ struct CatalogContextBar: View {
         value: Value,
         selection: Binding<Value>
     ) -> some View {
-        Button {
+        let isSelected = selection.wrappedValue == value
+        return Button {
             selection.wrappedValue = value
         } label: {
             Text(title)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(selection.wrappedValue == value ? .primary : .secondary)
-                .padding(.horizontal, 11)
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundStyle(isSelected ? Color.asterionMediaCanvas : Color.asterionText.opacity(0.78))
+                .padding(.horizontal, 13)
                 .padding(.vertical, 6)
-                .contentShape(Rectangle())
-                .modifier(
-                    ContextSelectionGlass(
-                        isSelected: selection.wrappedValue == value,
-                        namespace: selectionNamespace
-                    )
-                )
+                .background {
+                    if isSelected {
+                        Capsule()
+                            .fill(Color.asterionText)
+                            .matchedGeometryEffect(id: "catalog-selection", in: selectionNamespace)
+                    }
+                }
+                .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .help(title)
-        .accessibilityAddTraits(selection.wrappedValue == value ? .isSelected : [])
-    }
-}
-
-private struct ContextSelectionGlass: ViewModifier {
-    let isSelected: Bool
-    let namespace: Namespace.ID
-
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        if isSelected {
-            content
-                .glassEffect(.regular.interactive(), in: Capsule())
-                .glassEffectID("catalog-selection", in: namespace)
-                .glassEffectTransition(.matchedGeometry)
-        } else {
-            content
-        }
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }

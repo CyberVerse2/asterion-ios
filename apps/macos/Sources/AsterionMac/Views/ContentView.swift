@@ -19,6 +19,7 @@ struct ContentView: View {
     @State private var searchText = ""
     @State private var detailSelection: AppDetailSelection?
     @State private var navigationHistory = AppNavigationHistory()
+    @State private var chromeInset = AsterionLayout.toolbarClearance
 
     private var destination: Binding<AppDestination> {
         Binding(
@@ -103,13 +104,7 @@ struct ContentView: View {
             .navigationSplitViewColumnWidth(min: 220, ideal: 236, max: 248)
         } detail: {
             mainContent
-                .scrollEdgeEffectStyle(.soft, for: [.top, .bottom])
-                .safeAreaBar(edge: .top, spacing: 0) {
-                    Color.clear.frame(height: 1)
-                }
-                .safeAreaBar(edge: .bottom, spacing: 0) {
-                    Color.clear.frame(height: 1)
-                }
+                .scrollEdgeEffectStyle(.soft, for: [.bottom])
         }
         .navigationSplitViewStyle(.prominentDetail)
         .searchable(text: $searchText, placement: .sidebar, prompt: Text(searchPrompt))
@@ -198,7 +193,32 @@ struct ContentView: View {
     }
 
     private var mainContent: some View {
-        VStack(spacing: 0) {
+        Group {
+            if detailSelection == nil {
+                primaryColumn
+            } else {
+                selectedGlobalDetail
+            }
+        }
+        .id(contentIdentity)
+        .transition(.opacity.combined(with: .scale(scale: 0.992, anchor: .center)))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .overlay(alignment: .top) {
+            // Keeps the toolbar and section bar legible over artwork and
+            // content scrolling beneath them.
+            LinearGradient(
+                stops: [
+                    .init(color: Color.asterionMediaCanvas.opacity(0.82), location: 0),
+                    .init(color: Color.asterionMediaCanvas.opacity(0.45), location: 0.55),
+                    .init(color: Color.asterionMediaCanvas.opacity(0), location: 1),
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .frame(height: chromeInset + (showsCatalogContextBar ? 64 : 22))
+            .allowsHitTesting(false)
+        }
+        .overlay(alignment: .top) {
             if showsCatalogContextBar {
                 CatalogContextBar(
                     animeStore: animeStore,
@@ -209,20 +229,20 @@ struct ContentView: View {
                     movieSection: movieSection,
                     footballSection: footballSection
                 )
+                .padding(.top, chromeInset)
+                .transition(.opacity)
             }
-
-            Group {
-                if detailSelection == nil {
-                    primaryColumn
-                } else {
-                    selectedGlobalDetail
-                }
-            }
-            .id(contentIdentity)
-            .transition(.opacity.combined(with: .scale(scale: 0.992, anchor: .center)))
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(Color.asterionMediaCanvas)
+        .environment(\.asterionTopInset, chromeInset)
         .ignoresSafeArea(.container, edges: .top)
+        .onGeometryChange(for: CGFloat.self) { geometry in
+            geometry.safeAreaInsets.top
+        } action: { inset in
+            // Before the safe area is ignored this reports the real toolbar
+            // band, which shrinks in full screen.
+            chromeInset = max(inset, 12)
+        }
         .animation(reduceMotion ? nil : AsterionMotion.navigation, value: contentIdentity)
     }
 
@@ -351,8 +371,11 @@ struct ContentView: View {
             case .football:
                 FootballDetailView(store: footballStore)
             case .loading(let title):
-                ProgressView("Loading \(title)…")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                AsterionEmptyState(
+                    systemImage: "sportscourt",
+                    title: "Opening \(title)",
+                    message: "Finding this match in the live feed."
+                )
             case .unavailable(let title, let message):
                 detailUnavailable(title: title, message: message)
             case nil:
@@ -365,12 +388,10 @@ struct ContentView: View {
     }
 
     private func detailUnavailable(title: String, message: String) -> some View {
-        ContentUnavailableView(
-            title,
-            systemImage: "sidebar.right",
-            description: Text(message)
-        )
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        AsterionEmptyState(systemImage: "rectangle.dashed", title: title, message: message) {
+            Button("Go back") { navigateBack() }
+                .buttonStyle(.asterionSecondary)
+        }
         .background(Color.asterionMediaCanvas)
     }
 

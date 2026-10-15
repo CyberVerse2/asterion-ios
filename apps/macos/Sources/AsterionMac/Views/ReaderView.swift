@@ -112,14 +112,26 @@ struct ReaderView: View {
     var body: some View {
         Group {
             if isLoading {
-                ProgressView("Opening chapter…")
+                ReaderLoadingView(
+                    message: "Opening chapter…",
+                    artworkURL: (novel ?? model.novel(id: route.novelID))?.imageURL
+                        .flatMap(URL.init(string:)),
+                    palette: palette,
+                    glowOpacity: readerTheme == .ink ? 0.22 : 0.10
+                )
             } else if let errorMessage {
-                ContentUnavailableView {
-                    Label("Chapter unavailable", systemImage: "exclamationmark.triangle")
-                } description: {
-                    Text(errorMessage)
-                } actions: {
-                    Button("Try Again") { Task { await load() } }
+                ReaderMessageView(
+                    systemImage: "exclamationmark.triangle",
+                    title: "Chapter unavailable",
+                    message: errorMessage,
+                    palette: palette
+                ) {
+                    Button {
+                        Task { await load() }
+                    } label: {
+                        Label("Try again", systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(ReaderCapsuleButtonStyle(palette: palette))
                 }
             } else if let chapter {
                 reader(chapter)
@@ -146,7 +158,7 @@ struct ReaderView: View {
                 if let error = model.accountError {
                     Label(error, systemImage: "exclamationmark.triangle.fill")
                         .font(.callout)
-                        .foregroundStyle(Color.asterionAccent)
+                        .foregroundStyle(Color.asterionWarning)
                         .padding(10)
                         .frame(maxWidth: .infinity)
                         .background(.ultraThinMaterial)
@@ -265,41 +277,48 @@ struct ReaderView: View {
             Button {
                 navigate(by: -1)
             } label: {
-                Label("Previous Chapter", systemImage: "chevron.left")
+                Label("Previous chapter", systemImage: "chevron.left")
             }
             .disabled(currentIndex <= 0)
-            .help("Previous Chapter")
+            .help("Previous chapter")
 
             Button {
                 navigate(by: 1)
             } label: {
-                Label("Next Chapter", systemImage: "chevron.right")
+                Label("Next chapter", systemImage: "chevron.right")
             }
             .disabled(currentIndex >= chapters.count - 1)
-            .help("Next Chapter")
+            .help("Next chapter")
 
             Button {
                 showsChapterPicker.toggle()
             } label: {
                 Label(
-                    showsChapterPicker ? "Hide Chapters" : "Browse Chapters",
+                    showsChapterPicker ? "Hide chapters" : "Browse chapters",
                     systemImage: "list.bullet"
                 )
             }
-            .help(showsChapterPicker ? "Hide Chapters" : "Browse Chapters")
+            .help(showsChapterPicker ? "Hide chapters" : "Browse chapters")
         }
 
         if let chapter {
             ToolbarItem(placement: .principal) {
-                VStack(spacing: 1) {
+                VStack(spacing: 2) {
                     Text(novel?.title ?? "Asterion")
-                        .font(.asterionDisplay(13, weight: .medium))
-                    Text("Chapter \(chapter.chapterNumber) · \(chapter.displayTitle)")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .font(.asterionDisplay(13, weight: .semibold))
+                        .foregroundStyle(palette.text)
+                    HStack(spacing: 5) {
+                        Text("Ch. \(chapter.chapterNumber)")
+                            .font(.asterionMono(10.5, weight: .medium))
+                        Text("·")
+                        Text(chapter.displayTitle)
+                            .font(.system(size: 11))
+                    }
+                    .foregroundStyle(palette.muted)
                 }
                 .lineLimit(1)
                 .frame(maxWidth: 520)
+                .accessibilityElement(children: .combine)
             }
         }
 
@@ -307,16 +326,16 @@ struct ReaderView: View {
             Button {
                 fontSize = max(14, fontSize - 1)
             } label: {
-                Label("Smaller Text", systemImage: "textformat.size.smaller")
+                Label("Smaller text", systemImage: "textformat.size.smaller")
             }
-            .help("Smaller Text")
+            .help("Smaller text")
 
             Button {
                 fontSize = min(30, fontSize + 1)
             } label: {
-                Label("Larger Text", systemImage: "textformat.size.larger")
+                Label("Larger text", systemImage: "textformat.size.larger")
             }
-            .help("Larger Text")
+            .help("Larger text")
         }
 
         ToolbarSpacer(.fixed)
@@ -330,17 +349,17 @@ struct ReaderView: View {
             Button {
                 exportsChapter = true
             } label: {
-                Label("Save Chapter", systemImage: "square.and.arrow.down")
+                Label("Save chapter", systemImage: "square.and.arrow.down")
             }
-            .help("Save Chapter")
+            .help("Save chapter")
         }
     }
 
     private func readerHeader(_ chapter: Chapter) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("CHAPTER \(chapter.chapterNumber)")
-                .font(.caption.weight(.medium))
-                .tracking(1.5)
+            Text("Chapter \(chapter.chapterNumber)")
+                .font(.asterionMono(12, weight: .medium))
+                .tracking(0.6)
                 .foregroundStyle(palette.faint)
             Text(chapter.displayTitle)
                 .font(.asterionReading(32, weight: .semibold))
@@ -357,36 +376,48 @@ struct ReaderView: View {
 
     private var singlePageChapterNavigation: some View {
         VStack(spacing: 18) {
-            Divider()
-                .overlay(palette.faint.opacity(0.35))
+            Rectangle()
+                .fill(palette.border)
+                .frame(height: 1)
 
             HStack(spacing: 14) {
                 Button {
                     navigate(by: -1)
                 } label: {
-                    Label("Previous Chapter", systemImage: "chevron.left")
+                    Label("Previous chapter", systemImage: "chevron.left")
                 }
                 .disabled(currentIndex <= 0)
 
                 Spacer(minLength: 20)
 
-                Text("End of chapter")
-                    .font(.caption)
-                    .foregroundStyle(palette.faint)
+                VStack(spacing: 3) {
+                    Text("End of chapter")
+                        .font(.system(size: 12))
+                        .foregroundStyle(palette.faint)
+                    if !chapters.isEmpty {
+                        Text("\(currentIndex + 1) of \(chapters.count)")
+                            .font(.asterionMono(11, weight: .medium))
+                            .foregroundStyle(palette.faint)
+                    }
+                }
+                .accessibilityElement(children: .combine)
 
                 Spacer(minLength: 20)
 
                 Button {
                     navigate(by: 1)
                 } label: {
-                    Label("Next Chapter", systemImage: "chevron.right")
-                        .labelStyle(.titleAndIcon)
+                    HStack(spacing: 7) {
+                        Text("Next chapter")
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 11, weight: .bold))
+                    }
                 }
                 .disabled(currentIndex >= chapters.count - 1)
                 .keyboardShortcut(.rightArrow, modifiers: [.command])
+                .accessibilityLabel("Next chapter")
             }
-            .buttonStyle(.bordered)
-            .controlSize(.large)
+            .buttonStyle(ReaderCapsuleButtonStyle(palette: palette))
         }
         .accessibilityElement(children: .contain)
     }
@@ -596,9 +627,150 @@ private struct ReaderThemeMenu: View {
                 }
             }
         } label: {
-            Label("Reading Theme", systemImage: theme.icon)
+            Label("Reading theme", systemImage: theme.icon)
         }
         .help("Theme: \(theme.label)")
+    }
+}
+
+/// Calm loading state drawn in the reader's own palette, faintly lit by the
+/// novel's cover when one is known.
+private struct ReaderLoadingView: View {
+    let message: String
+    let artworkURL: URL?
+    let palette: ReaderPalette
+    let glowOpacity: Double
+
+    var body: some View {
+        ZStack {
+            palette.background
+
+            if artworkURL != nil {
+                ArtworkToneReader(url: artworkURL) { tone in
+                    RadialGradient(
+                        colors: [tone.opacity(glowOpacity), tone.opacity(glowOpacity * 0.2), .clear],
+                        center: .center,
+                        startRadius: 4,
+                        endRadius: 320
+                    )
+                }
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            }
+
+            VStack(spacing: 14) {
+                ProgressView()
+                    .progressViewStyle(.circular)
+                    .controlSize(.small)
+                Text(message)
+                    .font(.system(size: 13))
+                    .foregroundStyle(palette.muted)
+            }
+            .accessibilityElement(children: .combine)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// Empty or error state that follows the reader palette rather than the
+/// dark media canvas.
+private struct ReaderMessageView<Actions: View>: View {
+    let systemImage: String
+    let title: String
+    let message: String
+    let palette: ReaderPalette
+    @ViewBuilder var actions: () -> Actions
+
+    init(
+        systemImage: String,
+        title: String,
+        message: String,
+        palette: ReaderPalette,
+        @ViewBuilder actions: @escaping () -> Actions = { EmptyView() }
+    ) {
+        self.systemImage = systemImage
+        self.title = title
+        self.message = message
+        self.palette = palette
+        self.actions = actions
+    }
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Image(systemName: systemImage)
+                .font(.system(size: 28, weight: .light))
+                .foregroundStyle(palette.muted)
+                .frame(width: 72, height: 72)
+                .background(palette.text.opacity(0.05), in: Circle())
+                .padding(.bottom, 2)
+
+            Text(title)
+                .font(.asterionTitle(19))
+                .foregroundStyle(palette.text)
+                .multilineTextAlignment(.center)
+
+            Text(message)
+                .font(.system(size: 13.5))
+                .foregroundStyle(palette.muted)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 360)
+                .fixedSize(horizontal: false, vertical: true)
+
+            actions()
+                .padding(.top, 8)
+        }
+        .padding(32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// The reader's take on the smoked capsule: tinted from the active palette
+/// so it sits naturally on paper, sepia, or ink.
+private struct ReaderCapsuleButtonStyle: ButtonStyle {
+    let palette: ReaderPalette
+
+    func makeBody(configuration: Configuration) -> some View {
+        ReaderCapsuleButtonBody(configuration: configuration, palette: palette)
+    }
+}
+
+private struct ReaderCapsuleButtonBody: View {
+    let configuration: ButtonStyleConfiguration
+    let palette: ReaderPalette
+    @Environment(\.isEnabled) private var isEnabled
+    @State private var isHovering = false
+
+    var body: some View {
+        configuration.label
+            .font(.system(size: 13, weight: .semibold))
+            .labelStyle(ReaderCapsuleLabelStyle())
+            .foregroundStyle(palette.text.opacity(isEnabled ? 1 : 0.35))
+            .padding(.horizontal, 16)
+            .frame(minHeight: 36)
+            .background {
+                Capsule()
+                    .fill(
+                        palette.text.opacity(
+                            configuration.isPressed ? 0.12 : (isHovering && isEnabled ? 0.08 : 0.045)
+                        )
+                    )
+            }
+            .overlay(Capsule().strokeBorder(palette.border))
+            .scaleEffect(configuration.isPressed ? 0.98 : 1)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+            .animation(.easeOut(duration: 0.15), value: isHovering)
+            .contentShape(Capsule())
+            .onHover { isHovering = $0 }
+    }
+}
+
+private struct ReaderCapsuleLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 7) {
+            configuration.icon
+                .font(.system(size: 11, weight: .bold))
+            configuration.title
+        }
     }
 }
 
@@ -622,8 +794,7 @@ private struct ReaderBottomBar: View {
 
             HStack {
                 Text(label)
-                    .font(.system(size: 11, weight: .regular))
-                    .tracking(0.4)
+                    .font(.asterionMono(10.5, weight: .medium))
                     .foregroundStyle(palette.faint)
                 Spacer()
             }
@@ -660,11 +831,12 @@ private struct ReaderWebSpreadView: View {
             WebView(model.page)
 
             if let loadError = model.loadError {
-                ContentUnavailableView {
-                    Label("Reader unavailable", systemImage: "exclamationmark.triangle")
-                } description: {
-                    Text(loadError)
-                }
+                ReaderMessageView(
+                    systemImage: "exclamationmark.triangle",
+                    title: "Reader unavailable",
+                    message: loadError,
+                    palette: palette
+                )
                 .background(palette.background)
             }
         }
