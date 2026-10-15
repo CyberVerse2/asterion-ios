@@ -1,5 +1,6 @@
 import AppKit
 import ClerkKit
+import Observation
 import SwiftUI
 
 @MainActor
@@ -95,7 +96,11 @@ struct AsterionApp: App {
                     guard phase == .active else { return }
                     Task { await model.reconcileAuthenticationState() }
                 }
+                .asterionHandoffReceiver()
         }
+        // Handoff (and any other external event) is routed to the main window,
+        // which opens the reader or player window it targets.
+        .handlesExternalEvents(matching: ["*"])
         .defaultLaunchBehavior(.presented)
         .defaultSize(width: 1420, height: 780)
         .windowResizability(.contentMinSize)
@@ -110,6 +115,7 @@ struct AsterionApp: App {
             }
         }
         .defaultSize(width: 840, height: 900)
+        .handlesExternalEvents(matching: [])
 
         WindowGroup("Anime Player", for: AnimePlayerRoute.self) { $route in
             if let route {
@@ -122,6 +128,7 @@ struct AsterionApp: App {
         .defaultSize(width: 1_080, height: 700)
         .windowResizability(.contentMinSize)
         .restorationBehavior(.disabled)
+        .handlesExternalEvents(matching: [])
         .asterionMediaWindowPlacement()
 
         WindowGroup("Asterion Player", for: MoviePlayerRoute.self) { $route in
@@ -135,6 +142,7 @@ struct AsterionApp: App {
         .defaultSize(width: 1_080, height: 700)
         .windowResizability(.contentMinSize)
         .restorationBehavior(.disabled)
+        .handlesExternalEvents(matching: [])
         .asterionMediaWindowPlacement()
 
         WindowGroup("Asterion Live", for: FootballPlayerRoute.self) { $route in
@@ -146,6 +154,7 @@ struct AsterionApp: App {
         .defaultSize(width: 1_080, height: 700)
         .windowResizability(.contentMinSize)
         .restorationBehavior(.disabled)
+        .handlesExternalEvents(matching: [])
         .asterionMediaWindowPlacement()
 
         Window("Sign In to Asterion", id: "authentication") {
@@ -307,4 +316,374 @@ extension FocusedValues {
     @Entry var asterionAnimeSection: Binding<AnimeSection>?
     @Entry var asterionMovieSection: Binding<MovieSection>?
     @Entry var asterionFootballSection: Binding<FootballSection>?
+}
+
+// MARK: - Handoff
+
+/// Handoff contract shared with the iOS app. Both sides must agree on the
+/// activity types and userInfo keys exactly.
+enum AsterionHandoff {
+    static let readingActivityType = "cloud.cyberverse.asterion.reading"
+    static let watchingActivityType = "cloud.cyberverse.asterion.watching"
+
+    /// Advertised state is refreshed at most this often while it changes.
+    static let updateInterval: Duration = .seconds(5)
+    /// A received request that no window has consumed is ignored after this.
+    static let requestLifetime: TimeInterval = 90
+
+    enum WatchingMediaType: String, Sendable {
+        case anime
+        case movie
+    }
+
+    struct ReadingRequest: Equatable, Sendable {
+        let id = UUID()
+        let route: ReaderRoute
+        /// Paragraph index into the sender's paragraph list.
+        let line: Int?
+        /// Optional (newer senders): the sender's paragraph count and its
+        /// position as a 0...1 fraction, used when our count differs.
+        let lineCount: Int?
+        let progress: Double?
+        let novelTitle: String
+        let receivedAt = Date()
+
+        init?(activity: NSUserActivity) {
+            guard activity.activityType == AsterionHandoff.readingActivityType,
+                  let info = activity.userInfo,
+                  let novelID = AsterionHandoff.string(info["novelId"]),
+                  let chapterID = AsterionHandoff.string(info["chapterId"]) else { return nil }
+            route = ReaderRoute(novelID: novelID, chapterID: chapterID)
+            line = AsterionHandoff.integer(info["line"]).map { max(0, $0) }
+            lineCount = AsterionHandoff.integer(info["lineCount"]).flatMap { $0 > 0 ? $0 : nil }
+            progress = AsterionHandoff.double(info["progress"])
+                .flatMap { $0.isFinite ? min(1, max(0, $0)) : nil }
+            novelTitle = AsterionHandoff.string(info["novelTitle"]) ?? ""
+        }
+
+        /// The line to open at in a chapter with `paragraphCount` paragraphs.
+        func resolvedLine(paragraphCount: Int) -> Int? {
+            AsterionHandoff.resolveLine(
+                line: line,
+                lineCount: lineCount,
+                progress: progress,
+                paragraphCount: paragraphCount
+            )
+        }
+    }
+
+    /// Prefers the paragraph index when both sides split the chapter into the
+    /// same number of paragraphs (or the sender didn't say); otherwise maps
+    /// the sender's fraction onto our paragraphs.
+    static func resolveLine(line: Int?, lineCount: Int?, progress: Double?, paragraphCount: Int) -> Int? {
+        let lastLine = max(0, paragraphCount - 1)
+        if let progress, paragraphCount > 0,
+           line == nil || (lineCount != nil && lineCount != paragraphCount) {
+            return min(lastLine, max(0, Int((progress * Double(lastLine)).rounded())))
+        }
+        return line.map { min($0, lastLine) }
+    }
+
+    /// Position as sent in "progress": 0 at the first paragraph, 1 at the last.
+    static func readingProgress(line: Int, paragraphCount: Int) -> Double {
+        guard paragraphCount > 1 else { return 0 }
+        return min(1, max(0, Double(line) / Double(paragraphCount - 1)))
+    }
+
+    /// The contract's anime unit is "<animeID>-<episodeNumber>" (what iOS
+    /// sends); macOS episode ids are "<animeID>:<episodeNumber>".
+    static func handoffAnimeUnitID(fromEpisodeID episodeID: String) -> String {
+        guard let separator = episodeID.lastIndex(of: ":"),
+              !episodeID[episodeID.index(after: separator)...].isEmpty,
+              episodeID[episodeID.index(after: separator)...].allSatisfy({ $0.isASCII && $0.isNumber }) else {
+            return episodeID
+        }
+        return episodeID.replacingCharacters(in: separator...separator, with: "-")
+    }
+
+    /// Accepts either form and returns the macOS episode id.
+    static func animeEpisodeID(fromHandoffUnitID unitID: String) -> String {
+        guard !unitID.contains(":"),
+              let separator = unitID.lastIndex(of: "-"),
+              separator != unitID.startIndex,
+              !unitID[unitID.index(after: separator)...].isEmpty,
+              unitID[unitID.index(after: separator)...].allSatisfy({ $0.isASCII && $0.isNumber }) else {
+            return unitID
+        }
+        return unitID.replacingCharacters(in: separator...separator, with: ":")
+    }
+
+    struct WatchingRequest: Equatable, Sendable {
+        let id = UUID()
+        let mediaType: WatchingMediaType
+        let contentID: String
+        /// macOS episode id (anime "<animeID>:<n>", TV episode slug); empty
+        /// for a film.
+        let unitID: String
+        let positionSeconds: Double?
+        let title: String
+        let receivedAt = Date()
+
+        init?(activity: NSUserActivity) {
+            guard activity.activityType == AsterionHandoff.watchingActivityType,
+                  let info = activity.userInfo,
+                  let rawType = AsterionHandoff.string(info["mediaType"]),
+                  let mediaType = WatchingMediaType(rawValue: rawType),
+                  let contentID = AsterionHandoff.string(info["contentId"]) else { return nil }
+            self.mediaType = mediaType
+            self.contentID = contentID
+            let sentUnitID = AsterionHandoff.string(info["unitId"]) ?? ""
+            unitID = mediaType == .anime
+                ? AsterionHandoff.animeEpisodeID(fromHandoffUnitID: sentUnitID)
+                : sentUnitID
+            positionSeconds = AsterionHandoff.double(info["positionSeconds"])
+                .flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
+            let sentTitle = AsterionHandoff.string(info["title"]) ?? activity.title ?? ""
+            title = sentTitle.isEmpty ? "Asterion" : sentTitle
+        }
+
+        var episodeID: String? { unitID.isEmpty ? nil : unitID }
+
+        /// The player window this request is shown in. The receiver points it
+        /// at an already open window for the same title when there is one.
+        var animeRoute: AnimePlayerRoute {
+            openAnimeRoute ?? AnimePlayerRoute(slug: contentID, title: title, initialEpisodeID: episodeID)
+        }
+
+        var movieRoute: MoviePlayerRoute {
+            openMovieRoute ?? MoviePlayerRoute(slug: contentID, title: title, initialEpisodeID: episodeID)
+        }
+
+        var openAnimeRoute: AnimePlayerRoute?
+        var openMovieRoute: MoviePlayerRoute?
+    }
+
+    @MainActor
+    static func configureReading(
+        _ activity: NSUserActivity,
+        novelID: String,
+        chapterID: String,
+        line: Int,
+        lineCount: Int,
+        novelTitle: String,
+        chapterTitle: String
+    ) {
+        let line = max(0, line)
+        activity.title = novelTitle.isEmpty ? chapterTitle : novelTitle
+        activity.isEligibleForHandoff = true
+        activity.isEligibleForSearch = false
+        activity.userInfo = [
+            "novelId": novelID,
+            "chapterId": chapterID,
+            "line": line,
+            "lineCount": max(0, lineCount),
+            "progress": readingProgress(line: line, paragraphCount: lineCount),
+            "novelTitle": novelTitle,
+            "chapterTitle": chapterTitle,
+        ]
+        activity.needsSave = true
+    }
+
+    @MainActor
+    static func configureWatching(
+        _ activity: NSUserActivity,
+        mediaType: WatchingMediaType,
+        contentID: String,
+        unitID: String,
+        positionSeconds: Double,
+        title: String,
+        imageURL: URL?
+    ) {
+        activity.title = title
+        activity.isEligibleForHandoff = true
+        activity.isEligibleForSearch = false
+        var info: [String: Any] = [
+            "mediaType": mediaType.rawValue,
+            "contentId": contentID,
+            "unitId": mediaType == .anime ? handoffAnimeUnitID(fromEpisodeID: unitID) : unitID,
+            "positionSeconds": positionSeconds.isFinite ? max(0, positionSeconds) : 0,
+            "title": title,
+        ]
+        if let imageURL {
+            info["imageURL"] = imageURL.absoluteString
+        }
+        activity.userInfo = info
+        activity.needsSave = true
+    }
+
+    private static func string(_ value: Any?) -> String? {
+        guard let string = value as? String else { return nil }
+        let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func integer(_ value: Any?) -> Int? {
+        if let number = value as? NSNumber { return number.intValue }
+        if let string = value as? String { return Int(string) }
+        return nil
+    }
+
+    private static func double(_ value: Any?) -> Double? {
+        if let number = value as? NSNumber { return number.doubleValue }
+        if let string = value as? String { return Double(string) }
+        return nil
+    }
+}
+
+/// Holds the most recent Handoff request until the reader or player window it
+/// targets consumes it. Requests are matched by content so the position never
+/// leaks into an unrelated window, and they expire if nothing claims them.
+@MainActor
+@Observable
+final class AsterionHandoffInbox {
+    static let shared = AsterionHandoffInbox()
+
+    private(set) var readingRequest: AsterionHandoff.ReadingRequest?
+    private(set) var watchingRequest: AsterionHandoff.WatchingRequest?
+
+    /// Routes of the player windows currently on screen, oldest first.
+    @ObservationIgnored private var openAnimeRoutes: [AnimePlayerRoute] = []
+    @ObservationIgnored private var openMovieRoutes: [MoviePlayerRoute] = []
+
+    private init() {}
+
+    func playerAppeared(_ route: AnimePlayerRoute) { openAnimeRoutes.append(route) }
+    func playerAppeared(_ route: MoviePlayerRoute) { openMovieRoutes.append(route) }
+
+    func playerDisappeared(_ route: AnimePlayerRoute) {
+        if let index = openAnimeRoutes.lastIndex(of: route) { openAnimeRoutes.remove(at: index) }
+    }
+
+    func playerDisappeared(_ route: MoviePlayerRoute) {
+        if let index = openMovieRoutes.lastIndex(of: route) { openMovieRoutes.remove(at: index) }
+    }
+
+    /// Points the request at an open window already playing this title, so
+    /// Handoff switches that window instead of opening a second player.
+    func targetingOpenWindow(_ request: AsterionHandoff.WatchingRequest) -> AsterionHandoff.WatchingRequest {
+        var request = request
+        switch request.mediaType {
+        case .anime:
+            request.openAnimeRoute = openAnimeRoutes.last { $0.slug == request.contentID }
+        case .movie:
+            request.openMovieRoute = openMovieRoutes.last { $0.slug == request.contentID }
+        }
+        return request
+    }
+
+    func deliver(_ request: AsterionHandoff.ReadingRequest) {
+        readingRequest = request
+    }
+
+    func deliver(_ request: AsterionHandoff.WatchingRequest) {
+        watchingRequest = request
+    }
+
+    /// Returns the handed-off line for this route once, then forgets it.
+    /// `paragraphCount` is this reader's paragraph count for the chapter.
+    func takeReaderLine(for route: ReaderRoute, paragraphCount: Int) -> Int? {
+        guard let request = readingRequest,
+              request.route == route,
+              Self.isFresh(request.receivedAt) else { return nil }
+        readingRequest = nil
+        return request.resolvedLine(paragraphCount: paragraphCount)
+    }
+
+    /// Returns the handed-off start position for this playback unit once.
+    /// `unitID` is the episode id, or "" for a film.
+    func takePlaybackPosition(
+        mediaType: AsterionHandoff.WatchingMediaType,
+        contentID: String,
+        unitID: String
+    ) -> Double? {
+        guard let request = watchingRequest,
+              request.mediaType == mediaType,
+              request.contentID == contentID,
+              request.unitID == unitID,
+              Self.isFresh(request.receivedAt) else { return nil }
+        watchingRequest = nil
+        return request.positionSeconds
+    }
+
+    private static func isFresh(_ date: Date) -> Bool {
+        Date().timeIntervalSince(date) < AsterionHandoff.requestLifetime
+    }
+}
+
+/// Leading-and-trailing throttle for advertised Handoff state: the first
+/// change applies immediately, later ones at most once per interval, and the
+/// last submitted value always lands.
+@MainActor
+final class AsterionHandoffThrottle {
+    private let interval: Duration
+    private var lastFire: ContinuousClock.Instant?
+    private var pending: Task<Void, Never>?
+    private var action: (@MainActor () -> Void)?
+
+    init(interval: Duration = AsterionHandoff.updateInterval) {
+        self.interval = interval
+    }
+
+    func submit(_ action: @escaping @MainActor () -> Void) {
+        self.action = action
+        guard pending == nil else { return }
+        let elapsed = lastFire.map { ContinuousClock.now - $0 } ?? interval
+        guard elapsed < interval else {
+            fire()
+            return
+        }
+        let wait = interval - elapsed
+        pending = Task { [weak self] in
+            try? await Task.sleep(for: wait)
+            guard !Task.isCancelled else { return }
+            self?.fire()
+        }
+    }
+
+    func cancel() {
+        pending?.cancel()
+        pending = nil
+        action = nil
+    }
+
+    private func fire() {
+        pending = nil
+        lastFire = .now
+        let action = self.action
+        self.action = nil
+        action?()
+    }
+}
+
+/// Receives Handoff from the iOS app (or another Mac) in the main window and
+/// opens the matching reader or player window.
+private struct AsterionHandoffReceiver: ViewModifier {
+    @Environment(\.openWindow) private var openWindow
+
+    func body(content: Content) -> some View {
+        content
+            .onContinueUserActivity(AsterionHandoff.readingActivityType) { activity in
+                guard let request = AsterionHandoff.ReadingRequest(activity: activity) else { return }
+                AsterionHandoffInbox.shared.deliver(request)
+                openWindow(value: request.route)
+            }
+            .onContinueUserActivity(AsterionHandoff.watchingActivityType) { activity in
+                guard let received = AsterionHandoff.WatchingRequest(activity: activity) else { return }
+                let request = AsterionHandoffInbox.shared.targetingOpenWindow(received)
+                AsterionHandoffInbox.shared.deliver(request)
+                switch request.mediaType {
+                case .anime:
+                    openWindow(value: request.animeRoute)
+                case .movie:
+                    openWindow(value: request.movieRoute)
+                }
+            }
+            .handlesExternalEvents(preferring: ["*"], allowing: ["*"])
+    }
+}
+
+extension View {
+    func asterionHandoffReceiver() -> some View {
+        modifier(AsterionHandoffReceiver())
+    }
 }

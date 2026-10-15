@@ -5,8 +5,8 @@ MODE="${1:-run}"
 APP_NAME="Asterion"
 BUNDLE_ID="cloud.cyberverse.Asterion"
 MIN_SYSTEM_VERSION="26.0"
-APP_VERSION="${ASTERION_VERSION:-0.3.5}"
-BUILD_NUMBER="${ASTERION_BUILD_NUMBER:-10}"
+APP_VERSION="${ASTERION_VERSION:-0.3.6}"
+BUILD_NUMBER="${ASTERION_BUILD_NUMBER:-11}"
 CODE_SIGN_IDENTITY="${ASTERION_CODE_SIGN_IDENTITY:-}"
 CLERK_PUBLISHABLE_KEY="${ASTERION_CLERK_PUBLISHABLE_KEY:-}"
 NOTARY_PROFILE="${ASTERION_NOTARY_PROFILE:-}"
@@ -190,6 +190,11 @@ cat >"$INFO_PLIST" <<PLIST
   <string>NSApplication</string>
   <key>NSHighResolutionCapable</key>
   <true/>
+  <key>NSUserActivityTypes</key>
+  <array>
+    <string>cloud.cyberverse.asterion.reading</string>
+    <string>cloud.cyberverse.asterion.watching</string>
+  </array>
 </dict>
 </plist>
 PLIST

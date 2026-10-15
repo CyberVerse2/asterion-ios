@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MoviePlayerView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.appearsActive) private var appearsActive
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var mediaDownloads: MediaDownloadManager
     let route: MoviePlayerRoute
@@ -15,6 +16,8 @@ struct MoviePlayerView: View {
     @State private var playbackResumePosition: Double = 0
     @State private var playbackPreparationID = UUID()
     @State private var keepsWindowOnTop = false
+    @State private var handoffPosition: Double = 0
+    @State private var handoffThrottle = AsterionHandoffThrottle()
 
     var body: some View {
         Group {
@@ -69,6 +72,57 @@ struct MoviePlayerView: View {
         }
         .onChange(of: store.selectedEpisode) { _, episode in
             if let episode { selectedSeason = episode.season }
+            preparePlayback()
+        }
+        .userActivity(
+            AsterionHandoff.watchingActivityType,
+            isActive: appearsActive && activePlayback != nil
+        ) { activity in
+            guard let playback = activePlayback else { return }
+            AsterionHandoff.configureWatching(
+                activity,
+                mediaType: .movie,
+                contentID: playback.item.contentID,
+                unitID: handoffUnitID(for: playback),
+                positionSeconds: handoffPosition,
+                title: playback.item.title,
+                imageURL: playback.item.imageURL
+            )
+        }
+        .onChange(of: AsterionHandoffInbox.shared.watchingRequest?.id) { _, requestID in
+            guard requestID != nil else { return }
+            continueHandoff()
+        }
+        .onAppear { AsterionHandoffInbox.shared.playerAppeared(route) }
+        .onDisappear {
+            handoffThrottle.cancel()
+            AsterionHandoffInbox.shared.playerDisappeared(route)
+        }
+    }
+
+    /// The Handoff contract uses the episode id, or "" for a film (the
+    /// playback descriptor stores the film's slug as its unit).
+    private func handoffUnitID(for playback: MediaPlaybackDescriptor) -> String {
+        playback.episodeNumber == nil && playback.unitID == playback.item.contentID
+            ? ""
+            : playback.unitID
+    }
+
+    /// A Handoff for the title this window is already playing: switch to the
+    /// handed-off episode, or restart the current one at the handed-off time.
+    private func continueHandoff() {
+        guard let request = AsterionHandoffInbox.shared.watchingRequest,
+              request.mediaType == .movie,
+              request.movieRoute == route,
+              let show = store.show,
+              show.slug == request.contentID else { return }
+        if let episodeID = request.episodeID, episodeID != store.selectedEpisodeID {
+            guard let episode = store.episodes.first(where: { $0.id == episodeID }) else { return }
+            Task { await store.play(episode) }
+        } else {
+            activePlayback = nil
+            preparingPlayback = nil
+            activePlaybackSessionID = nil
             preparePlayback()
         }
     }
@@ -325,6 +379,8 @@ struct MoviePlayerView: View {
                     initialPosition: playbackResumePosition,
                     onProgress: { sample in
                         playbackResumePosition = sample.positionSeconds
+                        let position = sample.positionSeconds
+                        handoffThrottle.submit { handoffPosition = position }
                         Task {
                             await model.recordMediaPlaybackSample(
                                 playback,
@@ -397,7 +453,14 @@ struct MoviePlayerView: View {
             let resumePosition = await model.preparedResumePosition(for: playback)
             guard playbackPreparationID == preparationID,
                   preparingPlayback == playback else { return }
-            playbackResumePosition = resumePosition
+            let handoffStart = AsterionHandoffInbox.shared.takePlaybackPosition(
+                mediaType: .movie,
+                contentID: show.slug,
+                unitID: episode?.id ?? ""
+            )
+            playbackResumePosition = handoffStart ?? resumePosition
+            handoffThrottle.cancel()
+            handoffPosition = playbackResumePosition
             activePlayback = playback
             activePlaybackSessionID = UUID().uuidString
             preparingPlayback = nil

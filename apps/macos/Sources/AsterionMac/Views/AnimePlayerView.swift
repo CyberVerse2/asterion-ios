@@ -2,6 +2,7 @@ import SwiftUI
 
 struct AnimePlayerView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.appearsActive) private var appearsActive
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var mediaDownloads: MediaDownloadManager
     let route: AnimePlayerRoute
@@ -17,6 +18,8 @@ struct AnimePlayerView: View {
     @State private var playbackResumePosition: Double = 0
     @State private var playbackPreparationID = UUID()
     @State private var keepsWindowOnTop = false
+    @State private var handoffPosition: Double = 0
+    @State private var handoffThrottle = AsterionHandoffThrottle()
 
     private let longEpisodeThreshold = 40
 
@@ -74,6 +77,49 @@ struct AnimePlayerView: View {
         }
         .onChange(of: store.selectedEpisodeID) { _, _ in
             revealSelectedEpisode()
+            preparePlayback()
+        }
+        .userActivity(
+            AsterionHandoff.watchingActivityType,
+            isActive: appearsActive && activePlayback != nil
+        ) { activity in
+            guard let playback = activePlayback else { return }
+            AsterionHandoff.configureWatching(
+                activity,
+                mediaType: .anime,
+                contentID: playback.item.contentID,
+                unitID: playback.unitID,
+                positionSeconds: handoffPosition,
+                title: playback.item.title,
+                imageURL: playback.item.imageURL
+            )
+        }
+        .onChange(of: AsterionHandoffInbox.shared.watchingRequest?.id) { _, requestID in
+            guard requestID != nil else { return }
+            continueHandoff()
+        }
+        .onAppear { AsterionHandoffInbox.shared.playerAppeared(route) }
+        .onDisappear {
+            handoffThrottle.cancel()
+            AsterionHandoffInbox.shared.playerDisappeared(route)
+        }
+    }
+
+    /// A Handoff for the show this window is already playing: switch to the
+    /// handed-off episode, or restart the current one at the handed-off time.
+    private func continueHandoff() {
+        guard let request = AsterionHandoffInbox.shared.watchingRequest,
+              request.mediaType == .anime,
+              request.animeRoute == route,
+              let show = store.show,
+              show.slug == request.contentID else { return }
+        if let episodeID = request.episodeID, episodeID != store.selectedEpisodeID {
+            guard let episode = store.episodes.first(where: { $0.id == episodeID }) else { return }
+            Task { await store.play(episode) }
+        } else {
+            activePlayback = nil
+            preparingPlayback = nil
+            activePlaybackSessionID = nil
             preparePlayback()
         }
     }
@@ -472,6 +518,8 @@ struct AnimePlayerView: View {
                         initialPosition: playbackResumePosition,
                         onProgress: { sample in
                             playbackResumePosition = sample.positionSeconds
+                            let position = sample.positionSeconds
+                            handoffThrottle.submit { handoffPosition = position }
                             Task {
                                 await model.recordMediaPlaybackSample(
                                     playback,
@@ -492,6 +540,8 @@ struct AnimePlayerView: View {
                         initialPosition: playbackResumePosition,
                         onProgress: { sample in
                             playbackResumePosition = sample.positionSeconds
+                            let position = sample.positionSeconds
+                            handoffThrottle.submit { handoffPosition = position }
                             Task {
                                 await model.recordMediaPlaybackSample(
                                     playback,
@@ -553,7 +603,14 @@ struct AnimePlayerView: View {
             let resumePosition = await model.preparedResumePosition(for: playback)
             guard playbackPreparationID == preparationID,
                   preparingPlayback == playback else { return }
-            playbackResumePosition = resumePosition
+            let handoffStart = AsterionHandoffInbox.shared.takePlaybackPosition(
+                mediaType: .anime,
+                contentID: show.slug,
+                unitID: episode.id
+            )
+            playbackResumePosition = handoffStart ?? resumePosition
+            handoffThrottle.cancel()
+            handoffPosition = playbackResumePosition
             activePlayback = playback
             activePlaybackSessionID = UUID().uuidString
             preparingPlayback = nil

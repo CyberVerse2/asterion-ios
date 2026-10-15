@@ -83,6 +83,7 @@ struct ReaderPalette {
 struct ReaderView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.appearsActive) private var appearsActive
     let route: ReaderRoute
 
     @AppStorage("readerFontSize") private var fontSize = 19.0
@@ -102,6 +103,8 @@ struct ReaderView: View {
     @State private var chapterLoadTask: Task<Void, Never>?
     @State private var exportsChapter = false
     @State private var showsChapterPicker = false
+    @State private var handoffLine = 0
+    @State private var handoffThrottle = AsterionHandoffThrottle()
 
     private var readerTheme: ReaderTheme {
         ReaderTheme(rawValue: readerThemeRawValue) ?? .ink
@@ -169,7 +172,36 @@ struct ReaderView: View {
         .onDisappear {
             progressTask?.cancel()
             chapterLoadTask?.cancel()
+            handoffThrottle.cancel()
             syncProgress()
+        }
+        .userActivity(
+            AsterionHandoff.readingActivityType,
+            isActive: appearsActive && !isLoading && chapter != nil
+        ) { activity in
+            guard let chapter else { return }
+            let lineCount = chapter.paragraphs.count
+            AsterionHandoff.configureReading(
+                activity,
+                novelID: route.novelID,
+                chapterID: chapter.id,
+                line: min(handoffLine, max(0, lineCount - 1)),
+                lineCount: lineCount,
+                novelTitle: novel?.title ?? model.novel(id: route.novelID)?.title ?? "",
+                chapterTitle: chapter.displayTitle
+            )
+        }
+        .onChange(of: chapter?.id) { _, _ in
+            // A new chapter is a coarse change: advertise it right away.
+            handoffThrottle.cancel()
+            handoffLine = currentLine
+        }
+        .onChange(of: AsterionHandoffInbox.shared.readingRequest?.id) { _, requestID in
+            // A Handoff for this exact route while the window is already open:
+            // reload so the handed-off line is restored.
+            guard requestID != nil,
+                  AsterionHandoffInbox.shared.readingRequest?.route == route else { return }
+            Task { await load() }
         }
         .fileExporter(
             isPresented: $exportsChapter,
@@ -470,10 +502,19 @@ struct ReaderView: View {
             let chapter = try await loadedChapter
             novel = try await loadedNovel
             self.chapter = chapter
-            if let progress = await loadedProgress, progress.chapterId == route.chapterID {
-                restoredLine = min(progress.currentLine, max(0, chapter.paragraphs.count - 1))
+            let paragraphCount = chapter.paragraphs.count
+            let lastLine = max(0, paragraphCount - 1)
+            if let handoffLine = AsterionHandoffInbox.shared.takeReaderLine(
+                for: route,
+                paragraphCount: paragraphCount
+            ) {
+                restoredLine = min(handoffLine, lastLine)
+                currentLine = restoredLine ?? 0
+            } else if let progress = await loadedProgress, progress.chapterId == route.chapterID {
+                restoredLine = min(progress.currentLine, lastLine)
                 currentLine = restoredLine ?? 0
             }
+            handoffLine = currentLine
             isLoading = false
             preloadNeighborChapters(around: chapter)
 
@@ -542,6 +583,7 @@ struct ReaderView: View {
     private func recordVisibleLine(_ line: Int) {
         guard line != currentLine else { return }
         currentLine = line
+        handoffThrottle.submit { handoffLine = line }
         progressTask?.cancel()
         progressTask = Task {
             try? await Task.sleep(for: .seconds(1.2))
