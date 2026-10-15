@@ -7,74 +7,47 @@ struct SignInView: View {
 
     var body: some View {
         ZStack {
-            Color.asterionBackground.ignoresSafeArea()
-            MazePatternView()
-                .ignoresSafeArea()
-                .opacity(0.4)
+            AsterionBackdrop()
 
             VStack(spacing: 0) {
                 Spacer()
 
-                VStack(spacing: 16) {
-                    ZStack {
-                        Circle()
-                            .fill(
-                                RadialGradient(
-                                    colors: [Color.goldAccent.opacity(0.12), .clear],
-                                    center: .center,
-                                    startRadius: 20,
-                                    endRadius: 60
-                                )
-                            )
-                            .frame(width: 120, height: 120)
-
-                        Image(systemName: "book.closed.fill")
-                            .font(.system(size: 44, weight: .light))
-                            .foregroundStyle(Color.goldAccent)
-                    }
-
+                VStack(alignment: .leading, spacing: 12) {
+                    AsterionMark(size: 22)
                     Text("Asterion")
-                        .font(.asterionSerif(36, weight: .light))
+                        .font(.asterionDisplay(40, weight: .medium))
                         .foregroundStyle(Color.asterionText)
-                        .tracking(4)
+                        .tracking(-0.6)
 
-                    Text("YOUR READING JOURNEY AWAITS")
-                        .font(.asterionMono(10))
-                        .foregroundStyle(Color.asterionDim)
-                        .tracking(3)
+                    Text("Sign in to keep your library with you.")
+                        .font(.asterionReading(17))
+                        .foregroundStyle(Color.asterionSynopsis)
                 }
+                .frame(maxWidth: 420, alignment: .leading)
+                .padding(.horizontal, 32)
 
                 Spacer()
 
-                VStack(spacing: 14) {
+                VStack(spacing: 12) {
                     Button {
                         showAuth = true
                     } label: {
-                        Text("Sign In")
-                            .font(.asterionSerif(16, weight: .medium))
-                            .foregroundStyle(Color.asterionBackground)
+                        Text("Sign in")
+                            .font(.asterionReading(16, weight: .semibold))
                             .frame(maxWidth: .infinity)
-                            .padding(.vertical, 16)
-                            .background(
-                                RoundedRectangle(cornerRadius: 14)
-                                    .fill(Color.goldAccent)
-                            )
+                            .padding(.vertical, 15)
                     }
+                    .buttonStyle(AsterionFilledButtonStyle())
 
                     Button {
                         showAuth = true
                     } label: {
-                        Text("Create Account")
-                            .font(.asterionSerif(16, weight: .medium))
-                            .foregroundStyle(Color.goldAccent)
+                        Text("Create account")
+                            .font(.asterionReading(16, weight: .medium))
                             .frame(maxWidth: .infinity)
-                            .padding(.vertical, 16)
-                            .background(
-                                RoundedRectangle(cornerRadius: 14)
-                                    .fill(.clear)
-                                    .stroke(Color.asterionBorder, lineWidth: 1)
-                            )
+                            .padding(.vertical, 15)
                     }
+                    .buttonStyle(AsterionOutlineButtonStyle())
                 }
                 .padding(.horizontal, 32)
                 .padding(.bottom, 48)

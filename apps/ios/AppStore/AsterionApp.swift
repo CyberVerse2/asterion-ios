@@ -3,10 +3,72 @@ import ClerkKit
 import ClerkKitUI
 import Network
 import SwiftUI
+import UIKit
+import UserNotifications
+
+final class AsterionAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+    func application(_ application: UIApplication,
+                     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        UNUserNotificationCenter.current().delegate = self
+        ContentNotificationService.shared.registerBackgroundRefresh()
+        return true
+    }
+
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                            willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
+        [.banner, .sound]
+    }
+
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                            didReceive response: UNNotificationResponse) async {
+        let info = response.notification.request.content.userInfo
+        guard let rawKind = info["asterionContentKind"] as? String,
+              let kind = ContentWatchTarget.Kind(rawValue: rawKind),
+              let id = info["asterionContentID"] as? String,
+              let title = info["asterionContentTitle"] as? String else { return }
+        let target = ContentWatchTarget(kind: kind, contentID: id, title: title)
+        await MainActor.run { ContentNotificationService.shared.openTarget = target }
+    }
+    func application(
+        _ application: UIApplication,
+        supportedInterfaceOrientationsFor window: UIWindow?
+    ) -> UIInterfaceOrientationMask {
+        PlaybackOrientationLock.mask
+    }
+}
+
+enum AsterionTab: String, CaseIterable {
+    case home
+    case browse
+    case library
+    case downloads
+    case account
+
+    var label: String {
+        switch self {
+        case .home:      return "Home"
+        case .browse:    return "Browse"
+        case .library:   return "Library"
+        case .downloads: return "Downloads"
+        case .account:   return "Account"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .home:      return "house"
+        case .browse:    return "square.grid.2x2"
+        case .library:   return "books.vertical"
+        case .downloads: return "arrow.down.circle"
+        case .account:   return "person.crop.circle"
+        }
+    }
+}
 
 @MainActor
 final class TabBarState: ObservableObject {
     @Published var isVisible = true
+    @Published var selectedTab: AsterionTab = .home
 }
 
 @MainActor
@@ -31,62 +93,31 @@ final class NetworkMonitor: ObservableObject {
 }
 
 private let _clerkConfigured: Bool = {
-    Clerk.configure(publishableKey: "pk_test_cG9ldGljLWdhdG9yLTk3LmNsZXJrLmFjY291bnRzLmRldiQ")
+    guard let publishableKey = Bundle.main.object(forInfoDictionaryKey: "AsterionClerkPublishableKey") as? String,
+          publishableKey.hasPrefix("pk_") else {
+        fatalError("AsterionClerkPublishableKey must be supplied by the app build configuration.")
+    }
+    Clerk.configure(publishableKey: publishableKey)
     return true
 }()
 
 @main
 struct AsterionApp: App {
+    @Environment(\.scenePhase) private var scenePhase
+    @UIApplicationDelegateAdaptor(AsterionAppDelegate.self) private var appDelegate
     @StateObject private var authService = AuthService()
     @StateObject private var apiClient = APIClient()
     @StateObject private var tabBarState = TabBarState()
     @StateObject private var readingProgressService = ReadingProgressService()
+    @StateObject private var mediaAccountService = MediaAccountService()
+    @StateObject private var offlineVideoDownloadService = OfflineVideoDownloadService()
     @StateObject private var networkMonitor = NetworkMonitor()
+    @StateObject private var readingActivityService = ReadingActivityService()
+    @StateObject private var contentNotifications = ContentNotificationService.shared
+    @State private var accountReady = false
 
     init() {
         _ = _clerkConfigured
-
-        let bg = UIColor(red: 0.051, green: 0.047, blue: 0.043, alpha: 1)
-        let titleColor = UIColor(red: 0.91, green: 0.863, blue: 0.784, alpha: 1)
-
-        let titleFont = makeNavigationSerifFont(size: 18, weight: .semibold)
-        let largeTitleFont = makeNavigationSerifFont(size: 36, weight: .bold)
-
-        let appearance = UINavigationBarAppearance()
-        appearance.configureWithOpaqueBackground()
-        appearance.backgroundColor = bg
-        appearance.shadowColor = .clear
-        appearance.titleTextAttributes = [
-            .foregroundColor: titleColor,
-            .font: titleFont,
-        ]
-        appearance.largeTitleTextAttributes = [
-            .foregroundColor: titleColor,
-            .font: largeTitleFont,
-        ]
-
-        UINavigationBar.appearance().standardAppearance = appearance
-        UINavigationBar.appearance().scrollEdgeAppearance = appearance
-        UINavigationBar.appearance().compactAppearance = appearance
-        UINavigationBar.appearance().compactScrollEdgeAppearance = appearance
-        UINavigationBar.appearance().tintColor = UIColor(red: 0.42, green: 0.392, blue: 0.349, alpha: 1)
-
-        let tabAppearance = UITabBarAppearance()
-        tabAppearance.configureWithOpaqueBackground()
-        tabAppearance.backgroundColor = bg
-        tabAppearance.shadowColor = .clear
-        UITabBar.appearance().standardAppearance = tabAppearance
-        UITabBar.appearance().scrollEdgeAppearance = tabAppearance
-    }
-
-    private func makeNavigationSerifFont(size: CGFloat, weight: UIFont.Weight) -> UIFont {
-        let fallbackSystem = UIFont.systemFont(ofSize: size, weight: weight)
-        switch weight {
-        case .bold, .semibold, .heavy, .black:
-            return UIFont(name: "Georgia-Bold", size: size) ?? fallbackSystem
-        default:
-            return UIFont(name: "Georgia", size: size) ?? fallbackSystem
-        }
     }
 
     var body: some Scene {
@@ -96,180 +127,181 @@ struct AsterionApp: App {
                 .environmentObject(apiClient)
                 .environmentObject(tabBarState)
                 .environmentObject(readingProgressService)
+                .environmentObject(mediaAccountService)
+                .environmentObject(offlineVideoDownloadService)
                 .environmentObject(networkMonitor)
+                .environmentObject(readingActivityService)
+                .environmentObject(contentNotifications)
                 .environment(Clerk.shared)
-                .preferredColorScheme(.dark)
+                .tint(Color.goldAccent)
                 .task {
                     authService.startClerkSessionObserver(using: apiClient)
                     await authService.syncClerkSession()
                     apiClient.setSessionToken(authService.sessionToken)
                     await authService.syncUserProfileToBackend(using: apiClient)
                     readingProgressService.configure(apiClient: apiClient)
+                    readingActivityService.setUser(authService.currentUser?.id)
+                    mediaAccountService.configure(apiClient: apiClient)
+                    await mediaAccountService.handleAuthenticationChange(isSignedIn: authService.isSignedIn)
                     await readingProgressService.flushQueue()
+                    accountReady = true
+                    await refreshContentAlerts()
+                }
+                .onChange(of: authService.isSignedIn) { _, isSignedIn in
+                    guard accountReady else { return }
+                    Task {
+                        apiClient.setSessionToken(authService.sessionToken)
+                        readingActivityService.setUser(authService.currentUser?.id)
+                        await mediaAccountService.handleAuthenticationChange(isSignedIn: isSignedIn)
+                        await refreshContentAlerts()
+                    }
                 }
                 .onChange(of: networkMonitor.isConnected) { _, isConnected in
                     guard isConnected else { return }
                     Task {
                         apiClient.setSessionToken(authService.sessionToken)
                         await readingProgressService.flushQueue()
+                        await mediaAccountService.handleAuthenticationChange(isSignedIn: authService.isSignedIn)
                     }
+                }
+                .onChange(of: mediaAccountService.snapshot.bookmarks.map(\.id)) { _, _ in
+                    guard accountReady else { return }
+                    Task { await refreshContentAlerts() }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .asterionSavedNovelsChanged)) { _ in
+                    guard accountReady else { return }
+                    Task { await refreshContentAlerts() }
+                }
+                .onChange(of: scenePhase) { _, phase in
+                    guard accountReady else { return }
+                    if phase == .background { contentNotifications.scheduleRefresh() }
+                    if phase == .active { Task { await refreshContentAlerts() } }
                 }
         }
     }
-}
 
-enum AsterionTab: String, CaseIterable {
-    case discover
-    case rankings
-    case library
-    case profile
-
-    var label: String {
-        switch self {
-        case .discover:  return "Discover"
-        case .rankings:  return "Rankings"
-        case .library:   return "Library"
-        case .profile:   return "Profile"
+    private func refreshContentAlerts() async {
+        contentNotifications.setUser(authService.currentUser?.id)
+        let library = authService.isSignedIn ? try? await apiClient.fetchMyLibrary() : []
+        if let library {
+            let catalog = await OfflineChapterStore.shared.loadCatalog()
+            var targets: [ContentWatchTarget] = []
+            for entry in library {
+                var novel = catalog.first { $0.id == entry.novelId }
+                if novel == nil { novel = try? await apiClient.fetchNovel(id: entry.novelId) }
+                guard let novel else { continue }
+                targets.append(ContentWatchTarget(kind: .novel, contentID: novel.id, title: novel.title))
+            }
+            contentNotifications.replaceTargets(kind: .novel, with: targets)
         }
-    }
-
-    var systemImage: String {
-        switch self {
-        case .discover:  return "sparkles"
-        case .rankings:  return "crown"
-        case .library:   return "books.vertical"
-        case .profile:   return "person.crop.circle"
-        }
+        contentNotifications.replaceTargets(kind: .anime, with:
+            mediaAccountService.snapshot.bookmarks.filter { $0.mediaType == .anime }.map {
+                ContentWatchTarget(kind: .anime, contentID: $0.contentId, title: $0.title)
+            })
+        await contentNotifications.requestPermissionIfNeeded()
+        await contentNotifications.checkForUpdates()
+        contentNotifications.scheduleRefresh()
     }
 }
 
 struct RootTabView: View {
     @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var tabBarState: TabBarState
-    @State private var selectedTab: AsterionTab = .discover
+    @EnvironmentObject private var contentNotifications: ContentNotificationService
+    @AppStorage("asterion.onboarding.completed") private var hasCompletedOnboarding = false
 
     var body: some View {
         Group {
-            #if targetEnvironment(macCatalyst)
-            DesktopRootView(selectedTab: $selectedTab)
-            #else
-            phoneTabView
-            #endif
+            appTabView
         }
         .onAppear { handlePendingContinueReadingRequest() }
         .onChange(of: scenePhase) { _, newPhase in
             guard newPhase == .active else { return }
             handlePendingContinueReadingRequest()
         }
+        .fullScreenCover(isPresented: onboardingPresentation) {
+            InterestOnboardingView {
+                hasCompletedOnboarding = true
+            }
+        }
+        .fullScreenCover(item: $contentNotifications.openTarget) { target in
+            NavigationStack { ContentAlertDestination(target: target) }
+        }
     }
 
-    private var phoneTabView: some View {
-        TabView(selection: $selectedTab) {
-            HomeView()
-                .tag(AsterionTab.discover)
-                .tabItem {
-                    Label(AsterionTab.discover.label, systemImage: AsterionTab.discover.systemImage)
-                }
+    private var onboardingPresentation: Binding<Bool> {
+        Binding(
+            get: { !hasCompletedOnboarding },
+            set: { isPresented in
+                if !isPresented { hasCompletedOnboarding = true }
+            }
+        )
+    }
 
-            RankingView()
-                .tag(AsterionTab.rankings)
-                .tabItem {
-                    Label(AsterionTab.rankings.label, systemImage: AsterionTab.rankings.systemImage)
-                }
+    private var appTabView: some View {
+        TabView(selection: $tabBarState.selectedTab) {
+            Tab(AsterionTab.home.label, systemImage: AsterionTab.home.systemImage, value: .home) {
+                HomeView(mode: .home)
+            }
 
-            LibraryView()
-                .tag(AsterionTab.library)
-                .tabItem {
-                    Label(AsterionTab.library.label, systemImage: AsterionTab.library.systemImage)
-                }
+            Tab(AsterionTab.browse.label, systemImage: AsterionTab.browse.systemImage, value: .browse) {
+                BrowseHubView()
+            }
 
-            ProfileView()
-                .tag(AsterionTab.profile)
-                .tabItem {
-                    Label(AsterionTab.profile.label, systemImage: AsterionTab.profile.systemImage)
-                }
+            Tab(AsterionTab.library.label, systemImage: AsterionTab.library.systemImage, value: .library) {
+                LibraryView()
+            }
+
+            Tab(AsterionTab.downloads.label, systemImage: AsterionTab.downloads.systemImage, value: .downloads) {
+                DownloadCenterView()
+            }
+
+            Tab(AsterionTab.account.label, systemImage: AsterionTab.account.systemImage, value: .account) {
+                ProfileView()
+            }
         }
+        .tabViewStyle(.sidebarAdaptable)
+        .tabBarMinimizeBehavior(.onScrollDown)
         .tint(Color.goldAccent)
         .toolbarVisibility(tabBarState.isVisible ? .visible : .hidden, for: .tabBar)
     }
 
     private func handlePendingContinueReadingRequest() {
         guard ContinueReadingStore.consumePendingLaunchRequest() else { return }
-        selectedTab = .discover
+        tabBarState.selectedTab = .home
         DispatchQueue.main.async {
             NotificationCenter.default.post(name: .asterionContinueReadingRequested, object: nil)
         }
     }
 }
 
-#if targetEnvironment(macCatalyst)
-private struct DesktopRootView: View {
-    @Binding var selectedTab: AsterionTab
+private struct ContentAlertDestination: View {
+    let target: ContentWatchTarget
+    @EnvironmentObject private var apiClient: APIClient
+    @Environment(\.dismiss) private var dismiss
+    @State private var novel: Novel?
+    @State private var failed = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            desktopTopBar
-
-            selectedTabContent
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .background(Color.asterionBackground.ignoresSafeArea())
-        .tint(Color.goldAccent)
-    }
-
-    private var desktopTopBar: some View {
-        HStack(spacing: 24) {
-            Text("Asterion")
-                .font(.asterionSerif(30, weight: .semibold))
-                .foregroundStyle(Color.asterionText)
-                .frame(minWidth: 160, alignment: .leading)
-
-            HStack(spacing: 8) {
-                ForEach(AsterionTab.allCases, id: \.self) { tab in
-                    Button {
-                        selectedTab = tab
-                    } label: {
-                        Label(tab.label, systemImage: tab.systemImage)
-                            .font(.asterionSerif(17, weight: .medium))
-                            .foregroundStyle(selectedTab == tab ? Color.goldAccent : Color.asterionReaderText)
-                            .padding(.horizontal, 18)
-                            .padding(.vertical, 12)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(selectedTab == tab ? Color.goldAccent.opacity(0.13) : Color.asterionCard.opacity(0.35))
-                                    .stroke(selectedTab == tab ? Color.goldAccent.opacity(0.35) : Color.asterionBorder, lineWidth: 1)
-                            )
-                    }
-                    .buttonStyle(.plain)
-                }
+        Group {
+            if target.kind == .anime {
+                AnimeDetailView(title: AnimeTitle(slug: target.contentID, title: target.title,
+                                                 japaneseTitle: nil, imageURL: nil, type: nil, episodeLabel: nil))
+            } else if let novel {
+                NovelDetailView(novel: novel) { dismiss() }
+            } else if failed {
+                ContentUnavailableView("Couldn't open this novel", systemImage: "wifi.exclamationmark")
+                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
+            } else {
+                ProgressView().tint(Color.goldAccent)
             }
-
-            Spacer(minLength: 0)
         }
-        .padding(.horizontal, 34)
-        .padding(.vertical, 20)
-        .background(
-            Color.asterionBackground
-                .overlay(alignment: .bottom) {
-                    Rectangle()
-                        .fill(Color.asterionBorder)
-                        .frame(height: 1)
-                }
-        )
-    }
-
-    @ViewBuilder
-    private var selectedTabContent: some View {
-        switch selectedTab {
-        case .discover:
-            HomeView()
-        case .rankings:
-            RankingView()
-        case .library:
-            LibraryView()
-        case .profile:
-            ProfileView()
+        .background { AsterionBackdrop() }
+        .task {
+            guard target.kind == .novel else { return }
+            novel = await OfflineChapterStore.shared.loadCatalog().first { $0.id == target.contentID }
+            if novel == nil { novel = try? await apiClient.fetchNovel(id: target.contentID) }
+            failed = novel == nil
         }
     }
 }
-#endif

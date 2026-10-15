@@ -1,0 +1,85 @@
+{
+  "result": {
+    "devices": [
+      {
+        "identifier": "6810E85C-BAF1-55BB-837D-50E93D8ACA33",
+        "deviceProperties": {
+          "name": "Celestine’s Apple Watch",
+          "osVersionNumber": "26.1"
+        },
+        "hardwareProperties": {
+          "deviceType": "appleWatch",
+          "marketingName": "Apple Watch SE 3",
+          "platform": "watchOS",
+          "productType": "Watch7,14",
+          "reality": "physical",
+          "udid": "00008310-000B4DAC3E40E01E"
+        },
+        "connectionProperties": {
+          "pairingState": "paired",
+          "transportType": "localNetwork",
+          "tunnelState": "disconnected"
+        }
+      },
+      {
+        "identifier": "972D9DC3-E7DD-5526-B75E-6271926A5346",
+        "deviceProperties": {
+          "name": "iPhone",
+          "osVersionNumber": "26.6"
+        },
+        "hardwareProperties": {
+          "deviceType": "iPad",
+          "marketingName": "iPad Pro 13-inch (M4)",
+          "platform": "iOS",
+          "productType": "iPad16,5",
+          "reality": "physical",
+          "udid": "00008132-001A79013E7A801C"
+        },
+        "connectionProperties": {
+          "pairingState": "paired",
+          "potentialHostnames": [
+            "iPhone.coredevice.local",
+            "972D9DC3-E7DD-5526-B75E-6271926A5346.coredevice.local",
+            "00008132-001A79013E7A801C.coredevice.local"
+          ],
+          "transportType": "wired",
+          "tunnelState": "disconnected"
+        }
+      },
+      {
+        "identifier": "C9363699-1B89-5FAE-AD8E-A73CE230CC85",
+        "deviceProperties": {
+          "name": "iPhone (2)",
+          "osVersionNumber": "26.6.1"
+        },
+        "hardwareProperties": {
+          "deviceType": "iPhone",
+          "marketingName": "iPhone 17 Pro Max",
+          "platform": "iOS",
+          "productType": "iPhone18,2",
+          "reality": "physical",
+          "udid": "00008150-00110911366A401C"
+        },
+        "connectionProperties": {
+          "pairingState": "paired",
+          "transportType": "localNetwork",
+          "tunnelState": "disconnected"
+        }
+      },
+      {
+        "identifier": "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE",
+        "deviceProperties": {
+          "name": "iPhone Simulator",
+          "osVersionNumber": "26.2"
+        },
+        "hardwareProperties": {
+          "deviceType": "iPhone",
+          "marketingName": "iPhone 17",
+          "platform": "iOS",
+          "reality": "virtual",
+          "udid": "095603D8-FB86-4E33-87A4-831B630B6E82"
+        }
+      }
+    ]
+  }
+}

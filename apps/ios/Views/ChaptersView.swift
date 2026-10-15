@@ -26,7 +26,6 @@ struct ChaptersView: View {
     private let perPage = 30
     private var activeResultCount: Int { max(0, searchResultCount ?? resolvedTotalCount) }
     private var totalPages: Int { max(1, Int(ceil(Double(activeResultCount) / Double(perPage)))) }
-    private var genreColor: Color { GenreStyle.color(for: novel.genres) }
     private var isDesktop: Bool {
         #if targetEnvironment(macCatalyst)
         true
@@ -36,7 +35,17 @@ struct ChaptersView: View {
     }
     private var contentMaxWidth: CGFloat { isDesktop ? 920 : .infinity }
     private var pageHorizontalPadding: CGFloat { isDesktop ? 32 : 24 }
-    private var topButtonPadding: CGFloat { isDesktop ? 18 : 44 }
+    private var topBarTopPadding: CGFloat { isDesktop ? 18 : 44 }
+
+    private var headerSubtitle: String {
+        if let searchResultCount {
+            return searchResultCount == 1 ? "1 match" : "\(searchResultCount.formatted()) matches"
+        }
+        if resolvedTotalCount > 0 {
+            return resolvedTotalCount == 1 ? "1 chapter" : "\(resolvedTotalCount.formatted()) chapters"
+        }
+        return "Chapters"
+    }
 
     init(novel: Novel, allChapters: [Chapter], totalCount: Int) {
         self.novel = novel
@@ -46,35 +55,32 @@ struct ChaptersView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                chaptersHeader
-                searchSection
-                paginationHeader
-                chapterList
-                paginationFooter
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    Color.clear.frame(height: 0).id("chapters-top")
+                    chaptersHeader
+                    searchSection
+                    paginationBar
+                    chapterList
+                    paginationFooter
+                }
+                .padding(.bottom, 100)
+                .frame(maxWidth: contentMaxWidth, alignment: .topLeading)
+                .frame(maxWidth: .infinity, alignment: .top)
             }
-            .padding(.bottom, 100)
-            .frame(maxWidth: contentMaxWidth, alignment: .topLeading)
-            .frame(maxWidth: .infinity, alignment: .top)
-        }
-        .overlay(alignment: .topLeading) {
-            Button { dismiss() } label: {
-                Text("← Back")
-                    .font(.asterionMono(13))
-                    .foregroundStyle(Color.asterionMuted)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 6)
-                    .background(
-                        Capsule()
-                            .fill(Color.asterionCard.opacity(0.5))
-                            .stroke(Color.asterionBorder, lineWidth: 1)
-                    )
+            .onChange(of: page) { _, _ in
+                withAnimation(.snappy) {
+                    proxy.scrollTo("chapters-top", anchor: .top)
+                }
             }
-            .padding(.top, topButtonPadding)
-            .padding(.leading, 20)
         }
-        .background(Color.asterionBackground.ignoresSafeArea())
+        .overlay(alignment: .top) {
+            AsterionDetailBar(onBack: { dismiss() }, topPadding: topBarTopPadding) {
+                EmptyView()
+            }
+        }
+        .background { AsterionBackdrop() }
         .toolbarVisibility(.hidden, for: .navigationBar)
         .toolbarVisibility(.hidden, for: .tabBar)
         .task { await loadChapters(pg: 0) }
@@ -98,209 +104,168 @@ struct ChaptersView: View {
     }
 
     private var chaptersHeader: some View {
-        ZStack(alignment: .leading) {
-            LinearGradient(
-                colors: [genreColor.opacity(0.05), Color.asterionBackground],
-                startPoint: .top,
-                endPoint: .bottom
-            )
+        VStack(alignment: .leading, spacing: 8) {
+            Text(novel.title)
+                .font(.asterionDisplay(32, weight: .medium))
+                .foregroundStyle(Color.asterionText)
+                .tracking(-0.6)
+                .lineLimit(3)
+                .minimumScaleFactor(0.8)
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(novel.title)
-                    .font(.asterionSerif(22))
-                    .foregroundStyle(Color.asterionText)
-
-                Text(resolvedTotalCount > 0 ? "\(resolvedTotalCount) chapters" : "Chapters")
-                    .font(.asterionMono(11))
-                    .foregroundStyle(Color.asterionDim)
-            }
-            .padding(.horizontal, pageHorizontalPadding)
-            .padding(.top, isDesktop ? 72 : 88)
-            .padding(.bottom, 20)
+            Text(headerSubtitle)
+                .font(.asterionReading(15))
+                .foregroundStyle(Color.asterionSynopsis)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, pageHorizontalPadding)
+        .padding(.top, isDesktop ? 72 : 88)
+        .padding(.bottom, 8)
+        .accessibilityElement(children: .combine)
     }
 
     private var searchSection: some View {
-        SearchInputView(text: $search, placeholder: "Search chapters by title or number...")
+        SearchInputView(text: $search, placeholder: "Find a chapter")
             .padding(.horizontal, pageHorizontalPadding)
-            .padding(.top, 12)
-            .padding(.bottom, 16)
+            .padding(.top, 20)
+            .padding(.bottom, 18)
     }
 
     @ViewBuilder
-    private var paginationHeader: some View {
+    private var paginationBar: some View {
         if totalPages > 1 {
-            HStack {
-                Text("Page \(page + 1) of \(totalPages)")
-                    .font(.asterionMono(10))
-                    .foregroundStyle(Color.asterionDim)
+            paginationControls
+                .padding(.horizontal, pageHorizontalPadding)
+                .padding(.bottom, 8)
+        }
+    }
 
-                Spacer()
+    private var paginationControls: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text("\(page + 1) of \(totalPages)")
+                .font(.asterionReading(13))
+                .foregroundStyle(Color.asterionMuted)
+                .monospacedDigit()
 
-                HStack(spacing: 8) {
-                    Button { page = max(0, page - 1) } label: {
-                        Text("◂")
-                            .font(.system(size: 12))
-                            .foregroundStyle(page == 0 ? Color.asterionCard : Color.asterionMuted)
-                            .frame(width: 32, height: 32)
-                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.asterionBorder, lineWidth: 1))
-                    }
+            Spacer()
+
+            HStack(spacing: 20) {
+                Button("Previous") { page = max(0, page - 1) }
                     .disabled(page == 0)
+                    .foregroundStyle(page == 0 ? Color.asterionBorder : Color.asterionText)
 
-                    Button { page = min(totalPages - 1, page + 1) } label: {
-                        Text("▸")
-                            .font(.system(size: 12))
-                            .foregroundStyle(page >= totalPages - 1 ? Color.asterionCard : Color.asterionMuted)
-                            .frame(width: 32, height: 32)
-                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.asterionBorder, lineWidth: 1))
-                    }
+                Button("Next") { page = min(totalPages - 1, page + 1) }
                     .disabled(page >= totalPages - 1)
-                }
+                    .foregroundStyle(page >= totalPages - 1 ? Color.asterionBorder : Color.asterionText)
             }
-            .padding(.horizontal, pageHorizontalPadding)
-            .padding(.bottom, 12)
+            .font(.asterionReading(15, weight: .medium))
+            .buttonStyle(.plain)
         }
     }
 
     @ViewBuilder
     private var chapterList: some View {
         if loading {
-            HStack {
-                Spacer()
-                ProgressView().tint(Color.goldAccent)
-                Spacer()
-            }
-            .padding(.vertical, 40)
+            ProgressView()
+                .tint(Color.asterionInk)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 40)
         } else if let error {
             VStack(spacing: 12) {
                 Text(error)
-                    .font(.asterionMono(13))
+                    .font(.asterionReading(15))
                     .foregroundStyle(Color.asterionMuted)
-                Button("Try Again") {
+                    .multilineTextAlignment(.center)
+                Button("Try again") {
                     Task { await loadChapters(pg: page, searchTerm: debouncedSearch) }
                 }
-                .font(.asterionMono(12))
-                .foregroundStyle(Color.goldAccent)
+                .font(.asterionReading(15, weight: .medium))
+                .foregroundStyle(Color.asterionInk)
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 40)
+            .padding(.horizontal, pageHorizontalPadding)
         } else if chapters.isEmpty {
-            Text(debouncedSearch.isEmpty ? "No chapters found" : "No chapters match your search")
-                .font(.asterionMono(13))
-                .foregroundStyle(Color.asterionDim)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 40)
+            AsterionEmptyState(
+                symbol: "book.closed",
+                title: debouncedSearch.isEmpty ? "No chapters yet" : "Nothing matches",
+                message: debouncedSearch.isEmpty
+                    ? "This title has no chapters to open."
+                    : "Try a chapter number or a few words from the title."
+            )
         } else {
             VStack(spacing: 0) {
-                ForEach(Array(chapters.enumerated()), id: \.element.id) { index, chapter in
-                    HStack(spacing: 8) {
-                        NavigationLink {
-                            ReaderView(
-                                initialChapter: chapter,
-                                novel: novel,
-                                allChapters: navigationChapterContext(for: chapter),
-                                shouldAutoResumeFromSavedProgress: false
-                            )
-                        } label: {
-                            HStack(spacing: 10) {
-                                Text("#\(chapter.chapterNumber)")
-                                    .font(.asterionMono(10))
-                                    .foregroundStyle(Color.asterionDim)
-                                    .frame(width: 40, alignment: .leading)
-
-                                Text(chapter.title)
-                                    .font(.asterionSerif(15))
-                                    .foregroundStyle(Color.asterionReaderText)
-                                    .lineLimit(1)
-
-                                Spacer()
-
-                                Text("›")
-                                    .font(.system(size: 14))
-                                    .foregroundStyle(Color.asterionBorder)
-                            }
-                            .padding(.vertical, 14)
-                            .padding(.horizontal, 12)
-                        }
-                        .buttonStyle(.plain)
-
-                        Button {
-                            Task { await downloadChapter(chapter) }
-                        } label: {
-                            ZStack {
-                                if exportingChapterId == chapter.id {
-                                    ProgressView()
-                                        .tint(Color.goldAccent)
-                                        .scaleEffect(0.8)
-                                } else if downloadedChapterIds.contains(chapter.id) {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .font(.system(size: 13, weight: .semibold))
-                                        .foregroundStyle(Color(red: 0.353, green: 0.608, blue: 0.478))
-                                } else {
-                                    Image(systemName: "arrow.down.doc")
-                                        .font(.system(size: 13))
-                                        .foregroundStyle(Color.asterionMuted)
-                                }
-                            }
-                            .frame(width: 28, height: 28)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(Color.asterionBorder, lineWidth: 1)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(exportingChapterId != nil)
-                        .padding(.trailing, 12)
-                    }
-
-                    if index < chapters.count - 1 {
-                        Divider().overlay(Color.asterionCard)
-                    }
+                ForEach(chapters) { chapter in
+                    chapterRow(chapter)
                 }
             }
-            .background(
-                RoundedRectangle(cornerRadius: 14)
-                    .stroke(Color.asterionBorder, lineWidth: 1)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 14))
             .padding(.horizontal, pageHorizontalPadding)
         }
+    }
+
+    private func chapterRow(_ chapter: Chapter) -> some View {
+        HStack(alignment: .center, spacing: 4) {
+            NavigationLink {
+                ReaderView(
+                    initialChapter: chapter,
+                    novel: novel,
+                    allChapters: navigationChapterContext(for: chapter),
+                    shouldAutoResumeFromSavedProgress: false
+                )
+            } label: {
+                HStack(alignment: .firstTextBaseline, spacing: 14) {
+                    Text("\(chapter.chapterNumber)")
+                        .font(.asterionReading(13, weight: .medium))
+                        .foregroundStyle(Color.asterionMuted)
+                        .monospacedDigit()
+                        .frame(width: 44, alignment: .trailing)
+
+                    Text(chapter.displayTitle)
+                        .font(.asterionReading(16))
+                        .foregroundStyle(Color.asterionText)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(.vertical, 14)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            downloadButton(for: chapter)
+        }
+    }
+
+    private func downloadButton(for chapter: Chapter) -> some View {
+        let downloaded = downloadedChapterIds.contains(chapter.id)
+        return Button {
+            Task { await downloadChapter(chapter) }
+        } label: {
+            ZStack {
+                if exportingChapterId == chapter.id {
+                    ProgressView()
+                        .tint(Color.asterionInk)
+                        .scaleEffect(0.75)
+                } else {
+                    Image(systemName: downloaded ? "checkmark" : "arrow.down")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(downloaded ? Color.asterionText : Color.asterionMuted)
+                }
+            }
+            .frame(width: 44, height: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(exportingChapterId != nil || downloaded)
+        .accessibilityLabel(downloaded ? "Downloaded" : "Download chapter \(chapter.chapterNumber)")
     }
 
     @ViewBuilder
     private var paginationFooter: some View {
         if totalPages > 1 && !loading && !chapters.isEmpty {
-            HStack(spacing: 8) {
-                Button {
-                    page = max(0, page - 1)
-                } label: {
-                    Text("← Previous")
-                        .font(.asterionMono(12))
-                        .foregroundStyle(page == 0 ? Color.asterionBorder : Color.asterionMuted)
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 10)
-                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.asterionBorder, lineWidth: 1))
-                }
-                .disabled(page == 0)
-
-                Button {
-                    page = min(totalPages - 1, page + 1)
-                } label: {
-                    Text("Next →")
-                        .font(.asterionMono(12))
-                        .foregroundStyle(page >= totalPages - 1 ? Color.asterionBorder : Color.goldAccent)
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 10)
-                                .fill(page >= totalPages - 1 ? .clear : genreColor.opacity(0.06))
-                                .stroke(page >= totalPages - 1 ? Color.asterionBorder : genreColor.opacity(0.3), lineWidth: 1)
-                        )
-                }
-                .disabled(page >= totalPages - 1)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 20)
+            paginationControls
+                .padding(.horizontal, pageHorizontalPadding)
+                .padding(.top, 20)
         }
     }
 
@@ -423,12 +388,7 @@ struct ChaptersView: View {
         }
         await OfflineChapterStore.shared.cacheChapter(fullChapter)
 
-        let header: String
-        if fullChapter.chapterNumber > 0 {
-            header = "Chapter \(fullChapter.chapterNumber): \(fullChapter.title)"
-        } else {
-            header = fullChapter.title
-        }
+        let header = fullChapter.labeledTitle
         let content = """
         \(novel.title)
         \(header)
@@ -440,7 +400,9 @@ struct ChaptersView: View {
                 novelTitle: novel.title,
                 chapterNumber: fullChapter.chapterNumber,
                 chapterTitle: fullChapter.title,
-                content: content
+                content: content,
+                novel: novel,
+                chapter: fullChapter
             )
             downloadedChapterIds.insert(chapter.id)
             downloadAlertMessage = "Saved to \(fileURL.deletingLastPathComponent().lastPathComponent)"

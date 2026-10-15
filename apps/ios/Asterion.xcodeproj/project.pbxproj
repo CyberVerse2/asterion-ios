@@ -44,9 +44,31 @@
 		AABB00112F5700010099DF4E /* WidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC44922F55E13B0099DF4E /* WidgetBundle.swift */; };
 		AABB00122F5700010099DF4E /* ContinueReadingIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC447A2F55E13B0099DF4E /* ContinueReadingIntent.swift */; };
 		AABB00132F5700010099DF4E /* ChapterDownloadActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABB00062F5700010099DF4E /* ChapterDownloadActivityAttributes.swift */; };
-		AABB00142F5700010099DF4E /* AsterionWidgetExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = AABB00152F5700010099DF4E /* AsterionWidgetExtension.appex */; platformFilter = ios; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		AABB00142F5700010099DF4E /* AsterionWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = AABB00152F5700010099DF4E /* AsterionWidgetExtension.appex */; platformFilter = ios; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		AABB00222F5700010099DF4E /* EdgeSwipeBackModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABB00232F5700010099DF4E /* EdgeSwipeBackModifier.swift */; };
-		AABB00302F5700010099DF4E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AABB00312F5700010099DF4E /* Assets.xcassets */; };
+		AABB00302F5700010099DF4E /* Asterion/Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AABB00312F5700010099DF4E /* Asterion/Assets.xcassets */; };
+		C0DE00022F6000010099DF4E /* InterestOnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00012F6000010099DF4E /* InterestOnboardingView.swift */; };
+		C0DE00042F6000010099DF4E /* DownloadCenterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00032F6000010099DF4E /* DownloadCenterView.swift */; };
+		C0DE00062F6000010099DF4E /* EntertainmentModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00052F6000010099DF4E /* EntertainmentModels.swift */; };
+		C0DE00082F6000010099DF4E /* EntertainmentAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00072F6000010099DF4E /* EntertainmentAPI.swift */; };
+		C0DE000A2F6000010099DF4E /* BrowseHubView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00092F6000010099DF4E /* BrowseHubView.swift */; };
+		C0DE000C2F6000010099DF4E /* NativeMediaPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE000B2F6000010099DF4E /* NativeMediaPlayerView.swift */; };
+		C0DE000E2F6000010099DF4E /* Asterion/PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = C0DE000D2F6000010099DF4E /* Asterion/PrivacyInfo.xcprivacy */; };
+		C0DE000F2F6000010099DF4E /* Asterion/PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = C0DE000D2F6000010099DF4E /* Asterion/PrivacyInfo.xcprivacy */; };
+		C0DE00132F6000010099DF4E /* OfflineVideoDownloadService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00122F6000010099DF4E /* OfflineVideoDownloadService.swift */; };
+		C0DE00302F6100010099DF4E /* CormorantGaramond-Light.ttf in Resources */ = {isa = PBXBuildFile; fileRef = C0DE00202F6100010099DF4E /* CormorantGaramond-Light.ttf */; };
+		C0DE00312F6100010099DF4E /* CormorantGaramond-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = C0DE00212F6100010099DF4E /* CormorantGaramond-Regular.ttf */; };
+		C0DE00322F6100010099DF4E /* CormorantGaramond-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = C0DE00222F6100010099DF4E /* CormorantGaramond-Medium.ttf */; };
+		C0DE00332F6100010099DF4E /* CormorantGaramond-SemiBold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = C0DE00232F6100010099DF4E /* CormorantGaramond-SemiBold.ttf */; };
+		C0DE00342F6100010099DF4E /* IBMPlexMono-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = C0DE00242F6100010099DF4E /* IBMPlexMono-Regular.ttf */; };
+		C0DE00352F6100010099DF4E /* IBMPlexMono-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = C0DE00252F6100010099DF4E /* IBMPlexMono-Medium.ttf */; };
+		C0DE00362F6100010099DF4E /* IBMPlexMono-SemiBold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = C0DE00262F6100010099DF4E /* IBMPlexMono-SemiBold.ttf */; };
+		C0DE00412F6100010099DF4E /* AsterionChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00402F6100010099DF4E /* AsterionChrome.swift */; };
+		C0DE00512F6100020099DF4E /* DetailChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00502F6100020099DF4E /* DetailChrome.swift */; };
+		C0DE01012F6200010099DF4E /* ContentUpdates.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE01002F6200010099DF4E /* ContentUpdates.swift */; };
+		C0DE01032F6200010099DF4E /* ContentNotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE01022F6200010099DF4E /* ContentNotificationService.swift */; };
+		C0DE01052F6200010099DF4E /* ReadingActivityService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE01042F6200010099DF4E /* ReadingActivityService.swift */; };
+		C0DE01072F6200010099DF4E /* DownloadedNovelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE01062F6200010099DF4E /* DownloadedNovelView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -74,15 +96,15 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
-		AABB00182F5700010099DF4E /* Embed App Extensions */ = {
+		AABB00182F5700010099DF4E /* Embed Foundation Extensions */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
 			dstPath = "";
 			dstSubfolderSpec = 13;
 			files = (
-				AABB00142F5700010099DF4E /* AsterionWidgetExtension.appex in Embed App Extensions */,
+				AABB00142F5700010099DF4E /* AsterionWidgetExtension.appex in Embed Foundation Extensions */,
 			);
-			name = "Embed App Extensions";
+			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
@@ -126,7 +148,29 @@
 		AABB00152F5700010099DF4E /* AsterionWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = AsterionWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		AABB00172F5700010099DF4E /* AsterionWidgetExtension/Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = AsterionWidgetExtension/Info.plist; sourceTree = SOURCE_ROOT; };
 		AABB00232F5700010099DF4E /* EdgeSwipeBackModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EdgeSwipeBackModifier.swift; sourceTree = "<group>"; };
-		AABB00312F5700010099DF4E /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Asterion/Assets.xcassets; sourceTree = SOURCE_ROOT; };
+		AABB00312F5700010099DF4E /* Asterion/Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Asterion/Assets.xcassets; sourceTree = SOURCE_ROOT; };
+		C0DE00012F6000010099DF4E /* InterestOnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InterestOnboardingView.swift; sourceTree = "<group>"; };
+		C0DE00032F6000010099DF4E /* DownloadCenterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadCenterView.swift; sourceTree = "<group>"; };
+		C0DE00052F6000010099DF4E /* EntertainmentModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EntertainmentModels.swift; sourceTree = "<group>"; };
+		C0DE00072F6000010099DF4E /* EntertainmentAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EntertainmentAPI.swift; sourceTree = "<group>"; };
+		C0DE00092F6000010099DF4E /* BrowseHubView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowseHubView.swift; sourceTree = "<group>"; };
+		C0DE000B2F6000010099DF4E /* NativeMediaPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMediaPlayerView.swift; sourceTree = "<group>"; };
+		C0DE000D2F6000010099DF4E /* Asterion/PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = Asterion/PrivacyInfo.xcprivacy; sourceTree = SOURCE_ROOT; };
+		C0DE00112F6000010099DF4E /* Asterion/Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Asterion/Info.plist; sourceTree = SOURCE_ROOT; };
+		C0DE00122F6000010099DF4E /* OfflineVideoDownloadService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineVideoDownloadService.swift; sourceTree = "<group>"; };
+		C0DE00202F6100010099DF4E /* CormorantGaramond-Light.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; name = "CormorantGaramond-Light.ttf"; path = "Resources/Fonts/CormorantGaramond-Light.ttf"; sourceTree = "<group>"; };
+		C0DE00212F6100010099DF4E /* CormorantGaramond-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; name = "CormorantGaramond-Regular.ttf"; path = "Resources/Fonts/CormorantGaramond-Regular.ttf"; sourceTree = "<group>"; };
+		C0DE00222F6100010099DF4E /* CormorantGaramond-Medium.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; name = "CormorantGaramond-Medium.ttf"; path = "Resources/Fonts/CormorantGaramond-Medium.ttf"; sourceTree = "<group>"; };
+		C0DE00232F6100010099DF4E /* CormorantGaramond-SemiBold.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; name = "CormorantGaramond-SemiBold.ttf"; path = "Resources/Fonts/CormorantGaramond-SemiBold.ttf"; sourceTree = "<group>"; };
+		C0DE00242F6100010099DF4E /* IBMPlexMono-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; name = "IBMPlexMono-Regular.ttf"; path = "Resources/Fonts/IBMPlexMono-Regular.ttf"; sourceTree = "<group>"; };
+		C0DE00252F6100010099DF4E /* IBMPlexMono-Medium.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; name = "IBMPlexMono-Medium.ttf"; path = "Resources/Fonts/IBMPlexMono-Medium.ttf"; sourceTree = "<group>"; };
+		C0DE00262F6100010099DF4E /* IBMPlexMono-SemiBold.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; name = "IBMPlexMono-SemiBold.ttf"; path = "Resources/Fonts/IBMPlexMono-SemiBold.ttf"; sourceTree = "<group>"; };
+		C0DE00402F6100010099DF4E /* AsterionChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AsterionChrome.swift; sourceTree = "<group>"; };
+		C0DE00502F6100020099DF4E /* DetailChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetailChrome.swift; sourceTree = "<group>"; };
+		C0DE01002F6200010099DF4E /* ContentUpdates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentUpdates.swift; sourceTree = "<group>"; };
+		C0DE01022F6200010099DF4E /* ContentNotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentNotificationService.swift; sourceTree = "<group>"; };
+		C0DE01042F6200010099DF4E /* ReadingActivityService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingActivityService.swift; sourceTree = "<group>"; };
+		C0DE01062F6200010099DF4E /* DownloadedNovelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadedNovelView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -181,7 +225,10 @@
 			isa = PBXGroup;
 			children = (
 				70CC44772F55E13B0099DF4E /* AppStore */,
-				AABB00312F5700010099DF4E /* Assets.xcassets */,
+				AABB00312F5700010099DF4E /* Asterion/Assets.xcassets */,
+				C0DE00422F6100010099DF4E /* Fonts */,
+				C0DE00112F6000010099DF4E /* Asterion/Info.plist */,
+				C0DE000D2F6000010099DF4E /* Asterion/PrivacyInfo.xcprivacy */,
 				AABB00162F5700010099DF4E /* AsterionWidgetExtension */,
 				70CC447B2F55E13B0099DF4E /* Intents */,
 				70CC44802F55E13B0099DF4E /* Models */,
@@ -229,8 +276,10 @@
 		70CC44802F55E13B0099DF4E /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				C0DE01002F6200010099DF4E /* ContentUpdates.swift */,
 				AABB00062F5700010099DF4E /* ChapterDownloadActivityAttributes.swift */,
 				70CC447C2F55E13B0099DF4E /* Chapter.swift */,
+				C0DE00052F6000010099DF4E /* EntertainmentModels.swift */,
 				70CC447D2F55E13B0099DF4E /* Novel.swift */,
 				70CC447E2F55E13B0099DF4E /* ReadingProgress.swift */,
 				70CC447F2F55E13B0099DF4E /* User.swift */,
@@ -241,11 +290,15 @@
 		70CC44862F55E13B0099DF4E /* Services */ = {
 			isa = PBXGroup;
 			children = (
+				C0DE01022F6200010099DF4E /* ContentNotificationService.swift */,
+				C0DE01042F6200010099DF4E /* ReadingActivityService.swift */,
 				70CC44822F55E13B0099DF4E /* APIClient.swift */,
 				70CC44832F55E13B0099DF4E /* AuthService.swift */,
+				C0DE00072F6000010099DF4E /* EntertainmentAPI.swift */,
 				70CC44842F55E13B0099DF4E /* KeychainHelper.swift */,
 				AABB00042F5700010099DF4E /* DownloadLiveActivityManager.swift */,
 				AABB00022F5700010099DF4E /* OfflineChapterStore.swift */,
+				C0DE00122F6000010099DF4E /* OfflineVideoDownloadService.swift */,
 				70CC44852F55E13B0099DF4E /* ReadingProgressService.swift */,
 			);
 			path = Services;
@@ -265,14 +318,19 @@
 		70CC44902F55E13B0099DF4E /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				C0DE01062F6200010099DF4E /* DownloadedNovelView.swift */,
 				70CC44C42F55F0000099DF4E /* Components */,
+				C0DE00092F6000010099DF4E /* BrowseHubView.swift */,
 				AABB00002F5700010099DF4E /* ChaptersView.swift */,
+				C0DE00032F6000010099DF4E /* DownloadCenterView.swift */,
 				70CC448A2F55E13B0099DF4E /* HomeView.swift */,
+				C0DE00012F6000010099DF4E /* InterestOnboardingView.swift */,
 				70CC448B2F55E13B0099DF4E /* LibraryView.swift */,
 				70CC448C2F55E13B0099DF4E /* NovelDetailView.swift */,
 				70CC448D2F55E13B0099DF4E /* ProfileView.swift */,
 				70CC448E2F55E13B0099DF4E /* RankingView.swift */,
 				70CC448F2F55E13B0099DF4E /* ReaderView.swift */,
+				C0DE000B2F6000010099DF4E /* NativeMediaPlayerView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -289,6 +347,8 @@
 		70CC44C42F55F0000099DF4E /* Components */ = {
 			isa = PBXGroup;
 			children = (
+				C0DE00402F6100010099DF4E /* AsterionChrome.swift */,
+				C0DE00502F6100020099DF4E /* DetailChrome.swift */,
 				70CC44C12F55F0000099DF4E /* MazePatternView.swift */,
 				70CC44C22F55F0000099DF4E /* CoverImageView.swift */,
 				70CC44C32F55F0000099DF4E /* SearchInputView.swift */,
@@ -304,6 +364,20 @@
 			path = AsterionWidgetExtension;
 			sourceTree = "<group>";
 		};
+		C0DE00422F6100010099DF4E /* Fonts */ = {
+			isa = PBXGroup;
+			children = (
+				C0DE00202F6100010099DF4E /* CormorantGaramond-Light.ttf */,
+				C0DE00212F6100010099DF4E /* CormorantGaramond-Regular.ttf */,
+				C0DE00222F6100010099DF4E /* CormorantGaramond-Medium.ttf */,
+				C0DE00232F6100010099DF4E /* CormorantGaramond-SemiBold.ttf */,
+				C0DE00242F6100010099DF4E /* IBMPlexMono-Regular.ttf */,
+				C0DE00252F6100010099DF4E /* IBMPlexMono-Medium.ttf */,
+				C0DE00262F6100010099DF4E /* IBMPlexMono-SemiBold.ttf */,
+			);
+			name = Fonts;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -314,7 +388,7 @@
 				70CC44442F55E07E0099DF4E /* Sources */,
 				70CC44452F55E07E0099DF4E /* Frameworks */,
 				70CC44462F55E07E0099DF4E /* Resources */,
-				AABB00182F5700010099DF4E /* Embed App Extensions */,
+				AABB00182F5700010099DF4E /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
@@ -404,7 +478,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 2620;
-				LastUpgradeCheck = 2620;
+				LastUpgradeCheck = 2700;
 				TargetAttributes = {
 					70CC44472F55E07E0099DF4E = {
 						CreatedOnToolsVersion = 26.2;
@@ -453,7 +527,15 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				AABB00302F5700010099DF4E /* Assets.xcassets in Resources */,
+				AABB00302F5700010099DF4E /* Asterion/Assets.xcassets in Resources */,
+				C0DE00302F6100010099DF4E /* CormorantGaramond-Light.ttf in Resources */,
+				C0DE00312F6100010099DF4E /* CormorantGaramond-Regular.ttf in Resources */,
+				C0DE00322F6100010099DF4E /* CormorantGaramond-Medium.ttf in Resources */,
+				C0DE00332F6100010099DF4E /* CormorantGaramond-SemiBold.ttf in Resources */,
+				C0DE00342F6100010099DF4E /* IBMPlexMono-Regular.ttf in Resources */,
+				C0DE00352F6100010099DF4E /* IBMPlexMono-Medium.ttf in Resources */,
+				C0DE00362F6100010099DF4E /* IBMPlexMono-SemiBold.ttf in Resources */,
+				C0DE000E2F6000010099DF4E /* Asterion/PrivacyInfo.xcprivacy in Resources */,
 				70CC44A92F55E13B0099DF4E /* screenshots-checklist.md in Resources */,
 				70CC44AA2F55E13B0099DF4E /* metadata.md in Resources */,
 				70CC44AC2F55E13B0099DF4E /* icon-brief.md in Resources */,
@@ -478,6 +560,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C0DE000F2F6000010099DF4E /* Asterion/PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -488,6 +571,10 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C0DE01012F6200010099DF4E /* ContentUpdates.swift in Sources */,
+				C0DE01032F6200010099DF4E /* ContentNotificationService.swift in Sources */,
+				C0DE01052F6200010099DF4E /* ReadingActivityService.swift in Sources */,
+				C0DE01072F6200010099DF4E /* DownloadedNovelView.swift in Sources */,
 				70CC44942F55E13B0099DF4E /* ReaderView.swift in Sources */,
 				70CC44952F55E13B0099DF4E /* ReadingProgressService.swift in Sources */,
 				70CC44962F55E13B0099DF4E /* NovelDetailView.swift in Sources */,
@@ -511,11 +598,20 @@
 				70CC44C62F55F0000099DF4E /* MazePatternView.swift in Sources */,
 				70CC44C72F55F0000099DF4E /* CoverImageView.swift in Sources */,
 				70CC44C82F55F0000099DF4E /* SearchInputView.swift in Sources */,
+				C0DE00412F6100010099DF4E /* AsterionChrome.swift in Sources */,
+				C0DE00512F6100020099DF4E /* DetailChrome.swift in Sources */,
 				AABB00222F5700010099DF4E /* EdgeSwipeBackModifier.swift in Sources */,
 				AABB00012F5700010099DF4E /* ChaptersView.swift in Sources */,
 				AABB00032F5700010099DF4E /* OfflineChapterStore.swift in Sources */,
 				AABB00052F5700010099DF4E /* DownloadLiveActivityManager.swift in Sources */,
 				AABB00072F5700010099DF4E /* ChapterDownloadActivityAttributes.swift in Sources */,
+				C0DE00022F6000010099DF4E /* InterestOnboardingView.swift in Sources */,
+				C0DE00042F6000010099DF4E /* DownloadCenterView.swift in Sources */,
+				C0DE00062F6000010099DF4E /* EntertainmentModels.swift in Sources */,
+				C0DE00082F6000010099DF4E /* EntertainmentAPI.swift in Sources */,
+				C0DE000A2F6000010099DF4E /* BrowseHubView.swift in Sources */,
+				C0DE000C2F6000010099DF4E /* NativeMediaPlayerView.swift in Sources */,
+				C0DE00132F6000010099DF4E /* OfflineVideoDownloadService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -600,6 +696,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -622,6 +719,7 @@
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -661,6 +759,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -676,6 +775,7 @@
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 			};
 			name = Release;
@@ -685,16 +785,21 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLERK_FRONTEND_API_DOMAIN = "poetic-gator-97.clerk.accounts.dev";
+				CLERK_PUBLISHABLE_KEY = pk_test_cG9ldGljLWdhdG9yLTk3LmNsZXJrLmFjY291bnRzLmRldiQ;
 				CODE_SIGN_ENTITLEMENTS = Asterion.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 2;
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = V6Y7WXX6Z5;
 				EMIT_FRONTEND_COMMAND_LINES = YES;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CLERK_PUBLISHABLE_KEY = pk_test_cG9ldGljLWdhdG9yLTk3LmNsZXJrLmFjY291bnRzLmRldiQ;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Asterion/Info.plist;
+				INFOPLIST_KEY_AsterionClerkPublishableKey = pk_test_cG9ldGljLWdhdG9yLTk3LmNsZXJrLmFjY291bnRzLmRldiQ;
+				INFOPLIST_KEY_AsterionUserAPIBaseURL = "$(USER_API_BASE_URL)";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
@@ -706,8 +811,7 @@
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_USER_API_BASE_URL = "$(USER_API_BASE_URL)";
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
@@ -721,8 +825,8 @@
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
-				SUPPORTS_MACCATALYST = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -739,15 +843,20 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLERK_FRONTEND_API_DOMAIN = "poetic-gator-97.clerk.accounts.dev";
+				CLERK_PUBLISHABLE_KEY = pk_test_cG9ldGljLWdhdG9yLTk3LmNsZXJrLmFjY291bnRzLmRldiQ;
 				CODE_SIGN_ENTITLEMENTS = Asterion.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 2;
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = V6Y7WXX6Z5;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CLERK_PUBLISHABLE_KEY = pk_test_cG9ldGljLWdhdG9yLTk3LmNsZXJrLmFjY291bnRzLmRldiQ;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Asterion/Info.plist;
+				INFOPLIST_KEY_AsterionClerkPublishableKey = pk_test_cG9ldGljLWdhdG9yLTk3LmNsZXJrLmFjY291bnRzLmRldiQ;
+				INFOPLIST_KEY_AsterionUserAPIBaseURL = "$(USER_API_BASE_URL)";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
@@ -759,8 +868,7 @@
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_USER_API_BASE_URL = "$(USER_API_BASE_URL)";
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
@@ -770,8 +878,8 @@
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
-				SUPPORTS_MACCATALYST = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -789,8 +897,9 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 2;
+				DEAD_CODE_STRIPPING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = cyberverse.AsterionTests;
@@ -814,8 +923,9 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 2;
+				DEAD_CODE_STRIPPING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = cyberverse.AsterionTests;
@@ -838,8 +948,9 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 2;
+				DEAD_CODE_STRIPPING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = cyberverse.AsterionUITests;
@@ -862,8 +973,9 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 2;
+				DEAD_CODE_STRIPPING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = cyberverse.AsterionUITests;
@@ -888,11 +1000,12 @@
 				CODE_SIGN_ENTITLEMENTS = AsterionWidgetExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 2;
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = V6Y7WXX6Z5;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = AsterionWidgetExtension/Info.plist;
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -916,11 +1029,12 @@
 				CODE_SIGN_ENTITLEMENTS = AsterionWidgetExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 2;
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = V6Y7WXX6Z5;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = AsterionWidgetExtension/Info.plist;
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",

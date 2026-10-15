@@ -14,12 +14,19 @@ APP_PATH="${DERIVED_DATA_PATH}/Build/Products/Debug-iphoneos/Asterion.app"
 
 mkdir -p "$ARTIFACTS_ROOT"
 
+SIGNING_ARGUMENTS=()
+if [[ -n "${ASTERION_DEVELOPMENT_TEAM:-}" ]]; then
+  SIGNING_ARGUMENTS+=("DEVELOPMENT_TEAM=$ASTERION_DEVELOPMENT_TEAM")
+fi
+
 xcodebuild \
   -project "${PROJECT_PATH}" \
   -scheme "${SCHEME}" \
   -destination "id=${DEVICE_ID}" \
   -derivedDataPath "${DERIVED_DATA_PATH}" \
   -allowProvisioningUpdates \
+  -allowProvisioningDeviceRegistration \
+  "${SIGNING_ARGUMENTS[@]}" \
   build
 
 xcrun devicectl device install app \

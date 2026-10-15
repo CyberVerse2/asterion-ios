@@ -5,40 +5,43 @@ import SwiftUI
 struct SearchInputView: View {
     @ObserveInjection var inject
     @Binding var text: String
-    var placeholder: String = "Search..."
+    var placeholder: String = "Search"
 
     @FocusState private var isFocused: Bool
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 14))
-                .foregroundStyle(Color.asterionDim)
+        HStack(alignment: .firstTextBaseline, spacing: 14) {
+            ZStack(alignment: .leading) {
+                if text.isEmpty {
+                    Text(placeholder)
+                        .font(.asterionDisplay(24, weight: .regular))
+                        .foregroundStyle(Color.asterionMuted)
+                        .allowsHitTesting(false)
+                }
 
-            TextField(placeholder, text: $text)
-                .font(.asterionSerif(14))
-                .foregroundStyle(Color.asterionText)
-                .focused($isFocused)
-                .autocorrectionDisabled()
-                .textInputAutocapitalization(.never)
+                TextField("", text: $text)
+                    .font(.asterionDisplay(24, weight: .medium))
+                    .foregroundStyle(Color.asterionText)
+                    .focused($isFocused)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                    .submitLabel(.search)
+                    .onSubmit { isFocused = false }
+            }
 
             if !text.isEmpty {
-                Button {
-                    text = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 14))
-                        .foregroundStyle(Color.asterionDim)
-                }
+                Button("Clear") { text = "" }
+                    .font(.asterionReading(14, weight: .medium))
+                    .foregroundStyle(Color.asterionMuted)
+                    .buttonStyle(.plain)
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color(red: 0.102, green: 0.094, blue: 0.086))
-                .stroke(isFocused ? Color.asterionBorderHover : Color.asterionBorder, lineWidth: 1)
-        )
+        .padding(.bottom, 10)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(isFocused ? Color.asterionInk : Color.asterionText.opacity(0.28))
+                .frame(height: isFocused ? 1.5 : 1)
+        }
         .enableInjection()
     }
 }

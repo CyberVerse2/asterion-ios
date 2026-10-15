@@ -29,6 +29,13 @@ struct NovelDetailView: View {
     @State private var downloadPreparedCount = 0
     @State private var downloadTotalCount = 0
     @State private var isNovelAvailableOffline = false
+    @State private var detailShelf: DetailShelf = .chapters
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    private enum DetailShelf: String, CaseIterable {
+        case chapters = "Chapters"
+        case moreLikeThis = "More like this"
+    }
 
     private let previewCount = 5
     private var genreColor: Color { GenreStyle.color(for: novel.genres) }
@@ -44,7 +51,7 @@ struct NovelDetailView: View {
     private var similarNovels: [Novel] {
         allNovels
             .filter { $0.id != novel.id && $0.genres?.contains(where: { novel.genres?.contains($0) == true }) == true }
-            .prefix(4)
+            .prefix(12)
             .map { $0 }
     }
 
@@ -56,19 +63,22 @@ struct NovelDetailView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     heroSection
                     metaStatsSection
-                    genrePillsSection
-                    synopsisSection
                     startReadingButton
-                    chapterPreviewSection
-                    similarNovelsSection
+                    synopsisSection
+                    detailShelfSection
                 }
                 .padding(.bottom, 100)
+                .background(alignment: .top) {
+                    AsterionCoverBleed(url: novel.imageUrl.flatMap(URL.init(string:)))
+                }
             }
         }
+        .background(Color.asterionBackground)
         .overlay(alignment: .top) {
-            topNavigationBar
+            AsterionDetailBar(onBack: performBack, topPadding: topBarTopPadding) {
+                EmptyView()
+            }
         }
-        .background(Color.asterionBackground.ignoresSafeArea())
         .toolbarVisibility(.hidden, for: .navigationBar)
         .toolbarVisibility(.hidden, for: .tabBar)
         .task { await loadInitialData() }
@@ -88,8 +98,7 @@ struct NovelDetailView: View {
                 genrePillsSection
                 synopsisSection
                 startReadingButton
-                chapterPreviewSection
-                similarNovelsSection
+                detailShelfSection
             }
             .frame(maxWidth: 720, alignment: .topLeading)
         }
@@ -105,10 +114,6 @@ struct NovelDetailView: View {
             CoverImageView(novel: novel, size: .lg)
                 .scaleEffect(1.08)
                 .padding(.bottom, 6)
-                .overlay(alignment: .bottomTrailing) {
-                    libraryBadge
-                        .offset(x: 22, y: 12)
-                }
 
             Text(novel.title)
                 .font(.asterionSerif(30, weight: .medium))
@@ -123,80 +128,33 @@ struct NovelDetailView: View {
         .padding(.top, 28)
         .padding(.horizontal, 28)
         .padding(.bottom, 30)
-        .background(
-            RoundedRectangle(cornerRadius: 18)
-                .fill(Color.asterionCard.opacity(0.58))
-                .stroke(genreColor.opacity(0.22), lineWidth: 1)
-        )
+        .asterionGlassSurface(cornerRadius: 18)
     }
 
     // MARK: - Hero
 
     private var heroSection: some View {
-        ZStack {
-            LinearGradient(
-                colors: [genreColor.opacity(0.1), Color.asterionBackground],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            MazePatternView()
-
-            VStack(spacing: 0) {
-                Spacer().frame(height: 120)
-
-                CoverImageView(novel: novel, size: .lg)
-                    .overlay(alignment: .bottomTrailing) {
-                        libraryBadge
-                            .offset(x: 10, y: 10)
-                    }
-                    .padding(.bottom, 24)
-
-                Text(novel.title)
-                    .font(.asterionSerif(26, weight: .medium))
-                    .foregroundStyle(Color.asterionText)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(3)
-                    .padding(.horizontal, 40)
-
-                Text(novel.author ?? "Unknown")
-                    .font(.asterionMono(13))
-                    .foregroundStyle(Color.asterionMuted)
-                    .padding(.top, 8)
-            }
-            .padding(.bottom, 40)
+        AsterionDetailHero(
+            title: novel.title,
+            subtitle: novel.author ?? "Unknown"
+        ) {
+            NovelPosterArt(novel: novel)
+                .frame(width: 132, height: 198)
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
-        .frame(height: 420)
     }
 
     // MARK: - Metadata Stats
 
     private var metaStatsSection: some View {
-        let items: [(String, String)] = [
-            novel.rank.map { ("Rank", "#\($0)") },
-            novel.rating.map { ("Rating", "★ \(String(format: "%.1f", $0))") },
-            novel.totalChapters.map { ("Chapters", $0) },
-            novel.status.map { ("Status", $0) },
-            novel.views.map { ("Views", $0) },
+        let items: [AsterionDetailStat] = [
+            novel.rank.map { AsterionDetailStat(label: "Rank", value: "#\($0)") },
+            novel.rating.map { AsterionDetailStat(label: "Rating", value: String(format: "%.1f", $0)) },
+            novel.totalChapters.map { AsterionDetailStat(label: "Chapters", value: $0) },
+            novel.status.map { AsterionDetailStat(label: "Status", value: $0) },
         ].compactMap { $0 }
 
-        return HStack(spacing: 28) {
-            ForEach(items, id: \.0) { item in
-                VStack(spacing: 4) {
-                    Text(item.1)
-                        .font(.asterionSerif(15, weight: .semibold))
-                        .foregroundStyle(Color.asterionText)
-                    Text(item.0.uppercased())
-                        .font(.asterionMono(9))
-                        .foregroundStyle(Color.asterionDim)
-                        .tracking(2)
-                }
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 24)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(Color.asterionCard).frame(height: 1)
-        }
+        return AsterionDetailStatsRow(items: items)
     }
 
     // MARK: - Genre Pills
@@ -204,24 +162,7 @@ struct NovelDetailView: View {
     @ViewBuilder
     private var genrePillsSection: some View {
         if let genres = novel.genres, !genres.isEmpty {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(genres, id: \.self) { genre in
-                        Text(genre)
-                            .font(.asterionMono(11))
-                            .foregroundStyle(genreColor.opacity(0.8))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 5)
-                            .background(
-                                Capsule()
-                                    .fill(genreColor.opacity(0.05))
-                                    .stroke(genreColor.opacity(0.15), lineWidth: 1)
-                            )
-                    }
-                }
-                .padding(.horizontal, 24)
-            }
-            .padding(.vertical, 16)
+            AsterionChipRow(chips: genres, tint: genreColor)
         }
     }
 
@@ -230,100 +171,39 @@ struct NovelDetailView: View {
     @ViewBuilder
     private var synopsisSection: some View {
         if let summary = novel.summary, !summary.isEmpty {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("SYNOPSIS")
-                    .font(.asterionMono(10))
-                    .foregroundStyle(Color.asterionDim)
-                    .tracking(3)
-
-                Text(summary)
-                    .font(.asterionSerif(16))
-                    .foregroundStyle(Color.asterionSynopsis)
-                    .lineSpacing(6)
-                    .lineLimit(synopsisExpanded ? nil : 4)
-
-                if summary.count > 200 {
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.3)) {
-                            synopsisExpanded.toggle()
-                        }
-                    } label: {
-                        Text(synopsisExpanded ? "Show less" : "Read more")
-                            .font(.asterionMono(12))
-                            .foregroundStyle(Color.goldAccent)
-                    }
-                    .padding(.top, 4)
-                }
-            }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 16)
+            AsterionSynopsisBlock(text: summary, genres: novel.genres ?? [], expanded: $synopsisExpanded)
         }
     }
 
-    private var topNavigationBar: some View {
-        HStack(spacing: 12) {
-            Button { performBack() } label: {
-                Text("← Back")
-                    .font(.asterionMono(13))
-                    .foregroundStyle(Color.asterionMuted)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 6)
-                    .background(
-                        Capsule()
-                            .fill(Color.asterionCard)
-                            .stroke(Color.asterionBorder, lineWidth: 1)
-                    )
+    private var downloadChip: some View {
+        Button {
+            if !effectiveIsDownloading {
+                Task { await downloadAllChapters() }
             }
-            .buttonStyle(.plain)
-
-            Spacer()
-
-            Button {
-                if !effectiveIsDownloading {
-                    Task { await downloadAllChapters() }
+        } label: {
+            ZStack {
+                if effectiveIsDownloading {
+                    Circle()
+                        .trim(from: 0, to: downloadProgress)
+                        .stroke(
+                            Color.asterionInk,
+                            style: StrokeStyle(lineWidth: 2, lineCap: .round)
+                        )
+                        .rotationEffect(.degrees(-90))
+                        .frame(width: 40, height: 40)
                 }
-            } label: {
-                HStack(spacing: 8) {
-                    ZStack {
-                        Circle()
-                            .stroke(Color.asterionBorder, lineWidth: 2)
-                            .frame(width: 28, height: 28)
 
-                        if effectiveIsDownloading {
-                            Circle()
-                                .trim(from: 0, to: downloadProgress)
-                                .stroke(
-                                    Color.goldAccent,
-                                    style: StrokeStyle(lineWidth: 2.4, lineCap: .round)
-                                )
-                                .rotationEffect(.degrees(-90))
-                                .frame(width: 28, height: 28)
-                        }
-
-                        Image(systemName: downloadIndicatorIconName)
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(downloadIndicatorColor)
-                    }
-
-                    Text(downloadStatusLabel)
-                        .font(.asterionMono(11))
-                        .foregroundStyle(Color.asterionMuted)
-                        .lineLimit(1)
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(
-                    Capsule()
-                        .fill(Color.asterionCard)
-                        .stroke(Color.asterionBorder, lineWidth: 1)
-                )
+                Image(systemName: downloadIndicatorIconName)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(downloadIndicatorColor)
             }
-            .buttonStyle(.plain)
-            .disabled((effectiveIsDownloading && effectiveTotalCount == 0) || (!networkMonitor.isConnected && !effectiveIsDownloading))
-            .opacity(!networkMonitor.isConnected && !effectiveIsDownloading ? 0.55 : 1)
+            .frame(width: 48, height: 48)
+            .background(Color.asterionCard, in: Circle())
         }
-        .padding(.top, topBarTopPadding)
-        .padding(.horizontal, 20)
+        .buttonStyle(.plain)
+        .accessibilityLabel(downloadStatusLabel)
+        .disabled((effectiveIsDownloading && effectiveTotalCount == 0) || (!networkMonitor.isConnected && !effectiveIsDownloading))
+        .opacity(!networkMonitor.isConnected && !effectiveIsDownloading ? 0.55 : 1)
     }
 
     private func performBack() {
@@ -336,77 +216,48 @@ struct NovelDetailView: View {
 
     // MARK: - Start Reading
 
-    @ViewBuilder
     private var libraryBadge: some View {
-        if authService.isSignedIn {
-            Button {
-                Task { await toggleLibrary() }
-            } label: {
-                ZStack {
-                    Circle()
-                        .fill(Color.asterionCard)
-                        .frame(width: 36, height: 36)
-                    Circle()
-                        .stroke(Color.asterionBorder, lineWidth: 1)
-                        .frame(width: 36, height: 36)
-
-                    if libraryActionInFlight {
-                        ProgressView()
-                            .tint(Color.goldAccent)
-                            .scaleEffect(0.6)
-                    } else {
-                        Image(systemName: isInLibrary ? "minus" : "plus")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(Color.goldAccent)
-                    }
-                }
-            }
-            .buttonStyle(.plain)
-            .disabled(libraryActionInFlight || !networkMonitor.isConnected)
-            .opacity(!networkMonitor.isConnected ? 0.55 : 1)
+        AsterionCircleIconButton(
+            systemName: isInLibrary ? "bookmark.fill" : "bookmark",
+            isBusy: libraryActionInFlight,
+            accessibilityLabel: isInLibrary ? "Remove from library" : "Save to library"
+        ) {
+            Task { await toggleLibrary() }
         }
+        .disabled(libraryActionInFlight || !networkMonitor.isConnected)
+        .opacity(!networkMonitor.isConnected ? 0.55 : 1)
     }
 
     @ViewBuilder
     private var startReadingButton: some View {
         let targetChapter = continueChapter ?? chapters.first
-        if let targetChapter {
-            let chapterListForReader: [Chapter] = {
-                if chapters.contains(where: { $0.id == targetChapter.id }) {
-                    return chapters
+        HStack(spacing: 10) {
+            if let targetChapter {
+                let chapterListForReader: [Chapter] = {
+                    if chapters.contains(where: { $0.id == targetChapter.id }) {
+                        return chapters
+                    }
+                    return [targetChapter] + chapters
+                }()
+                NavigationLink {
+                    ReaderView(
+                        initialChapter: targetChapter,
+                        novel: novel,
+                        allChapters: chapterListForReader
+                    )
+                } label: {
+                    AsterionPrimaryActionLabel(title: readingButtonTitle)
                 }
-                return [targetChapter] + chapters
-            }()
-            NavigationLink {
-                ReaderView(
-                    initialChapter: targetChapter,
-                    novel: novel,
-                    allChapters: chapterListForReader
-                )
-            } label: {
-                Text(readingButtonTitle)
-                    .font(.asterionSerif(17, weight: .semibold))
-                    .foregroundStyle(Color.asterionBackground)
-                    .lineLimit(1)
-                    .padding(.horizontal, 20)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
-                .background(
-                    RoundedRectangle(cornerRadius: 14)
-                        .fill(
-                            LinearGradient(
-                                colors: [genreColor, genreColor.opacity(0.8)],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                        )
-                )
-                .shadow(color: genreColor.opacity(0.3), radius: 10, y: 4)
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 24)
-            .padding(.bottom, 20)
+
+            libraryBadge
+            downloadChip
+            Spacer(minLength: 0)
         }
+        .padding(.horizontal, 24)
+        .padding(.top, 12)
+        .padding(.bottom, 8)
     }
 
     private var readingButtonTitle: String {
@@ -445,9 +296,7 @@ struct NovelDetailView: View {
     }
 
     private var downloadIndicatorIconName: String {
-        if effectiveIsDownloading { return "arrow.down" }
-        if isNovelAvailableOffline { return "checkmark" }
-        return "arrow.down.doc"
+        isNovelAvailableOffline ? "checkmark" : "arrow.down"
     }
 
     private var downloadIndicatorColor: Color {
@@ -464,167 +313,119 @@ struct NovelDetailView: View {
         return "Download All"
     }
 
-    // MARK: - Chapter Preview
+    // MARK: - Chapters / More like this
 
-    private var chapterPreviewSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("CHAPTERS")
-                .font(.asterionMono(10))
-                .foregroundStyle(Color.asterionDim)
-                .tracking(3)
+    private var detailShelfSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            AsterionIndexTabs(
+                items: DetailShelf.allCases,
+                title: { $0.rawValue },
+                rank: .section,
+                selection: $detailShelf
+            )
 
-            if loadingChapters {
-                HStack {
-                    Spacer()
-                    ProgressView().tint(Color.goldAccent)
-                    Spacer()
-                }
-                .padding(.vertical, 20)
-            } else if let error = chapterError {
-                VStack(spacing: 12) {
-                    Text(error)
-                        .font(.asterionMono(13))
-                        .foregroundStyle(Color.asterionMuted)
-                    Button("Try Again") {
-                        Task { await loadChapters() }
-                    }
-                    .font(.asterionMono(12))
-                    .foregroundStyle(Color.goldAccent)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 24)
-            } else if chapters.isEmpty {
-                Text("No chapters available yet")
-                    .font(.asterionMono(13))
-                    .foregroundStyle(Color.asterionDim)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 24)
-            } else {
-                VStack(spacing: 0) {
-                    let preview = Array(chapters.prefix(previewCount))
-                    ForEach(Array(preview.enumerated()), id: \.element.id) { index, chapter in
-                        NavigationLink {
-                            ReaderView(
-                                initialChapter: chapter,
-                                novel: novel,
-                                allChapters: chapters,
-                                shouldAutoResumeFromSavedProgress: false
-                            )
-                        } label: {
-                            HStack(spacing: 10) {
-                                Text("#\(chapter.chapterNumber)")
-                                    .font(.asterionMono(10))
-                                    .foregroundStyle(Color.asterionDim)
-                                    .frame(width: 36, alignment: .leading)
-
-                                Text(chapter.title)
-                                    .font(.asterionSerif(15))
-                                    .foregroundStyle(Color.asterionReaderText)
-                                    .lineLimit(1)
-
-                                Spacer()
-
-                                Text("›")
-                                    .font(.system(size: 14))
-                                    .foregroundStyle(Color.asterionBorder)
-                            }
-                            .padding(.vertical, 13)
-                            .padding(.horizontal, 16)
-                        }
-                        .buttonStyle(.plain)
-
-                        if index < preview.count - 1 {
-                            Divider().overlay(Color.asterionCard)
-                        }
-                    }
-                }
-                .background(
-                    RoundedRectangle(cornerRadius: 14)
-                        .stroke(Color.asterionBorder, lineWidth: 1)
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 14))
-
-                NavigationLink {
-                    ChaptersView(novel: novel, allChapters: chapters, totalCount: totalChapters)
-                } label: {
-                    HStack(spacing: 8) {
-                        Text("View All Chapters")
-                            .font(.asterionMono(13))
-                            .foregroundStyle(Color.goldAccent)
-                        Text("→")
-                            .font(.system(size: 11))
-                            .foregroundStyle(Color.goldAccent)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(Color.asterionBorder, lineWidth: 1)
-                    )
-                }
-                .buttonStyle(.plain)
-                .padding(.top, 12)
+            switch detailShelf {
+            case .chapters:
+                chapterList
+            case .moreLikeThis:
+                moreLikeThisGrid
             }
         }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 8)
+        .padding(.top, 8)
+        .padding(.bottom, 8)
     }
 
-    // MARK: - Similar Novels
-
     @ViewBuilder
-    private var similarNovelsSection: some View {
-        if !similarNovels.isEmpty {
-            VStack(alignment: .leading, spacing: 14) {
-                Text("YOU'LL LIKE MORE OF THESE")
-                    .font(.asterionMono(10))
+    private var chapterList: some View {
+        if loadingChapters {
+            ProgressView()
+                .tint(Color.asterionInk)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 24)
+        } else if let error = chapterError {
+            VStack(spacing: 10) {
+                Text(error)
+                    .font(.asterionReading(14))
                     .foregroundStyle(Color.asterionMuted)
-                    .tracking(2)
-                    .padding(.horizontal, 24)
+                Button("Try again") { Task { await loadChapters() } }
+                    .font(.asterionReading(15, weight: .medium))
+                    .foregroundStyle(Color.asterionInk)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(24)
+        } else if chapters.isEmpty {
+            Text("No chapters yet")
+                .font(.asterionReading(15))
+                .foregroundStyle(Color.asterionMuted)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 16)
+        } else {
+            VStack(spacing: 0) {
+                let preview = Array(chapters.prefix(previewCount))
+                ForEach(Array(preview.enumerated()), id: \.element.id) { index, chapter in
+                    NavigationLink {
+                        ReaderView(
+                            initialChapter: chapter,
+                            novel: novel,
+                            allChapters: chapters,
+                            shouldAutoResumeFromSavedProgress: false
+                        )
+                    } label: {
+                        AsterionUnitRow(
+                            index: "#\(chapter.chapterNumber)",
+                            title: chapter.displayTitle
+                        )
+                    }
+                    .buttonStyle(.plain)
 
-                LazyVGrid(
-                    columns: [
-                        GridItem(.flexible(), spacing: 16),
-                        GridItem(.flexible(), spacing: 16),
-                        GridItem(.flexible(), spacing: 16),
-                    ],
-                    spacing: 16
-                ) {
-                    ForEach(similarNovels, id: \.id) { n in
-                        NavigationLink {
-                            NovelDetailView(novel: n)
-                        } label: {
-                            VStack(alignment: .leading, spacing: 0) {
-                                CoverImageView(novel: n, size: .tile)
-                                    .padding(.bottom, 8)
-
-                                Text(n.title)
-                                    .font(.asterionSerif(13, weight: .medium))
-                                    .foregroundStyle(Color.asterionText)
-                                    .lineLimit(2)
-                                    .multilineTextAlignment(.leading)
-
-                                Text(n.author ?? "Unknown")
-                                    .font(.asterionMono(10))
-                                    .foregroundStyle(Color.asterionMuted)
-                                    .padding(.top, 3)
-
-                                if let rating = n.rating {
-                                    Text("★ \(String(format: "%.1f", rating))")
-                                        .font(.asterionMono(10))
-                                        .foregroundStyle(Color.goldAccent)
-                                        .padding(.top, 4)
-                                }
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .buttonStyle(.plain)
+                    if index < preview.count - 1 {
+                        Divider().overlay(Color.asterionBorder)
                     }
                 }
-                .padding(.horizontal, 24)
             }
-            .padding(.top, 24)
-            .padding(.bottom, 8)
+            .padding(.horizontal, 24)
+
+            NavigationLink {
+                ChaptersView(novel: novel, allChapters: chapters, totalCount: totalChapters)
+            } label: {
+                Text("View all chapters")
+                    .font(.asterionReading(14, weight: .medium))
+                    .foregroundStyle(Color.asterionInk)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(Color.asterionCard, in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 24)
+        }
+    }
+
+    @ViewBuilder
+    private var moreLikeThisGrid: some View {
+        if similarNovels.isEmpty {
+            Text("Nothing similar yet")
+                .font(.asterionReading(15))
+                .foregroundStyle(Color.asterionMuted)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 16)
+        } else {
+            LazyVGrid(
+                columns: AsterionLayout.posterColumns(horizontalSizeClass),
+                spacing: 14
+            ) {
+                ForEach(similarNovels) { similar in
+                    NavigationLink {
+                        NovelDetailView(novel: similar)
+                    } label: {
+                        NovelTileCard(novel: similar)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 6)
         }
     }
 
@@ -744,6 +545,7 @@ struct NovelDetailView: View {
                 _ = try await apiClient.addNovelToLibrary(novelId: novel.id)
                 isInLibrary = true
             }
+            NotificationCenter.default.post(name: .asterionSavedNovelsChanged, object: nil)
         } catch {
             // Keep the current state when request fails.
         }
@@ -794,12 +596,7 @@ struct NovelDetailView: View {
                     }
                 }
 
-                let chapterHeader: String
-                if fullChapter.chapterNumber > 0 {
-                    chapterHeader = "Chapter \(fullChapter.chapterNumber): \(fullChapter.title)"
-                } else {
-                    chapterHeader = fullChapter.title
-                }
+                let chapterHeader = fullChapter.labeledTitle
                 await OfflineChapterStore.shared.cacheChapter(fullChapter)
 
                 let fileBody = """
@@ -812,7 +609,9 @@ struct NovelDetailView: View {
                     novelTitle: novel.title,
                     chapterNumber: fullChapter.chapterNumber,
                     chapterTitle: fullChapter.title,
-                    content: fileBody
+                    content: fileBody,
+                    novel: novel,
+                    chapter: fullChapter
                 )
                 downloadPreparedCount += 1
                 downloadStore.update(

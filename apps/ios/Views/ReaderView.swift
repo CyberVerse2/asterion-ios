@@ -1,12 +1,28 @@
 import Inject
+import Combine
 import SwiftUI
 import WidgetKit
+
+private enum ReaderThemePreference: String, CaseIterable {
+    case system = "System"
+    case parchment = "Parchment"
+    case night = "Night"
+}
+
+private enum ReaderTypefacePreference: String, CaseIterable {
+    case literary = "Literary"
+    case classic = "Classic"
+    case accessible = "Accessible"
+}
 
 struct ReaderView: View {
     @ObserveInjection var inject
     @EnvironmentObject private var apiClient: APIClient
     @EnvironmentObject private var readingProgressService: ReadingProgressService
     @EnvironmentObject private var tabBarState: TabBarState
+    @EnvironmentObject private var authService: AuthService
+    @EnvironmentObject private var readingActivityService: ReadingActivityService
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
@@ -14,10 +30,15 @@ struct ReaderView: View {
     let novel: Novel
     let allChapters: [Chapter]
     let shouldAutoResumeFromSavedProgress: Bool
+    let offlineOnly: Bool
+    let offlineChapterFiles: [DownloadedChapterFile]
+    @State private var lastReadingTick: Date?
+    @State private var readerVisible = false
+    private let readingTimer = Timer.publish(every: 15, on: .main, in: .common).autoconnect()
 
     @State private var currentChapter: Chapter
     @State private var showControls = true
-    @State private var fontSize: CGFloat = 19
+    @State private var fontSize: CGFloat = 20
     @State private var controlTimer: Task<Void, Never>?
     @State private var loadingChapter = false
     @State private var scrollProxy: ScrollViewProxy?
@@ -29,8 +50,42 @@ struct ReaderView: View {
     @State private var showDownloadAlert = false
     @State private var downloadAlertMessage = ""
     @State private var isCurrentChapterDownloaded = false
+    @State private var showReaderSettings = false
+    @State private var showChapterPicker = false
+    @State private var currentBookmarkID: String?
+    @State private var bookmarkActionInFlight = false
+    @State private var alertTitle = "Chapter Download"
+    @AppStorage("asterion.reader.theme") private var readerThemeRaw = ReaderThemePreference.system.rawValue
+    @AppStorage("asterion.reader.typeface") private var readerTypefaceRaw = ReaderTypefacePreference.literary.rawValue
+    @AppStorage("asterion.reader.line-spacing") private var savedLineSpacing = 0.85
 
-    private var genreColor: Color { GenreStyle.color(for: novel.genres) }
+    private var readerTheme: ReaderThemePreference {
+        ReaderThemePreference(rawValue: readerThemeRaw) ?? .system
+    }
+    private var readerTypeface: ReaderTypefacePreference {
+        ReaderTypefacePreference(rawValue: readerTypefaceRaw) ?? .literary
+    }
+    private var readerBackground: Color {
+        switch readerTheme {
+        case .system: Color.asterionBackground
+        case .parchment: Color(red: 0.94, green: 0.90, blue: 0.80)
+        case .night: Color(red: 0.035, green: 0.04, blue: 0.05)
+        }
+    }
+    private var readerForeground: Color {
+        switch readerTheme {
+        case .system: Color.asterionReaderText
+        case .parchment: Color(red: 0.18, green: 0.15, blue: 0.11)
+        case .night: Color(red: 0.86, green: 0.84, blue: 0.79)
+        }
+    }
+    private var readerFont: Font {
+        switch readerTypeface {
+        case .literary: .asterionLiterary(fontSize)
+        case .classic: .system(size: fontSize, design: .serif)
+        case .accessible: .system(size: fontSize, weight: .regular, design: .rounded)
+        }
+    }
     private var isDesktop: Bool {
         #if targetEnvironment(macCatalyst)
         true
@@ -66,11 +121,13 @@ struct ReaderView: View {
     }
 
     private var canNavigatePrev: Bool {
+        if offlineOnly { return hasPrev }
         if currentChapter.chapterNumber > 1 { return true }
         return hasPrev
     }
 
     private var canNavigateNext: Bool {
+        if offlineOnly { return hasNext }
         if let totalChapterCountHint, currentChapter.chapterNumber > 0 {
             return currentChapter.chapterNumber < totalChapterCountHint
         }
@@ -99,15 +156,7 @@ struct ReaderView: View {
         if isLargeIPadLayout { return 1120 }
         return 640
     }
-    private var topBarTitleMaxWidth: CGFloat {
-        if isDesktop { return 420 }
-        return isLargeIPadLayout ? 360 : 160
-    }
-    private var topBarHorizontalPadding: CGFloat {
-        if isDesktop { return 28 }
-        return isLargeIPadLayout ? 20 : 20
-    }
-    private var topBarTopPadding: CGFloat { isDesktop ? 18 : 40 }
+    private var topBarTopPadding: CGFloat { isDesktop ? 18 : 44 }
     private var bottomBarBottomPadding: CGFloat { isDesktop ? 22 : 34 }
 
     private var paragraphs: [String] {
@@ -123,12 +172,16 @@ struct ReaderView: View {
         initialChapter: Chapter,
         novel: Novel,
         allChapters: [Chapter],
-        shouldAutoResumeFromSavedProgress: Bool = true
+        shouldAutoResumeFromSavedProgress: Bool = true,
+        offlineOnly: Bool = false,
+        offlineChapterFiles: [DownloadedChapterFile] = []
     ) {
         self.initialChapter = initialChapter
         self.novel = novel
         self.allChapters = allChapters
         self.shouldAutoResumeFromSavedProgress = shouldAutoResumeFromSavedProgress
+        self.offlineOnly = offlineOnly
+        self.offlineChapterFiles = offlineChapterFiles
         self._currentChapter = State(initialValue: initialChapter)
         #if targetEnvironment(macCatalyst)
         self._fontSize = State(initialValue: 20)
@@ -169,45 +222,71 @@ struct ReaderView: View {
             }
 
             if loadingChapter {
-                Color.asterionBackground.opacity(0.85).ignoresSafeArea()
-                VStack(spacing: 16) {
-                    ProgressView().tint(Color.goldAccent)
-                    Text("Loading chapter...")
-                        .font(.asterionMono(12))
-                        .foregroundStyle(Color.asterionDim)
+                readerBackground.opacity(0.92).ignoresSafeArea()
+                VStack(spacing: 14) {
+                    ProgressView().tint(Color.asterionInk)
+                    Text("Loading chapter")
+                        .font(.asterionReading(14))
+                        .foregroundStyle(Color.asterionMuted)
                 }
             }
         }
-        .background(Color.asterionBackground.ignoresSafeArea())
+        .background(readerBackground.ignoresSafeArea())
+        .navigationBarBackButtonHidden(true)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .navigationBar)
         .toolbarVisibility(.hidden, for: .navigationBar)
         .toolbarVisibility(.hidden, for: .tabBar)
         .statusBarHidden(isDesktop ? false : !showControls)
         .onAppear {
+            readerVisible = true
+            lastReadingTick = .now
             tabBarState.isVisible = false
             if !isDesktop { scheduleHideControls() }
             Task { await restoreProgressAndLoadChapter() }
             Task { await refreshCurrentChapterDownloadState() }
             Task { await updateReadingLiveActivity() }
+            Task { await refreshCurrentBookmark() }
         }
         .onDisappear { tabBarState.isVisible = true }
         .onDisappear {
+            recordReadingTime()
+            readerVisible = false
+            lastReadingTick = nil
             progressSyncTask?.cancel()
             liveActivityUpdateTask?.cancel()
             Task { await ReadingLiveActivityManager.shared.end() }
             syncReadingPosition(reloadWidget: true)
         }
-        .alert("Chapter Download", isPresented: $showDownloadAlert) {
+        .onReceive(readingTimer) { _ in
+            guard readerVisible, scenePhase == .active else { return }
+            recordReadingTime()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active, readerVisible { lastReadingTick = .now }
+            else { recordReadingTime(); lastReadingTick = nil }
+        }
+        .alert(alertTitle, isPresented: $showDownloadAlert) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(downloadAlertMessage)
         }
         .edgeSwipeToDismiss { dismiss() }
+        .sheet(isPresented: $showReaderSettings) {
+            readerSettingsSheet
+                .presentationDetents([.medium, .large])
+        }
+        .sheet(isPresented: $showChapterPicker) {
+            chapterPickerSheet
+                .presentationDetents([.medium, .large])
+        }
         .onChange(of: currentChapter.id) { _, _ in
             currentLine = 0
             withAnimation {
                 scrollProxy?.scrollTo("top", anchor: .top)
             }
             Task { await refreshCurrentChapterDownloadState() }
+            Task { await refreshCurrentBookmark() }
             scheduleReadingLiveActivityUpdate()
         }
         .enableInjection()
@@ -216,31 +295,32 @@ struct ReaderView: View {
     // MARK: - Chapter Heading
 
     private var chapterHeading: some View {
-        VStack(spacing: 8) {
-            Spacer().frame(height: 80)
+        VStack(spacing: 10) {
+            Spacer().frame(height: 72)
+
+            Text(novel.title)
+                .font(.asterionReading(13))
+                .foregroundStyle(Color.asterionMuted)
+                .lineLimit(1)
 
             if currentChapter.chapterNumber > 0 {
-                Text("CHAPTER \(currentChapter.chapterNumber)")
-                    .font(.asterionMono(10))
-                    .foregroundStyle(Color.asterionBorderHover)
-                    .tracking(4)
+                Text("Chapter \(currentChapter.chapterNumber)")
+                    .font(.asterionReading(13, weight: .medium))
+                    .foregroundStyle(Color.asterionMuted)
             }
 
-            Text(currentChapter.title)
-                .font(.asterionSerif(22, weight: .light))
-                .foregroundStyle(Color.asterionMuted)
-                .italic()
-                .multilineTextAlignment(.center)
-                .lineLimit(3)
-
-            Rectangle()
-                .fill(Color.asterionBorder)
-                .frame(width: 40, height: 1)
-                .padding(.top, 8)
+            if !currentChapter.displayTitle.isEmpty {
+                Text(currentChapter.displayTitle)
+                    .font(.asterionDisplay(28, weight: .medium))
+                    .foregroundStyle(Color.asterionText)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(3)
+                    .minimumScaleFactor(0.8)
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, readerHorizontalPadding)
-        .padding(.bottom, 10)
+        .padding(.bottom, 22)
     }
 
     // MARK: - Chapter Content
@@ -250,9 +330,9 @@ struct ReaderView: View {
             ForEach(Array(paragraphs.enumerated()), id: \.offset) { index, para in
                 Text(para)
                     .id(lineAnchorId(for: index))
-                    .font(.asterionSerif(fontSize))
-                    .lineSpacing(fontSize * (isLargeIPadLayout ? 0.95 : 0.85))
-                    .foregroundStyle(Color.asterionReaderText)
+                    .font(readerFont)
+                    .lineSpacing(fontSize * savedLineSpacing)
+                    .foregroundStyle(readerForeground)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.leading, index > 0 ? readerHorizontalPadding : 0)
                     .background {
@@ -274,186 +354,336 @@ struct ReaderView: View {
     // MARK: - End of Chapter Nav
 
     private var endOfChapterNav: some View {
-        VStack(spacing: 0) {
-            Rectangle().fill(Color.asterionCard).frame(height: 1)
-                .padding(.horizontal, readerHorizontalPadding)
-
-            HStack(spacing: 16) {
-                if shouldShowPrevButton {
-                    Button {
-                        navigateChapter(direction: -1)
-                    } label: {
-                        Text("← Previous")
-                            .font(.asterionSerif(14))
-                            .foregroundStyle(canNavigatePrev ? Color.asterionMuted : Color.asterionBorder)
-                            .padding(.horizontal, 24)
-                            .padding(.vertical, 12)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(Color.asterionCard)
-                                    .stroke(Color.asterionBorder, lineWidth: 1)
-                            )
-                    }
-                    .disabled(!canNavigatePrev)
-                }
-
+        HStack(spacing: 10) {
+            if shouldShowPrevButton {
                 Button {
-                    navigateChapter(direction: 1)
+                    navigateChapter(direction: -1)
                 } label: {
-                    Text("Next Chapter →")
-                        .font(.asterionSerif(14))
-                        .foregroundStyle(canNavigateNext ? Color.goldAccent : Color.asterionBorder)
-                        .padding(.horizontal, 24)
-                        .padding(.vertical, 12)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(Color.asterionCard)
-                                .stroke(
-                                    canNavigateNext ? genreColor.opacity(0.3) : Color.asterionBorder,
-                                    lineWidth: 1
-                                )
-                        )
+                    Text("Previous")
+                        .font(.asterionReading(15, weight: .medium))
+                        .foregroundStyle(canNavigatePrev ? Color.asterionText : Color.asterionMuted)
+                        .padding(.horizontal, 22)
+                        .padding(.vertical, 13)
+                        .background(Color.asterionCard, in: Capsule())
                 }
-                .disabled(!canNavigateNext)
+                .buttonStyle(.plain)
+                .disabled(!canNavigatePrev)
             }
-            .padding(.vertical, 40)
+
+            Button {
+                navigateChapter(direction: 1)
+            } label: {
+                Text("Next chapter")
+                    .font(.asterionReading(15, weight: .semibold))
+                    .foregroundStyle(canNavigateNext ? Color.asterionOnInk : Color.asterionMuted)
+                    .padding(.horizontal, 22)
+                    .padding(.vertical, 13)
+                    .background(
+                        canNavigateNext ? Color.asterionInk : Color.asterionCard,
+                        in: Capsule()
+                    )
+            }
+            .buttonStyle(.plain)
+            .disabled(!canNavigateNext)
         }
-        .padding(.bottom, 20)
+        .padding(.top, 28)
+        .padding(.bottom, 36)
     }
 
     // MARK: - Top Control Bar
 
     private var topControlBar: some View {
-        HStack {
-            Button {
-                dismiss()
-            } label: {
-                Text("← Back")
-                    .font(.asterionMono(13))
-                    .foregroundStyle(Color.asterionMuted)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 6)
-                    .overlay(
-                        Capsule().stroke(Color.asterionBorder, lineWidth: 1)
-                    )
-            }
-
-            Spacer()
-
-            Text(novel.title)
-                .font(.asterionMono(11))
-                .foregroundStyle(Color.asterionDim)
-                .lineLimit(1)
-                .frame(maxWidth: topBarTitleMaxWidth)
-
-            Spacer()
-
+        AsterionDetailBar(onBack: { dismiss() }, topPadding: topBarTopPadding) {
             HStack(spacing: 8) {
-                Button {
-                    Task { await downloadCurrentChapterToFolder() }
-                } label: {
-                    Image(systemName: isCurrentChapterDownloaded ? "checkmark.circle.fill" : "arrow.down.doc")
-                        .font(.system(size: 14))
-                        .foregroundStyle(
-                            isCurrentChapterDownloaded
-                                ? Color(red: 0.353, green: 0.608, blue: 0.478)
-                                : Color.asterionMuted
-                        )
-                        .frame(width: 32, height: 32)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(Color.asterionBorder, lineWidth: 1)
-                        )
-                }
                 Button { fontSize = max(14, fontSize - 1) } label: {
-                    Text("A-")
-                        .font(.system(size: 14))
-                        .foregroundStyle(Color.asterionMuted)
-                        .frame(width: 32, height: 32)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(Color.asterionBorder, lineWidth: 1)
-                        )
+                    Text("A−")
+                        .font(.asterionReading(14, weight: .medium))
+                        .modifier(ReaderChromeCircle())
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Smaller text")
+
                 Button { fontSize = min(28, fontSize + 1) } label: {
                     Text("A+")
-                        .font(.system(size: 16))
-                        .foregroundStyle(Color.asterionMuted)
-                        .frame(width: 32, height: 32)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(Color.asterionBorder, lineWidth: 1)
-                        )
+                        .font(.asterionReading(15, weight: .medium))
+                        .modifier(ReaderChromeCircle())
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Larger text")
+
+                Menu {
+                    Button {
+                        showChapterPicker = true
+                    } label: {
+                        Label("Choose chapter", systemImage: "list.number")
+                    }
+
+                    Button {
+                        Task { await toggleCurrentBookmark() }
+                    } label: {
+                        Label(
+                            currentBookmarkID == nil ? "Bookmark chapter" : "Remove bookmark",
+                            systemImage: currentBookmarkID == nil ? "bookmark" : "bookmark.fill"
+                        )
+                    }
+                    .disabled(bookmarkActionInFlight)
+
+                    Button {
+                        Task { await downloadCurrentChapterToFolder() }
+                    } label: {
+                        Label(
+                            isCurrentChapterDownloaded ? "Downloaded" : "Download chapter",
+                            systemImage: isCurrentChapterDownloaded ? "checkmark" : "arrow.down"
+                        )
+                    }
+
+                    ShareLink(item: exportText, subject: Text(novel.title)) {
+                        Label("Share chapter", systemImage: "square.and.arrow.up")
+                    }
+
+                    Button {
+                        showReaderSettings = true
+                    } label: {
+                        Label("Reading settings", systemImage: "textformat.size")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 14, weight: .semibold))
+                        .modifier(ReaderChromeCircle())
+                }
+                .accessibilityLabel("More")
             }
         }
-        .padding(.horizontal, topBarHorizontalPadding)
-        .padding(.top, topBarTopPadding)
-        .padding(.bottom, 12)
-        .background(
+        .background {
             LinearGradient(
-                colors: [Color.asterionBackground, Color.asterionBackground, .clear],
+                colors: [readerBackground, readerBackground.opacity(0.96), readerBackground.opacity(0)],
                 startPoint: .top,
                 endPoint: .bottom
             )
-        )
+            .ignoresSafeArea(edges: .top)
+        }
         .opacity(showControls ? 1 : 0)
-        .animation(.easeInOut(duration: 0.4), value: showControls)
+        .animation(.easeInOut(duration: 0.35), value: showControls)
         .allowsHitTesting(showControls)
     }
 
     // MARK: - Bottom Control Bar
 
     private var bottomControlBar: some View {
-        HStack(spacing: 24) {
+        HStack(spacing: 10) {
             if shouldShowPrevButton {
                 Button { navigateChapter(direction: -1) } label: {
-                    Text("◂ Prev")
-                        .font(.asterionMono(12))
-                        .foregroundStyle(canNavigatePrev ? Color.asterionMuted : Color.asterionBorder)
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 8)
-                        .background(
-                            Capsule()
-                                .fill(Color.asterionCard)
-                                .stroke(Color.asterionBorder, lineWidth: 1)
-                        )
+                    Text("Previous")
+                        .font(.asterionReading(15, weight: .medium))
+                        .foregroundStyle(canNavigatePrev ? Color.asterionText : Color.asterionMuted)
+                        .padding(.horizontal, 22)
+                        .padding(.vertical, 13)
+                        .background(Color.asterionCard, in: Capsule())
                 }
+                .buttonStyle(.plain)
                 .disabled(!canNavigatePrev)
             }
+
             Button { navigateChapter(direction: 1) } label: {
-                Text("Next ▸")
-                    .font(.asterionMono(12))
-                    .foregroundStyle(canNavigateNext ? Color.goldAccent : Color.asterionBorder)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 8)
+                Text("Next chapter")
+                    .font(.asterionReading(15, weight: .semibold))
+                    .foregroundStyle(canNavigateNext ? Color.asterionOnInk : Color.asterionMuted)
+                    .padding(.horizontal, 22)
+                    .padding(.vertical, 13)
                     .background(
-                        Capsule()
-                            .fill(Color.asterionCard)
-                            .stroke(
-                                canNavigateNext ? genreColor.opacity(0.5) : Color.asterionBorder,
-                                lineWidth: 1
-                            )
+                        canNavigateNext ? Color.asterionInk : Color.asterionCard,
+                        in: Capsule()
                     )
             }
+            .buttonStyle(.plain)
             .disabled(!canNavigateNext)
         }
         .padding(.bottom, bottomBarBottomPadding)
-        .padding(.top, 16)
+        .padding(.top, 20)
         .frame(maxWidth: .infinity)
-        .background(
+        .background {
             LinearGradient(
-                colors: [.clear, Color.asterionBackground, Color.asterionBackground],
+                colors: [readerBackground.opacity(0), readerBackground.opacity(0.94), readerBackground],
                 startPoint: .top,
                 endPoint: .bottom
             )
-        )
+            .ignoresSafeArea(edges: .bottom)
+        }
         .opacity(showControls ? 1 : 0)
-        .animation(.easeInOut(duration: 0.4), value: showControls)
+        .animation(.easeInOut(duration: 0.35), value: showControls)
         .allowsHitTesting(showControls)
     }
 
+    private var readerSettingsSheet: some View {
+        NavigationStack {
+            Form {
+                Section("Appearance") {
+                    Picker("Theme", selection: $readerThemeRaw) {
+                        ForEach(ReaderThemePreference.allCases, id: \.rawValue) { theme in
+                            Text(theme.rawValue).tag(theme.rawValue)
+                        }
+                    }
+                    Picker("Typeface", selection: $readerTypefaceRaw) {
+                        ForEach(ReaderTypefacePreference.allCases, id: \.rawValue) { typeface in
+                            Text(typeface.rawValue).tag(typeface.rawValue)
+                        }
+                    }
+                }
+
+                Section("Text") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Text("Size")
+                            Spacer()
+                            Text("\(Int(fontSize)) pt")
+                                .foregroundStyle(Color.asterionMuted)
+                        }
+                        Slider(value: $fontSize, in: 14...30, step: 1)
+                            .tint(Color.asterionInk)
+                    }
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Text("Line spacing")
+                            Spacer()
+                            Text(savedLineSpacing, format: .number.precision(.fractionLength(1)))
+                                .foregroundStyle(Color.asterionMuted)
+                        }
+                        Slider(value: $savedLineSpacing, in: 0.5...1.4, step: 0.1)
+                            .tint(Color.asterionInk)
+                    }
+                }
+
+                Section("Preview") {
+                    Text("A good reader disappears, leaving only the world on the page.")
+                        .font(readerFont)
+                        .lineSpacing(fontSize * savedLineSpacing)
+                        .foregroundStyle(readerForeground)
+                        .padding(.vertical, 12)
+                        .listRowBackground(readerBackground)
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .background(Color.asterionBackground)
+            .navigationTitle("Reading settings")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { showReaderSettings = false }
+                }
+            }
+        }
+    }
+
+    private var chapterPickerSheet: some View {
+        NavigationStack {
+            List(navigationChapters) { chapter in
+                Button {
+                    showChapterPicker = false
+                    Task { await openChapter(chapter) }
+                } label: {
+                    HStack(spacing: 12) {
+                        Text(chapter.chapterNumber > 0 ? "\(chapter.chapterNumber)" : "•")
+                            .font(.asterionReading(13, weight: .medium))
+                            .foregroundStyle(Color.asterionMuted)
+                            .monospacedDigit()
+                            .frame(width: 36, alignment: .trailing)
+                        Text(chapter.displayTitle.isEmpty ? chapter.labeledTitle : chapter.displayTitle)
+                            .font(.asterionReading(16))
+                            .foregroundStyle(Color.asterionText)
+                            .lineLimit(2)
+                        Spacer()
+                        if chapter.id == currentChapter.id {
+                            Image(systemName: "checkmark")
+                                .foregroundStyle(Color.asterionInk)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+            .scrollContentBackground(.hidden)
+            .background(Color.asterionBackground)
+            .navigationTitle("Chapters")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") { showChapterPicker = false }
+                }
+            }
+        }
+    }
+
+    private var exportText: String {
+        let chapterLabel = currentChapter.labeledTitle
+        return """
+        \(novel.title)
+        \(chapterLabel)
+
+        \(paragraphs.joined(separator: "\n\n"))
+        """
+    }
+
     // MARK: - Actions
+
+    private func openChapter(_ chapter: Chapter) async {
+        recordReadingTime()
+        if offlineOnly {
+            guard let loaded = loadOfflineChapter(chapter) else { return }
+            currentLine = 0
+            currentChapter = loaded
+            syncReadingPosition()
+            scheduleHideControls()
+            return
+        }
+        currentLine = 0
+        loadingChapter = true
+        defer { loadingChapter = false; lastReadingTick = .now }
+        do {
+            currentChapter = try await apiClient.fetchChapter(id: chapter.id)
+            await OfflineChapterStore.shared.cacheChapter(currentChapter)
+        } catch {
+            currentChapter = await OfflineChapterStore.shared.chapter(id: chapter.id) ?? chapter
+        }
+        syncReadingPosition()
+        scheduleHideControls()
+    }
+
+    private func refreshCurrentBookmark() async {
+        guard authService.isSignedIn, !offlineOnly else {
+            currentBookmarkID = nil
+            return
+        }
+        do {
+            currentBookmarkID = try await apiClient.fetchBookmarks().first {
+                $0.novelId == novel.id && $0.chapterId == currentChapter.id
+            }?.id
+        } catch {
+            currentBookmarkID = nil
+        }
+    }
+
+    private func toggleCurrentBookmark() async {
+        guard authService.isSignedIn else {
+            alertTitle = "Sign in to bookmark"
+            downloadAlertMessage = "You can keep reading as a guest. Sign in from Account when you want bookmarks on every device."
+            showDownloadAlert = true
+            return
+        }
+        bookmarkActionInFlight = true
+        defer { bookmarkActionInFlight = false }
+        do {
+            if let currentBookmarkID {
+                _ = try await apiClient.deleteBookmark(id: currentBookmarkID)
+                self.currentBookmarkID = nil
+            } else {
+                currentBookmarkID = try await apiClient.createBookmark(
+                    novelId: novel.id,
+                    chapterId: currentChapter.id
+                ).id
+            }
+        } catch {
+            alertTitle = "Bookmark unavailable"
+            downloadAlertMessage = "The bookmark could not be saved. Please try again."
+            showDownloadAlert = true
+        }
+    }
 
     private func toggleControls() {
         guard !isDesktop else { return }
@@ -472,9 +702,10 @@ struct ReaderView: View {
     }
 
     private func navigateChapter(direction: Int) {
+        recordReadingTime()
         loadingChapter = true
         Task {
-            defer { loadingChapter = false }
+            defer { loadingChapter = false; lastReadingTick = .now }
 
             let target: Chapter?
             let nextIdx = currentIndex + direction
@@ -485,6 +716,15 @@ struct ReaderView: View {
             }
 
             guard let target else { return }
+            if offlineOnly {
+                guard let loaded = loadOfflineChapter(target) else { return }
+                currentLine = 0
+                currentChapter = loaded
+                syncReadingPosition()
+                scheduleHideControls()
+                return
+            }
+            currentLine = 0
 
             do {
                 let full = try await apiClient.fetchChapter(id: target.id)
@@ -503,6 +743,7 @@ struct ReaderView: View {
     }
 
     private func fetchAdjacentChapterFallback(direction: Int) async -> Chapter? {
+        guard !offlineOnly else { return nil }
         guard currentChapter.chapterNumber > 0 else { return nil }
         let targetNumber = currentChapter.chapterNumber + direction
         guard targetNumber > 0 else { return nil }
@@ -535,8 +776,9 @@ struct ReaderView: View {
     }
 
     private func loadInitialChapter() async {
+        if offlineOnly { syncReadingPosition(); return }
         loadingChapter = true
-        defer { loadingChapter = false }
+        defer { loadingChapter = false; lastReadingTick = .now }
         do {
             currentChapter = try await apiClient.fetchChapter(id: currentChapter.id)
             await OfflineChapterStore.shared.cacheChapter(currentChapter)
@@ -550,6 +792,22 @@ struct ReaderView: View {
     }
 
     private func restoreProgressAndLoadChapter() async {
+        if offlineOnly {
+            if shouldAutoResumeFromSavedProgress,
+               let saved = readingProgressService.localProgress.first(where: { $0.novelId == novel.id }),
+               let chapter = allChapters.first(where: { $0.id == saved.chapterId }) {
+                currentChapter = chapter
+                currentLine = saved.currentLine
+                pendingRestoreLine = saved.currentLine
+            }
+            guard let loaded = loadOfflineChapter(currentChapter) else { return }
+            currentChapter = loaded
+            lastReadingTick = .now
+            syncReadingPosition()
+            await Task.yield()
+            restoreScrollPositionIfNeeded()
+            return
+        }
         if shouldAutoResumeFromSavedProgress {
             await readingProgressService.refreshRemoteProgress(novelId: novel.id)
             let bestProgress = readingProgressService.currentProgress?.novelId == novel.id
@@ -632,7 +890,8 @@ struct ReaderView: View {
             novelId: novel.id,
             chapterId: currentChapter.id,
             currentLine: currentLine,
-            totalLines: totalLines
+            totalLines: totalLines,
+            syncToCloud: !novel.id.hasPrefix("offline-") && !currentChapter.id.hasPrefix("offline-")
         )
 
         ContinueReadingStore.saveSnapshot(
@@ -662,17 +921,33 @@ struct ReaderView: View {
         self.pendingRestoreLine = nil
     }
 
+    private func recordReadingTime() {
+        let now = Date()
+        defer { lastReadingTick = now }
+        guard readerVisible, let lastReadingTick, !loadingChapter, !paragraphs.isEmpty else { return }
+        readingActivityService.record(novelID: novel.id, chapterID: currentChapter.id,
+                                      seconds: now.timeIntervalSince(lastReadingTick), endingAt: now)
+    }
+
+    private func loadOfflineChapter(_ chapter: Chapter) -> Chapter? {
+        if let file = offlineChapterFiles.first(where: { $0.id == chapter.id }),
+           let loaded = try? OfflineChapterStore.shared.downloadedChapter(file) {
+            return loaded
+        }
+        if chapter.content?.isEmpty == false { return chapter }
+        alertTitle = "Chapter unavailable"
+        downloadAlertMessage = "This chapter file could not be opened. Download it again from the novel page."
+        showDownloadAlert = true
+        return nil
+    }
+
     private func lineAnchorId(for index: Int) -> String {
         "line-\(index)"
     }
 
     private func downloadCurrentChapterToFolder() async {
-        let chapterHeader: String
-        if currentChapter.chapterNumber > 0 {
-            chapterHeader = "Chapter \(currentChapter.chapterNumber): \(currentChapter.title)"
-        } else {
-            chapterHeader = currentChapter.title
-        }
+        alertTitle = "Chapter Download"
+        let chapterHeader = currentChapter.labeledTitle
         let body = paragraphs.joined(separator: "\n\n")
         let content = """
         \(novel.title)
@@ -686,7 +961,9 @@ struct ReaderView: View {
                 novelTitle: novel.title,
                 chapterNumber: currentChapter.chapterNumber,
                 chapterTitle: currentChapter.title,
-                content: content
+                content: content,
+                novel: novel,
+                chapter: currentChapter
             )
             isCurrentChapterDownloaded = true
             downloadAlertMessage = "Saved to \(fileURL.deletingLastPathComponent().lastPathComponent)"
@@ -759,7 +1036,8 @@ struct ReaderView: View {
         }
 
         // ReaderView already renders a dedicated title header.
-        if lowered == currentChapter.title.lowercased() {
+        if lowered == currentChapter.title.lowercased()
+            || lowered == currentChapter.displayTitle.lowercased() {
             return true
         }
 
@@ -768,6 +1046,15 @@ struct ReaderView: View {
         }
 
         return false
+    }
+}
+
+private struct ReaderChromeCircle: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .foregroundStyle(Color.asterionInk)
+            .frame(width: 36, height: 36)
+            .background(Color.asterionCard, in: Circle())
     }
 }
 

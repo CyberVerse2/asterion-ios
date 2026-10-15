@@ -9,6 +9,7 @@ APP_VERSION="${ASTERION_VERSION:-0.3.5}"
 BUILD_NUMBER="${ASTERION_BUILD_NUMBER:-10}"
 CODE_SIGN_IDENTITY="${ASTERION_CODE_SIGN_IDENTITY:-}"
 CLERK_PUBLISHABLE_KEY="${ASTERION_CLERK_PUBLISHABLE_KEY:-}"
+NOTARY_PROFILE="${ASTERION_NOTARY_PROFILE:-}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
@@ -29,8 +30,13 @@ if [[ "$MODE" == "--package" || "$MODE" == "package" ]]; then
   RELEASE_PACKAGE_MODE=true
 fi
 
+NOTARIZED_PACKAGE_MODE="$RELEASE_PACKAGE_MODE"
+if [[ "$MODE" == "--package-notarized-development" || "$MODE" == "package-notarized-development" ]]; then
+  NOTARIZED_PACKAGE_MODE=true
+fi
+
 PACKAGE_MODE=false
-if [[ "$RELEASE_PACKAGE_MODE" == true
+if [[ "$NOTARIZED_PACKAGE_MODE" == true
   || "$MODE" == "--package-development"
   || "$MODE" == "package-development" ]]; then
   PACKAGE_MODE=true
@@ -42,24 +48,39 @@ if [[ "$RELEASE_PACKAGE_MODE" == true ]]; then
 fi
 
 if [[ -z "$CODE_SIGN_IDENTITY" ]]; then
+  IDENTITY_PREFIX="Apple Development:"
+  if [[ "$NOTARIZED_PACKAGE_MODE" == true ]]; then
+    IDENTITY_PREFIX="Developer ID Application:"
+  fi
   CODE_SIGN_IDENTITY="$(
     /usr/bin/security find-identity -v -p codesigning \
-      | /usr/bin/sed -En 's/^[[:space:]]*[0-9]+\) ([0-9A-F]{40}) ".*"$/\1/p' \
+      | /usr/bin/sed -En "s/^[[:space:]]*[0-9]+\) ([0-9A-F]{40}) \"$IDENTITY_PREFIX.*\"$/\1/p" \
       | /usr/bin/sed -n '1p'
   )"
 fi
 
 if [[ "$RELEASE_PACKAGE_MODE" == true ]]; then
-  if [[ "$CLERK_PUBLISHABLE_KEY" != pk_* ]]; then
-    echo "error: ASTERION_CLERK_PUBLISHABLE_KEY must contain a Clerk publishable key" >&2
+  if [[ "$CLERK_PUBLISHABLE_KEY" != pk_live_* ]]; then
+    echo "error: ASTERION_CLERK_PUBLISHABLE_KEY must contain a production Clerk publishable key (pk_live_)" >&2
     exit 1
   fi
+fi
 
-  if ! /usr/bin/security find-identity -v -p codesigning \
-    | /usr/bin/grep -F "$CODE_SIGN_IDENTITY" \
-    | /usr/bin/grep -q '"Developer ID Application:'; then
-    echo "warning: no Developer ID Application identity is selected" >&2
-    echo "warning: the DMG will be development-signed and cannot be notarized for public distribution" >&2
+DEVELOPER_ID_SIGNING=false
+if [[ -n "$CODE_SIGN_IDENTITY" ]] && /usr/bin/security find-identity -v -p codesigning \
+  | /usr/bin/grep -F "$CODE_SIGN_IDENTITY" \
+  | /usr/bin/grep -q '"Developer ID Application:'; then
+  DEVELOPER_ID_SIGNING=true
+fi
+
+if [[ "$NOTARIZED_PACKAGE_MODE" == true ]]; then
+  if [[ "$DEVELOPER_ID_SIGNING" != true ]]; then
+    echo "error: release packaging requires a Developer ID Application identity" >&2
+    exit 1
+  fi
+  if [[ -z "$NOTARY_PROFILE" ]]; then
+    echo "error: set ASTERION_NOTARY_PROFILE to a notarytool Keychain profile" >&2
+    exit 1
   fi
 fi
 
@@ -183,9 +204,20 @@ CODE_SIGN_ARGUMENTS=(
   --force
   --timestamp=none
 )
-if [[ "$RELEASE_PACKAGE_MODE" == true ]]; then
-  CODE_SIGN_ARGUMENTS+=(--options runtime)
+if [[ "$DEVELOPER_ID_SIGNING" == true ]]; then
+  CODE_SIGN_ARGUMENTS=(--force --timestamp --options runtime)
 fi
+
+# Sign nested executable code before sealing the containing app bundle.
+while IFS= read -r -d '' NESTED_BINARY; do
+  if /usr/bin/file -b "$NESTED_BINARY" | /usr/bin/grep -q 'Mach-O'; then
+    /usr/bin/codesign "${CODE_SIGN_ARGUMENTS[@]}" --sign "$CODE_SIGN_IDENTITY" "$NESTED_BINARY"
+  fi
+done < <(/usr/bin/find "$APP_CONTENTS" -type f ! -path "$APP_BINARY" -print0)
+
+while IFS= read -r -d '' NESTED_BUNDLE; do
+  /usr/bin/codesign "${CODE_SIGN_ARGUMENTS[@]}" --sign "$CODE_SIGN_IDENTITY" "$NESTED_BUNDLE"
+done < <(/usr/bin/find "$APP_CONTENTS" -depth -type d \( -name '*.framework' -o -name '*.app' -o -name '*.xpc' \) -print0)
 
 /usr/bin/codesign \
   "${CODE_SIGN_ARGUMENTS[@]}" \
@@ -215,13 +247,30 @@ package_dmg() {
     -ov \
     "$DMG_PATH"
 
+  DMG_SIGN_ARGUMENTS=(--force --timestamp=none)
+  if [[ "$DEVELOPER_ID_SIGNING" == true ]]; then
+    DMG_SIGN_ARGUMENTS=(--force --timestamp)
+  fi
   /usr/bin/codesign \
-    --force \
-    --timestamp=none \
+    "${DMG_SIGN_ARGUMENTS[@]}" \
     --sign "$CODE_SIGN_IDENTITY" \
     "$DMG_PATH"
   /usr/bin/codesign --verify --verbose=2 "$DMG_PATH"
   /usr/bin/hdiutil verify "$DMG_PATH"
+
+  if [[ "$NOTARIZED_PACKAGE_MODE" == true ]]; then
+    /usr/bin/xcrun notarytool submit "$DMG_PATH" \
+      --keychain-profile "$NOTARY_PROFILE" --wait --output-format plist \
+      >"$DIST_DIR/notarization-result.plist"
+    NOTARY_STATUS="$(/usr/libexec/PlistBuddy -c 'Print :status' "$DIST_DIR/notarization-result.plist")"
+    if [[ "$NOTARY_STATUS" != Accepted ]]; then
+      echo "error: notarization status is $NOTARY_STATUS; see $DIST_DIR/notarization-result.plist" >&2
+      exit 1
+    fi
+    /usr/bin/xcrun stapler staple "$DMG_PATH"
+    /usr/bin/xcrun stapler validate "$DMG_PATH"
+    /usr/sbin/spctl --assess --type open --context context:primary-signature --verbose=2 "$DMG_PATH"
+  fi
 
   /usr/bin/hdiutil attach \
     -mountpoint "$DMG_MOUNT" \
@@ -239,6 +288,10 @@ package_dmg() {
     --strict \
     -R="identifier \"$BUNDLE_ID\" and anchor apple generic" \
     "$DMG_MOUNT/$APP_NAME.app"
+
+  if [[ "$NOTARIZED_PACKAGE_MODE" == true ]]; then
+    /usr/sbin/spctl --assess --type execute --verbose=2 "$DMG_MOUNT/$APP_NAME.app"
+  fi
 
   /usr/bin/hdiutil detach "$DMG_MOUNT" >/dev/null
   DMG_ATTACHED=false
@@ -278,8 +331,11 @@ case "$MODE" in
   --package-development|package-development)
     package_dmg
     ;;
+  --package-notarized-development|package-notarized-development)
+    package_dmg
+    ;;
   *)
-    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify|--package|--package-development]" >&2
+    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify|--package|--package-development|--package-notarized-development]" >&2
     exit 2
     ;;
 esac

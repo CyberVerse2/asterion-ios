@@ -92,6 +92,10 @@ final class APIClient: ObservableObject {
     // MARK: - Novels
 
     func fetchNovels(limit: Int = 30, offset: Int = 0, search: String = "") async throws -> [Novel] {
+        try await fetchNovelsPage(limit: limit, offset: offset, search: search).data
+    }
+
+    func fetchNovelsPage(limit: Int = 30, offset: Int = 0, search: String = "") async throws -> PaginatedResponse<Novel> {
         var items: [URLQueryItem] = [
             URLQueryItem(name: "limit", value: "\(limit)"),
             URLQueryItem(name: "offset", value: "\(offset)")
@@ -100,8 +104,7 @@ final class APIClient: ObservableObject {
             items.append(URLQueryItem(name: "search", value: search))
         }
         let url = contentBaseURL.appending(path: "/novels").appending(queryItems: items)
-        let wrapper: DataWrapper<[Novel]> = try await request(url: url)
-        return wrapper.data
+        return try await request(url: url)
     }
 
     func fetchAllNovels(pageSize: Int = 100, search: String = "") async throws -> [Novel] {
@@ -110,18 +113,22 @@ final class APIClient: ObservableObject {
         var novels: [Novel] = []
 
         while true {
-            let page = try await fetchNovels(
+            let page = try await fetchNovelsPage(
                 limit: normalizedPageSize,
                 offset: offset,
                 search: search
             )
-            if page.isEmpty {
+            if page.data.isEmpty {
                 break
             }
 
-            novels.append(contentsOf: page)
+            novels.append(contentsOf: page.data)
 
-            if page.count < normalizedPageSize {
+            let total = page.meta?.total ?? page.meta?.count ?? 0
+            if total > 0, novels.count >= total {
+                break
+            }
+            if page.meta?.hasNextPage == false || page.data.count < normalizedPageSize {
                 break
             }
 
@@ -390,6 +397,109 @@ final class APIClient: ObservableObject {
         return wrapper.data.deleted
     }
 
+    // MARK: - Media Account
+
+    func fetchMediaAccount() async throws -> MediaAccountSnapshot {
+        let url = userBaseURL.appending(path: "/me/media")
+        let wrapper: DataWrapper<MediaAccountSnapshot> = try await request(url: url)
+        return wrapper.data
+    }
+
+    func saveMediaBookmark(
+        _ item: MediaItemDescriptor,
+        clientEventAt: Date = Date()
+    ) async throws -> MediaBookmarkMutationResult {
+        let url = userBaseURL.appending(path: "/me/media/bookmarks")
+        let wrapper: DataWrapper<MediaBookmarkMutationResult?> = try await request(
+            url: url,
+            method: "PUT",
+            body: MediaBookmarkBody(item: item, clientEventAt: clientEventAt)
+        )
+        guard let result = wrapper.data else { throw URLError(.cannotParseResponse) }
+        return result
+    }
+
+    func deleteMediaBookmark(
+        _ item: MediaItemDescriptor,
+        clientEventAt: Date = Date()
+    ) async throws -> MediaBookmarkMutationResult {
+        let url = userBaseURL.appending(path: "/me/media/bookmarks")
+        let wrapper: DataWrapper<MediaBookmarkMutationResult?> = try await request(
+            url: url,
+            method: "DELETE",
+            body: MediaBookmarkBody(item: item, clientEventAt: clientEventAt)
+        )
+        guard let result = wrapper.data else { throw URLError(.cannotParseResponse) }
+        return result
+    }
+
+    func saveMediaProgress(
+        _ playback: MediaPlaybackDescriptor,
+        positionSeconds: Double,
+        durationSeconds: Double,
+        completed: Bool? = nil,
+        started: Bool,
+        sessionID: UUID,
+        clientEventAt: Date = Date()
+    ) async throws -> MediaProgressSaveResult {
+        let url = userBaseURL.appending(path: "/me/media/progress")
+        struct RequestBody: Encodable {
+            let mediaType: MediaAccountType
+            let contentId: String
+            let title: String
+            let imageUrl: String?
+            let unitId: String
+            let unitTitle: String?
+            let seasonNumber: Int?
+            let episodeNumber: Int?
+            let positionSeconds: Double
+            let durationSeconds: Double
+            let completed: Bool?
+            let started: Bool
+            let sessionId: String
+            let clientEventAt: String
+        }
+        let wrapper: DataWrapper<MediaProgressSaveResult> = try await request(
+            url: url,
+            method: "PUT",
+            body: RequestBody(
+                mediaType: playback.item.mediaType,
+                contentId: playback.item.contentID,
+                title: playback.item.title,
+                imageUrl: playback.item.imageURL?.absoluteString,
+                unitId: playback.unitID,
+                unitTitle: playback.unitTitle,
+                seasonNumber: playback.seasonNumber,
+                episodeNumber: playback.episodeNumber,
+                positionSeconds: max(0, positionSeconds),
+                durationSeconds: max(0, durationSeconds),
+                completed: completed,
+                started: started,
+                sessionId: sessionID.uuidString,
+                clientEventAt: Self.iso8601String(clientEventAt)
+            )
+        )
+        return wrapper.data
+    }
+
+    private struct MediaBookmarkBody: Encodable {
+        let mediaType: MediaAccountType
+        let contentId: String
+        let title: String
+        let subtitle: String?
+        let imageUrl: String?
+        let clientEventAt: String
+
+        init(item: MediaItemDescriptor, clientEventAt: Date) {
+            mediaType = item.mediaType
+            contentId = item.contentID
+            title = item.title
+            subtitle = item.subtitle
+            imageUrl = item.imageURL?.absoluteString
+            self.clientEventAt = APIClient.iso8601String(clientEventAt)
+        }
+    }
+
     // MARK: - Networking
 
     private struct DataWrapper<T: Decodable>: Decodable {
@@ -563,8 +673,17 @@ final class APIClient: ObservableObject {
         return decoder
     }
 
+    private static func iso8601String(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: date)
+    }
+
     private static func resolveUserBaseURL() -> URL {
         let rawConfigured: String? = {
+            if let stableKey = Bundle.main.object(forInfoDictionaryKey: "AsterionUserAPIBaseURL") as? String {
+                return stableKey
+            }
             if let direct = Bundle.main.object(forInfoDictionaryKey: "USER_API_BASE_URL") as? String {
                 return direct
             }
@@ -600,5 +719,323 @@ final class APIClient: ObservableObject {
         print("[APIClient] USER_API_BASE_URL not found. Falling back to default API host.")
         #endif
         return URL(string: "https://asterion-api.cyberverse.cloud/")!
+    }
+}
+
+@MainActor
+final class MediaAccountService: ObservableObject {
+    @Published private(set) var snapshot: MediaAccountSnapshot
+    @Published private(set) var isLoading = false
+    @Published private(set) var errorMessage: String?
+
+    private static let guestStorageKey = "asterion.guest.media-account.v1"
+    private weak var apiClient: APIClient?
+    private var isSignedIn = false
+
+    init() {
+        snapshot = Self.loadGuestSnapshot()
+    }
+
+    func configure(apiClient: APIClient) {
+        self.apiClient = apiClient
+    }
+
+    func handleAuthenticationChange(isSignedIn: Bool) async {
+        self.isSignedIn = isSignedIn
+        if isSignedIn {
+            await mergeGuestActivityAndRefresh()
+        } else {
+            snapshot = Self.loadGuestSnapshot()
+            errorMessage = nil
+        }
+    }
+
+    func refresh() async {
+        guard isSignedIn, let apiClient else {
+            snapshot = Self.loadGuestSnapshot()
+            return
+        }
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            snapshot = try await apiClient.fetchMediaAccount()
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func isBookmarked(_ item: MediaItemDescriptor) -> Bool {
+        snapshot.bookmarks.contains { $0.key == item.key }
+    }
+
+    func toggleBookmark(_ item: MediaItemDescriptor) async {
+        let wasSaved = isBookmarked(item)
+        if isSignedIn, let apiClient {
+            do {
+                let result = wasSaved
+                    ? try await apiClient.deleteMediaBookmark(item)
+                    : try await apiClient.saveMediaBookmark(item)
+                applyBookmarkResult(result, item: item)
+                errorMessage = nil
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            return
+        }
+
+        var bookmarks = snapshot.bookmarks.filter { $0.key != item.key }
+        if !wasSaved {
+            let now = Date()
+            bookmarks.insert(
+                MediaBookmark(
+                    id: UUID().uuidString,
+                    userId: "guest",
+                    mediaType: item.mediaType,
+                    contentId: item.contentID,
+                    title: item.title,
+                    subtitle: item.subtitle,
+                    imageURL: item.imageURL,
+                    createdAt: now,
+                    updatedAt: now
+                ),
+                at: 0
+            )
+        }
+        snapshot = rebuiltSnapshot(bookmarks: bookmarks)
+        saveGuestSnapshot()
+    }
+
+    func resumePosition(for playback: MediaPlaybackDescriptor) -> Double? {
+        snapshot.progress.first {
+            $0.mediaType == playback.item.mediaType
+                && $0.contentId == playback.item.contentID
+                && $0.unitId == playback.unitID
+                && !$0.completed
+        }?.positionSeconds
+    }
+
+    func record(
+        _ playback: MediaPlaybackDescriptor,
+        positionSeconds: Double,
+        durationSeconds: Double,
+        started: Bool,
+        sessionID: UUID
+    ) async {
+        guard playback.item.mediaType != .football else { return }
+        let normalized = MediaProgressPolicy.normalize(
+            positionSeconds: positionSeconds,
+            durationSeconds: durationSeconds
+        )
+
+        if isSignedIn, let apiClient {
+            do {
+                let result = try await apiClient.saveMediaProgress(
+                    playback,
+                    positionSeconds: normalized.positionSeconds,
+                    durationSeconds: normalized.durationSeconds,
+                    completed: normalized.completed,
+                    started: started,
+                    sessionID: sessionID
+                )
+                applyProgressResult(result)
+                errorMessage = nil
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            return
+        }
+
+        applyGuestProgress(
+            playback,
+            positionSeconds: normalized.positionSeconds,
+            durationSeconds: normalized.durationSeconds,
+            completed: normalized.completed,
+            started: started
+        )
+        saveGuestSnapshot()
+    }
+
+    private func mergeGuestActivityAndRefresh() async {
+        guard let apiClient else { return }
+        let guest = Self.loadGuestSnapshot()
+        guard !guest.bookmarks.isEmpty || !guest.progress.isEmpty else {
+            await refresh()
+            return
+        }
+
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            for bookmark in guest.bookmarks {
+                _ = try await apiClient.saveMediaBookmark(
+                    MediaItemDescriptor(
+                        mediaType: bookmark.mediaType,
+                        contentID: bookmark.contentId,
+                        title: bookmark.title,
+                        subtitle: bookmark.subtitle,
+                        imageURL: bookmark.imageURL
+                    ),
+                    clientEventAt: bookmark.updatedAt
+                )
+            }
+            for progress in guest.progress {
+                _ = try await apiClient.saveMediaProgress(
+                    MediaPlaybackDescriptor(
+                        item: MediaItemDescriptor(
+                            mediaType: progress.mediaType,
+                            contentID: progress.contentId,
+                            title: progress.title,
+                            subtitle: nil,
+                            imageURL: progress.imageURL
+                        ),
+                        unitID: progress.unitId,
+                        unitTitle: progress.unitTitle,
+                        seasonNumber: progress.seasonNumber,
+                        episodeNumber: progress.episodeNumber
+                    ),
+                    positionSeconds: progress.positionSeconds,
+                    durationSeconds: progress.durationSeconds,
+                    completed: progress.completed,
+                    started: false,
+                    sessionID: UUID(),
+                    clientEventAt: progress.clientUpdatedAt
+                )
+            }
+            UserDefaults.standard.removeObject(forKey: Self.guestStorageKey)
+            snapshot = try await apiClient.fetchMediaAccount()
+            errorMessage = nil
+        } catch {
+            snapshot = guest
+            errorMessage = "Your guest activity is safe on this device and will sync when the connection recovers."
+        }
+    }
+
+    private func applyBookmarkResult(_ result: MediaBookmarkMutationResult, item: MediaItemDescriptor) {
+        var bookmarks = snapshot.bookmarks.filter { $0.key != item.key }
+        if result.isSaved, let bookmark = result.bookmark {
+            bookmarks.insert(bookmark, at: 0)
+        }
+        snapshot = rebuiltSnapshot(bookmarks: bookmarks)
+    }
+
+    private func applyProgressResult(_ result: MediaProgressSaveResult) {
+        var progress = snapshot.progress
+        var history = snapshot.history
+        if let saved = result.progress {
+            progress.removeAll { $0.id == saved.id || ($0.key == saved.key && $0.unitId == saved.unitId) }
+            progress.insert(saved, at: 0)
+        }
+        if let saved = result.history {
+            history.removeAll { $0.id == saved.id || ($0.mediaType == saved.mediaType && $0.contentId == saved.contentId && $0.unitId == saved.unitId) }
+            history.insert(saved, at: 0)
+        }
+        snapshot = rebuiltSnapshot(progress: progress, history: history)
+    }
+
+    private func applyGuestProgress(
+        _ playback: MediaPlaybackDescriptor,
+        positionSeconds: Double,
+        durationSeconds: Double,
+        completed: Bool,
+        started: Bool
+    ) {
+        let now = Date()
+        let percentage = durationSeconds > 0 ? min(100, positionSeconds / durationSeconds * 100) : 0
+        let existingProgress = snapshot.progress.first {
+            $0.mediaType == playback.item.mediaType
+                && $0.contentId == playback.item.contentID
+                && $0.unitId == playback.unitID
+        }
+        let savedProgress = MediaPlaybackProgress(
+            id: existingProgress?.id ?? UUID().uuidString,
+            userId: "guest",
+            mediaType: playback.item.mediaType,
+            contentId: playback.item.contentID,
+            title: playback.item.title,
+            imageURL: playback.item.imageURL,
+            unitId: playback.unitID,
+            unitTitle: playback.unitTitle,
+            seasonNumber: playback.seasonNumber,
+            episodeNumber: playback.episodeNumber,
+            positionSeconds: positionSeconds,
+            durationSeconds: durationSeconds,
+            percentage: percentage,
+            completed: completed,
+            clientUpdatedAt: now,
+            createdAt: existingProgress?.createdAt ?? now,
+            updatedAt: now
+        )
+        var progress = snapshot.progress.filter { $0.id != savedProgress.id }
+        progress.insert(savedProgress, at: 0)
+
+        let existingHistory = snapshot.history.first {
+            $0.mediaType == playback.item.mediaType
+                && $0.contentId == playback.item.contentID
+                && $0.unitId == playback.unitID
+        }
+        let savedHistory = MediaHistoryEntry(
+            id: existingHistory?.id ?? UUID().uuidString,
+            userId: "guest",
+            mediaType: playback.item.mediaType,
+            contentId: playback.item.contentID,
+            title: playback.item.title,
+            imageURL: playback.item.imageURL,
+            unitId: playback.unitID,
+            unitTitle: playback.unitTitle,
+            seasonNumber: playback.seasonNumber,
+            episodeNumber: playback.episodeNumber,
+            positionSeconds: positionSeconds,
+            durationSeconds: durationSeconds,
+            percentage: percentage,
+            completed: completed,
+            visitCount: (existingHistory?.visitCount ?? 0) + (started ? 1 : 0),
+            clientUpdatedAt: now,
+            firstViewedAt: existingHistory?.firstViewedAt ?? now,
+            lastViewedAt: now,
+            createdAt: existingHistory?.createdAt ?? now,
+            updatedAt: now
+        )
+        var history = snapshot.history.filter { $0.id != savedHistory.id }
+        history.insert(savedHistory, at: 0)
+        snapshot = rebuiltSnapshot(progress: progress, history: history)
+    }
+
+    private func rebuiltSnapshot(
+        bookmarks: [MediaBookmark]? = nil,
+        progress: [MediaPlaybackProgress]? = nil,
+        history: [MediaHistoryEntry]? = nil
+    ) -> MediaAccountSnapshot {
+        let nextBookmarks = bookmarks ?? snapshot.bookmarks
+        let nextProgress = progress ?? snapshot.progress
+        let nextHistory = history ?? snapshot.history
+        return MediaAccountSnapshot(
+            bookmarks: nextBookmarks,
+            progress: nextProgress,
+            history: nextHistory,
+            stats: MediaAccountStats(
+                savedAnime: nextBookmarks.filter { $0.mediaType == .anime }.count,
+                savedMovies: nextBookmarks.filter { $0.mediaType == .movie }.count,
+                savedMatches: nextBookmarks.filter { $0.mediaType == .football }.count,
+                animeEpisodesCompleted: nextHistory.filter { $0.mediaType == .anime && $0.completed }.count,
+                movieUnitsCompleted: nextHistory.filter { $0.mediaType == .movie && $0.completed }.count,
+                titlesInProgress: nextProgress.filter { !$0.completed }.count,
+                historyEntries: nextHistory.count,
+                activityLast30Days: nextHistory.filter { $0.lastViewedAt >= Date().addingTimeInterval(-30 * 24 * 60 * 60) }.count
+            )
+        )
+    }
+
+    private func saveGuestSnapshot() {
+        guard let data = try? JSONEncoder().encode(snapshot) else { return }
+        UserDefaults.standard.set(data, forKey: Self.guestStorageKey)
+    }
+
+    private static func loadGuestSnapshot() -> MediaAccountSnapshot {
+        guard let data = UserDefaults.standard.data(forKey: guestStorageKey),
+              let value = try? JSONDecoder().decode(MediaAccountSnapshot.self, from: data) else {
+            return .empty
+        }
+        return value
     }
 }

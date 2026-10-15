@@ -28,9 +28,7 @@ struct RankingView: View {
     private var sorted: [Novel] {
         switch sortBy {
         case .rank:
-            return novels.sorted {
-                parsedInteger($0.rank, fallback: Int.max) < parsedInteger($1.rank, fallback: Int.max)
-            }
+            return Novel.ranked(novels)
         case .rating:
             return novels.sorted { ($0.rating ?? 0) > ($1.rating ?? 0) }
         case .views:
@@ -126,7 +124,7 @@ struct RankingView: View {
                 .frame(maxWidth: .infinity, alignment: .top)
             }
             .refreshable { await loadNovels() }
-            .background(Color.asterionBackground.ignoresSafeArea())
+            .background { AsterionBackdrop() }
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: Novel.self) { novel in
                 NovelDetailView(novel: novel) {
@@ -225,8 +223,8 @@ struct RankingView: View {
     }
 
     private func rankLabel(for novel: Novel, position: Int) -> String {
-        if sortBy == .rank, let rank = novel.rank, parsedInteger(rank, fallback: Int.max) != Int.max {
-            return "#\(parsedInteger(rank, fallback: position))"
+        if sortBy == .rank, novel.rankPosition != .max {
+            return "#\(novel.rankPosition)"
         }
         return "\(position)"
     }

@@ -2,20 +2,34 @@ import Inject
 import SwiftUI
 
 struct HomeView: View {
+    enum Mode {
+        case home
+        case browse
+    }
+
+    let mode: Mode
     @ObserveInjection var inject
     @EnvironmentObject private var apiClient: APIClient
     @EnvironmentObject private var readingProgressService: ReadingProgressService
+    @EnvironmentObject private var mediaAccountService: MediaAccountService
     @State private var novels: [Novel] = []
     @State private var loading = false
     @State private var failed = false
     @State private var search = ""
     @State private var debouncedSearch = ""
-    @State private var showAll = false
     @State private var continueReadingItems: [ContinueReadingItem] = []
     @State private var continueReadingDestination: ContinueReadingDestination?
-    @State private var navigationPath: [Novel] = []
+    @State private var navigationPath = NavigationPath()
+    @State private var featuredAnime: [AnimeTitle] = []
+    @State private var featuredMovies: [MovieTitle] = []
+    @State private var liveMatches: [FootballMatch] = []
+    @AppStorage("asterion.onboarding.genres") private var preferredGenres = ""
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
-    private let initialCount = 6
+    init(mode: Mode = .home) {
+        self.mode = mode
+    }
+
     private var isDesktop: Bool {
         #if targetEnvironment(macCatalyst)
         true
@@ -23,21 +37,45 @@ struct HomeView: View {
         false
         #endif
     }
-    private var contentMaxWidth: CGFloat { isDesktop ? 1460 : .infinity }
-    private var pageHorizontalPadding: CGFloat { isDesktop ? 46 : 24 }
+    private var isWideCanvas: Bool { AsterionLayout.isWide(horizontalSizeClass) }
+    private var contentMaxWidth: CGFloat { AsterionLayout.pageMaxWidth(horizontalSizeClass) }
+    private var pageHorizontalPadding: CGFloat { AsterionLayout.pagePadding(horizontalSizeClass) }
+    private let novelPageSize = 50
+
     private var browseGridColumns: [GridItem] {
-        if isDesktop {
-            return [GridItem(.adaptive(minimum: 270, maximum: 340), spacing: 22)]
-        }
-        return [
-            GridItem(.flexible(), spacing: 12),
-            GridItem(.flexible(), spacing: 12),
-        ]
+        AsterionLayout.posterColumns(horizontalSizeClass)
     }
 
     private var displayNovels: [Novel] {
-        if !debouncedSearch.isEmpty || showAll { return novels }
-        return Array(novels.prefix(initialCount))
+        Novel.ranked(novels)
+    }
+
+    private var homeNovelShelf: [Novel] {
+        Array(personalizedNovels.filter { $0.imageUrl?.isEmpty == false }.prefix(8))
+    }
+
+    private var personalizedNovels: [Novel] {
+        let interests = Set(
+            preferredGenres
+                .split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+        )
+        return NovelPersonalizer.order(novels, preferredGenres: interests)
+    }
+
+    private var continueWatchingItems: [MediaPlaybackProgress] {
+        mediaAccountService.snapshot.progress
+            .filter { !$0.completed && $0.positionSeconds > 0 }
+            .sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    private var continueItems: [HomeContinueItem] {
+        let novels = continueReadingItems.map { HomeContinueItem.novel($0) }
+        let watching = continueWatchingItems.map { HomeContinueItem.watching($0) }
+        let novelSlots = min(novels.count, 4)
+        let watchSlots = min(watching.count, 8 - novelSlots)
+        return (Array(novels.prefix(novelSlots)) + Array(watching.prefix(watchSlots)))
+            .sorted { $0.updatedAt > $1.updatedAt }
     }
 
     private struct ContinueReadingItem: Identifiable {
@@ -45,7 +83,27 @@ struct HomeView: View {
         let chapter: Chapter
         let allChapters: [Chapter]
         let percentage: Double
+        let updatedAt: Date
         var id: String { novel.id }
+    }
+
+    private enum HomeContinueItem: Identifiable {
+        case novel(ContinueReadingItem)
+        case watching(MediaPlaybackProgress)
+
+        var id: String {
+            switch self {
+            case .novel(let item): "novel-\(item.id)"
+            case .watching(let item): "watch-\(item.id)"
+            }
+        }
+
+        var updatedAt: Date {
+            switch self {
+            case .novel(let item): item.updatedAt
+            case .watching(let item): item.updatedAt
+            }
+        }
     }
 
     private struct ContinueReadingDestination: Identifiable, Hashable {
@@ -57,12 +115,19 @@ struct HomeView: View {
 
     var body: some View {
         NavigationStack(path: $navigationPath) {
+            BrowseCatalogChrome {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    pageTitleSection
-                    searchSection
+                    if mode == .home {
+                        pageTitleSection
+                    }
+                    if mode == .browse {
+                        searchSection
+                    }
 
-                    if loading && novels.isEmpty {
+                    if mode == .home {
+                        contentSection
+                    } else if loading && novels.isEmpty {
                         loadingSection
                     } else if failed && novels.isEmpty {
                         errorSection
@@ -76,16 +141,25 @@ struct HomeView: View {
                 .frame(maxWidth: contentMaxWidth, alignment: .topLeading)
                 .frame(maxWidth: .infinity, alignment: .top)
             }
+            .scrollDismissesKeyboard(.interactively)
             .refreshable { await loadNovels(search: debouncedSearch) }
             .background {
-                Color.asterionBackground.ignoresSafeArea()
-                MazePatternView().ignoresSafeArea()
+                AsterionBackdrop()
             }
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: Novel.self) { novel in
                 NovelDetailView(novel: novel) {
                     popNovelPath()
                 }
+            }
+            .navigationDestination(for: AnimeTitle.self) { title in
+                AnimeDetailView(title: title)
+            }
+            .navigationDestination(for: MovieTitle.self) { title in
+                MovieDetailView(title: title)
+            }
+            .navigationDestination(for: FootballMatch.self) { match in
+                FootballDetailView(match: match)
             }
             .navigationDestination(item: $continueReadingDestination) { destination in
                 ReaderView(
@@ -95,12 +169,17 @@ struct HomeView: View {
                 )
             }
             .task { await loadNovels() }
+            .task {
+                guard mode == .home else { return }
+                await loadEntertainmentHighlights()
+            }
             .debounceSearch(text: $search, debouncedText: $debouncedSearch)
             .onChange(of: debouncedSearch) { _, newValue in
                 Task { await loadNovels(search: newValue) }
             }
             .onReceive(NotificationCenter.default.publisher(for: .asterionContinueReadingRequested)) { _ in
                 Task { await openContinueReadingFromWidget() }
+            }
             }
         }
         .enableInjection()
@@ -114,16 +193,17 @@ struct HomeView: View {
     // MARK: - Search
 
     private var pageTitleSection: some View {
-        Text("Asterion")
-            .font(.asterionSerif(isDesktop ? 68 : 48, weight: .semibold))
-            .foregroundStyle(Color.asterionText)
-            .padding(.horizontal, pageHorizontalPadding)
-            .padding(.top, isDesktop ? 26 : 14)
-            .padding(.bottom, isDesktop ? 16 : 8)
+        AsterionPageHeader(
+            title: mode == .home ? "Asterion" : "Novels",
+            style: mode == .home ? .wordmark : .page
+        )
+        .padding(.horizontal, pageHorizontalPadding)
+        .padding(.top, isDesktop ? 12 : 0)
+        .padding(.bottom, 12)
     }
 
     private var searchSection: some View {
-        SearchInputView(text: $search, placeholder: "Search novels...")
+        SearchInputView(text: $search)
             .padding(.horizontal, pageHorizontalPadding)
             .padding(.vertical, 8)
     }
@@ -142,133 +222,243 @@ struct HomeView: View {
     }
 
     private var errorSection: some View {
-        VStack(spacing: 12) {
-            Text("⚠")
-                .font(.system(size: 32))
-                .opacity(0.4)
-            Text(failed ? "Couldn't load novels" : "")
-                .font(.asterionMono(13))
-                .foregroundStyle(Color.asterionMuted)
+        VStack(spacing: 16) {
+            AsterionEmptyState(
+                symbol: "wifi.exclamationmark",
+                title: "Couldn't load novels",
+                message: "Pull down or try again when the connection returns."
+            )
             Button {
                 Task { await loadNovels(search: debouncedSearch) }
             } label: {
-                Text("Try Again")
-                    .font(.asterionMono(13))
-                    .foregroundStyle(Color.goldAccent)
-                    .padding(.horizontal, 24)
-                    .padding(.vertical, 10)
-                    .overlay(
-                        Capsule().stroke(Color.asterionBorder, lineWidth: 1)
-                    )
+                Text("Try again")
+                    .font(.asterionReading(15, weight: .semibold))
+                    .padding(.horizontal, 22)
+                    .padding(.vertical, 12)
             }
+            .buttonStyle(AsterionFilledButtonStyle())
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 48)
+        .padding(.vertical, 20)
     }
 
     private var emptySection: some View {
-        VStack(spacing: 12) {
-            Text("📚")
-                .font(.system(size: 36))
-                .opacity(0.3)
-            Text(debouncedSearch.isEmpty ? "No novels found" : "No novels match your search")
-                .font(.asterionMono(13))
-                .foregroundStyle(Color.asterionDim)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 48)
+        AsterionEmptyState(
+            symbol: "book.closed",
+            title: debouncedSearch.isEmpty ? "No novels found" : "No novels match your search",
+            message: debouncedSearch.isEmpty ? "The catalog will appear here." : "Try another title or author."
+        )
     }
 
     // MARK: - Content
 
     @ViewBuilder
     private var contentSection: some View {
-        if debouncedSearch.isEmpty && !continueReadingItems.isEmpty {
-            continueReadingSection
-        }
-        browseGridSection
-    }
-
-    // MARK: - Continue Reading
-
-    private var continueReadingSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("CONTINUE READING")
-                .font(.asterionMono(10))
-                .foregroundStyle(Color.asterionMuted)
-                .tracking(3)
-
-            ForEach(continueReadingItems) { item in
-                NavigationLink {
-                    ReaderView(
-                        initialChapter: item.chapter,
-                        novel: item.novel,
-                        allChapters: item.allChapters
-                    )
-                } label: {
-                    ContinueReadingCard(
-                        novel: item.novel,
-                        chapterNum: item.chapter.chapterNumber,
-                        chapterTitle: item.chapter.title,
-                        percentage: item.percentage
-                    )
+        if mode == .browse {
+            browseGridSection
+        } else {
+            if debouncedSearch.isEmpty && !continueItems.isEmpty {
+                homeSection(title: "Continue") {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 13) {
+                            ForEach(continueItems) { item in
+                                continueLink(for: item)
+                            }
+                        }
+                    }
                 }
-                .buttonStyle(.plain)
             }
+            catalogShelves
         }
-        .padding(.horizontal, pageHorizontalPadding)
-        .padding(.vertical, 20)
     }
 
     // MARK: - Browse Grid
 
     private var browseGridSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(debouncedSearch.isEmpty ? "BROWSE ALL" : "Results for \"\(debouncedSearch)\"")
-                .font(.asterionMono(10))
-                .foregroundStyle(Color.asterionMuted)
-                .tracking(debouncedSearch.isEmpty ? 3 : 0)
+        VStack(alignment: .leading, spacing: 22) {
+            if !debouncedSearch.isEmpty {
+                Text("Results")
+                    .font(.asterionDisplay(22, weight: .medium))
+                    .foregroundStyle(Color.asterionText)
+            }
 
-            LazyVGrid(columns: browseGridColumns, spacing: isDesktop ? 22 : 12) {
-                ForEach(Array(displayNovels.enumerated()), id: \.element.id) { index, novel in
+            LazyVGrid(columns: browseGridColumns, spacing: isWideCanvas ? 16 : 14) {
+                ForEach(displayNovels) { novel in
                     NavigationLink(value: novel) {
                         NovelTileCard(novel: novel)
                     }
                     .buttonStyle(.plain)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .animation(.easeOut(duration: 0.4).delay(Double(index) * 0.06), value: novels.count)
                 }
             }
 
-            if debouncedSearch.isEmpty && !showAll && novels.count > initialCount {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.3)) { showAll = true }
-                } label: {
-                    Text("Show More (\(novels.count - initialCount) more)")
-                        .font(.asterionMono(13))
-                        .foregroundStyle(Color.asterionMuted)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(Color.asterionCard.opacity(0.25))
-                                .stroke(Color.asterionBorder, lineWidth: 1)
-                        )
+        }
+        .padding(.horizontal, pageHorizontalPadding)
+        .padding(.top, 8)
+        .padding(.bottom, 12)
+    }
+
+    @ViewBuilder
+    private var catalogShelves: some View {
+        if !homeNovelShelf.isEmpty {
+            homeSection(title: "Novels") {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(alignment: .top, spacing: 13) {
+                        ForEach(homeNovelShelf) { novel in
+                            NavigationLink(value: novel) {
+                                HomeNovelCard(novel: novel)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
                 }
             }
         }
+
+        if !featuredAnime.isEmpty {
+            homeSection(title: "Anime") {
+                horizontalMediaShelf(
+                    items: featuredAnime,
+                    title: { $0.title },
+                    imageURL: { $0.imageURL }
+                )
+            }
+        }
+
+        if !featuredMovies.isEmpty {
+            homeSection(title: "Movies") {
+                horizontalMediaShelf(
+                    items: featuredMovies,
+                    title: { $0.title },
+                    imageURL: { $0.imageURL }
+                )
+            }
+        }
+
+        if !liveMatches.isEmpty {
+            homeSection(title: "Live Football") {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(liveMatches) { match in
+                            NavigationLink(value: match) {
+                                HomeMatchCard(match: match)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func continueLink(for item: HomeContinueItem) -> some View {
+        switch item {
+        case .novel(let reading):
+            NavigationLink {
+                ReaderView(
+                    initialChapter: reading.chapter,
+                    novel: reading.novel,
+                    allChapters: reading.allChapters
+                )
+            } label: {
+                AsterionContinueCard(
+                    title: reading.novel.title,
+                    subtitle: reading.chapter.chapterNumber > 0
+                        ? "Chapter \(reading.chapter.chapterNumber)"
+                        : reading.chapter.title,
+                    percentage: reading.percentage
+                ) {
+                    NovelPosterArt(novel: reading.novel)
+                }
+            }
+            .buttonStyle(.plain)
+        case .watching(let watching):
+            NavigationLink {
+                MediaDestinationView(
+                    mediaType: watching.mediaType,
+                    contentID: watching.contentId,
+                    title: watching.title,
+                    imageURL: watching.imageURL
+                )
+            } label: {
+                AsterionContinueCard(
+                    title: watching.title,
+                    subtitle: watching.unitTitle ?? "Resume",
+                    percentage: watching.percentage
+                ) {
+                    AsyncImage(url: watching.imageURL) { phase in
+                        if let image = phase.image {
+                            image.resizable().scaledToFill()
+                        } else {
+                            Color.asterionCard
+                        }
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func homeSection<Content: View>(
+        title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            AsterionSectionLabel(title: title)
+            content()
+        }
         .padding(.horizontal, pageHorizontalPadding)
-        .padding(.vertical, 12)
+        .padding(.top, 26)
+    }
+
+    private func horizontalMediaShelf<Item: Identifiable & Hashable>(
+        items: [Item],
+        title: @escaping (Item) -> String,
+        imageURL: @escaping (Item) -> URL?
+    ) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            LazyHStack(alignment: .top, spacing: 13) {
+                ForEach(items) { item in
+                    NavigationLink(value: item) {
+                        HomeMediaCard(title: title(item), imageURL: imageURL(item))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private func loadEntertainmentHighlights() async {
+        async let animeRequest = EntertainmentAPI.shared.fetchPopularAnime()
+        async let movieRequest = EntertainmentAPI.shared.fetchMovies(kind: .movies)
+        async let footballRequest = EntertainmentAPI.shared.fetchFootball(section: .live)
+
+        if let anime = try? await animeRequest {
+            featuredAnime = Array(anime.filter { $0.imageURL != nil }.prefix(8))
+        }
+        if let movies = try? await movieRequest {
+            featuredMovies = Array(movies.filter { $0.imageURL != nil }.prefix(8))
+        }
+        if let matches = try? await footballRequest {
+            liveMatches = Array(matches.prefix(6))
+        }
     }
 
     // MARK: - Data
 
     private func loadNovels(search: String = "") async {
-        loading = true
+        loading = novels.isEmpty
         defer { loading = false }
+
         do {
-            novels = try await apiClient.fetchNovels(limit: 50, search: search)
-            await OfflineChapterStore.shared.saveCatalog(novels)
+            if mode == .browse {
+                // Match desktop: sort the complete catalog, not each source page.
+                novels = try await apiClient.fetchAllNovels(search: search)
+            } else {
+                novels = try await apiClient.fetchNovelsPage(limit: novelPageSize, search: search).data
+            }
+            if !novels.isEmpty {
+                await OfflineChapterStore.shared.saveCatalog(novels)
+            }
             if search.isEmpty {
                 await loadContinueReading()
             } else {
@@ -276,51 +466,78 @@ struct HomeView: View {
             }
             failed = false
         } catch {
-            let cached = await OfflineChapterStore.shared.loadCatalog()
-            if !cached.isEmpty {
-                if search.isEmpty {
-                    novels = cached
-                } else {
-                    let q = search.lowercased()
-                    novels = cached.filter {
-                        $0.title.lowercased().contains(q) || ($0.author?.lowercased().contains(q) ?? false)
+            if !Task.isCancelled {
+                let cached = await OfflineChapterStore.shared.loadCatalog()
+                if !cached.isEmpty {
+                    if search.isEmpty {
+                        novels = cached
+                    } else {
+                        let q = search.lowercased()
+                        novels = cached.filter {
+                            $0.title.lowercased().contains(q) || ($0.author?.lowercased().contains(q) ?? false)
+                        }
                     }
+                    if search.isEmpty {
+                        await loadContinueReading()
+                    } else {
+                        continueReadingItems = []
+                    }
+                    failed = false
+                } else if novels.isEmpty {
+                    failed = true
                 }
-                if search.isEmpty {
-                    await loadContinueReading()
-                } else {
-                    continueReadingItems = []
-                }
-                failed = false
-            } else if novels.isEmpty {
-                failed = true
             }
         }
     }
 
     private func loadContinueReading() async {
-        do {
-            let progress = try await apiClient.fetchAllReadingProgress()
-            continueReadingItems = await buildContinueReadingItems(from: progress)
-        } catch {
-            let queued = readingProgressService.queuedProgressList()
-            continueReadingItems = await buildContinueReadingItems(from: queued)
+        var byNovel: [String: ReadingProgress] = [:]
+        if let remote = try? await apiClient.fetchAllReadingProgress() {
+            for item in remote {
+                byNovel[item.novelId] = item
+            }
         }
+        for item in readingProgressService.queuedProgressList() {
+            if let existing = byNovel[item.novelId],
+               (existing.lastReadAt ?? .distantPast) >= (item.lastReadAt ?? .distantPast) {
+                continue
+            }
+            byNovel[item.novelId] = item
+        }
+        if let snapshot = ContinueReadingStore.loadSnapshot(), byNovel[snapshot.novelId] == nil {
+            byNovel[snapshot.novelId] = ReadingProgress(
+                id: "snapshot-\(snapshot.novelId)",
+                userId: "local",
+                novelId: snapshot.novelId,
+                chapterId: snapshot.chapterId,
+                currentLine: 0,
+                totalLines: 1,
+                percentage: snapshot.progress * 100,
+                updatedAt: snapshot.updatedAt
+            )
+        }
+        continueReadingItems = await buildContinueReadingItems(from: Array(byNovel.values))
     }
 
     private func buildContinueReadingItems(from progress: [ReadingProgress]) async -> [ContinueReadingItem] {
-        let novelsById = Dictionary(uniqueKeysWithValues: novels.map { ($0.id, $0) })
+        let catalogById = Dictionary(uniqueKeysWithValues: novels.map { ($0.id, $0) })
+        let cachedById = Dictionary(
+            uniqueKeysWithValues: (await OfflineChapterStore.shared.loadCatalog()).map { ($0.id, $0) }
+        )
         let sortedProgress = progress.sorted {
             ($0.lastReadAt ?? .distantPast) > ($1.lastReadAt ?? .distantPast)
         }
         var seenNovelIds = Set<String>()
         var orderedEntries: [(novel: Novel, progress: ReadingProgress)] = []
-        for p in sortedProgress {
-            guard !seenNovelIds.contains(p.novelId), let novel = novelsById[p.novelId] else { continue }
+        for p in sortedProgress where seenNovelIds.insert(p.novelId).inserted {
+            guard let novel = await resolveContinueNovel(
+                id: p.novelId,
+                catalogById: catalogById,
+                cachedById: cachedById
+            ) else { continue }
             orderedEntries.append((novel: novel, progress: p))
-            seenNovelIds.insert(p.novelId)
         }
-        let topEntries = Array(orderedEntries.prefix(2))
+        let topEntries = Array(orderedEntries.prefix(6))
 
         var built: [ContinueReadingItem] = []
         for entry in topEntries {
@@ -368,12 +585,23 @@ struct HomeView: View {
                     novel: novel,
                     chapter: chapter,
                     allChapters: allChapters,
-                    percentage: novelPercentage
+                    percentage: novelPercentage,
+                    updatedAt: p.lastReadAt ?? .distantPast
                 )
             )
         }
 
         return built
+    }
+
+    private func resolveContinueNovel(
+        id: String,
+        catalogById: [String: Novel],
+        cachedById: [String: Novel]
+    ) async -> Novel? {
+        if let novel = catalogById[id] { return novel }
+        if let novel = cachedById[id] { return novel }
+        return try? await apiClient.fetchNovel(id: id)
     }
 
     private func openContinueReadingFromWidget() async {
@@ -428,160 +656,203 @@ struct HomeView: View {
     }
 }
 
-// MARK: - Continue Reading Card
+enum NovelPersonalizer {
+    static func order(_ novels: [Novel], preferredGenres: Set<String>) -> [Novel] {
+        let normalizedGenres = Set(
+            preferredGenres.map {
+                $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            }
+        )
 
-private struct ContinueReadingCard: View {
+        return novels.sorted { left, right in
+            let leftMatches = matchCount(for: left, preferredGenres: normalizedGenres)
+            let rightMatches = matchCount(for: right, preferredGenres: normalizedGenres)
+            if leftMatches == rightMatches {
+                return left.rankPosition < right.rankPosition
+            }
+            return leftMatches > rightMatches
+        }
+    }
+
+    private static func matchCount(for novel: Novel, preferredGenres: Set<String>) -> Int {
+        Set(
+            (novel.genres ?? []).map {
+                $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            }
+        )
+        .intersection(preferredGenres)
+        .count
+    }
+}
+
+private struct HomeNovelCard: View {
     let novel: Novel
-    let chapterNum: Int
-    let chapterTitle: String
-    let percentage: Double
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
-    private var color: Color { GenreStyle.color(for: novel.genres) }
-
-    private var pct: Double { min(100, max(0, percentage)) }
+    private var posterSize: CGSize {
+        AsterionLayout.shelfPosterSize(horizontalSizeClass)
+    }
 
     var body: some View {
-        HStack(spacing: 14) {
-            CoverImageView(novel: novel, size: .md)
+        VStack(alignment: .leading, spacing: 8) {
+            NovelPosterArt(novel: novel)
+                .frame(width: posterSize.width, height: posterSize.height)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text(novel.title)
-                    .font(.asterionSerif(17, weight: .medium))
-                    .foregroundStyle(Color.asterionText)
+            Text(novel.title)
+                .font(.asterionDisplay(17, weight: .medium))
+                .foregroundStyle(Color.asterionText)
+                .lineLimit(2)
+                .frame(width: posterSize.width, height: 44, alignment: .topLeading)
+            if let author = novel.author {
+                Text(author)
+                    .font(.asterionReading(12))
+                    .foregroundStyle(Color.asterionMuted)
                     .lineLimit(1)
+                    .frame(width: posterSize.width, alignment: .leading)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
 
-                if chapterNum > 0 {
-                    Text("Ch. \(chapterNum) · \(chapterTitle)")
-                        .font(.asterionMono(11))
-                        .foregroundStyle(Color.asterionDim)
+private struct HomeMediaCard: View {
+    let title: String
+    let imageURL: URL?
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    private var posterSize: CGSize {
+        AsterionLayout.shelfPosterSize(horizontalSizeClass)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            AsyncImage(url: imageURL) { phase in
+                if let image = phase.image {
+                    image.resizable().scaledToFill()
                 } else {
-                    Text(chapterTitle)
-                        .font(.asterionMono(11))
-                        .foregroundStyle(Color.asterionDim)
+                    Color.asterionCard
+                }
+            }
+            .frame(width: posterSize.width, height: posterSize.height)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+
+            Text(title)
+                .font(.asterionDisplay(17, weight: .medium))
+                .foregroundStyle(Color.asterionText)
+                .lineLimit(2)
+                .frame(width: posterSize.width, height: 44, alignment: .topLeading)
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private struct HomeMatchCard: View {
+    let match: FootballMatch
+
+    private var homeName: String {
+        match.teams?.home?.name ?? match.displayTitle.components(separatedBy: " vs ").first ?? match.title
+    }
+
+    private var awayName: String {
+        match.teams?.away?.name
+            ?? match.displayTitle.components(separatedBy: " vs ").dropFirst().first
+            ?? ""
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                if match.isLive {
+                    Text("Live")
+                        .font(.asterionReading(12, weight: .semibold))
+                        .foregroundStyle(.red)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .overlay(Capsule().stroke(Color.red.opacity(0.35), lineWidth: 1))
+                } else {
+                    Text(match.kickoff, format: .dateTime.weekday(.abbreviated).hour().minute())
+                        .font(.asterionReading(12, weight: .medium))
+                        .foregroundStyle(Color.asterionMuted)
                 }
 
-                HStack(spacing: 10) {
-                    GeometryReader { geo in
-                        ZStack(alignment: .leading) {
-                            Capsule()
-                                .fill(Color.asterionBorder)
+                Spacer()
 
-                            Capsule()
-                                .fill(
-                                    LinearGradient(
-                                        colors: [color, color.opacity(0.65)],
-                                        startPoint: .leading,
-                                        endPoint: .trailing
-                                    )
-                                )
-                                .frame(width: geo.size.width * pct / 100)
-                        }
-                    }
-                    .frame(height: 3)
-
-                    Text("\(Int(pct))%")
-                        .font(.asterionMono(10))
-                        .foregroundStyle(Color.asterionDim)
-                        .fixedSize()
-                }
-                .padding(.top, 7)
+                Text("Watch")
+                    .font(.asterionReading(13, weight: .semibold))
+                    .foregroundStyle(Color.asterionInk)
             }
 
-            Spacer(minLength: 0)
+            HStack(alignment: .top, spacing: 10) {
+                teamColumn(name: homeName, badgeURL: match.teams?.home?.badgeURL)
+                Text("vs")
+                    .font(.asterionReading(13, weight: .medium))
+                    .foregroundStyle(Color.asterionMuted)
+                    .padding(.top, 14)
+                teamColumn(name: awayName, badgeURL: match.teams?.away?.badgeURL)
+            }
         }
-        .padding(18)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(
-                    LinearGradient(
-                        colors: [Color.asterionCard, Color.asterionCardHover],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                )
-                .stroke(Color.asterionBorder, lineWidth: 1)
-        )
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(
-                    LinearGradient(
-                        colors: [color.opacity(0), color, color.opacity(0)],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                )
-                .frame(height: 2)
-                .opacity(0.5)
+        .padding(16)
+        .frame(width: 272)
+        .asterionInsetSurface(cornerRadius: 20)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(match.displayTitle), \(match.isLive ? "live" : "upcoming")")
+    }
+
+    private func teamColumn(name: String, badgeURL: URL?) -> some View {
+        VStack(spacing: 8) {
+            AsyncImage(url: badgeURL) { phase in
+                if let image = phase.image {
+                    image.resizable().scaledToFit()
+                } else {
+                    Image(systemName: "shield")
+                        .font(.system(size: 18, weight: .light))
+                        .foregroundStyle(Color.asterionMuted)
+                }
+            }
+            .frame(width: 36, height: 36)
+
+            Text(name)
+                .font(.asterionSerif(15, weight: .medium))
+                .foregroundStyle(Color.asterionText)
+                .multilineTextAlignment(.center)
+                .lineLimit(3)
+                .minimumScaleFactor(0.85)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .frame(maxWidth: .infinity)
     }
 }
 
 // MARK: - Novel Tile Card
 
-private struct NovelTileCard: View {
+struct NovelTileCard: View {
     let novel: Novel
-    private var isDesktop: Bool {
-        #if targetEnvironment(macCatalyst)
-        true
-        #else
-        false
-        #endif
-    }
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    private var isWideCanvas: Bool { AsterionLayout.isWide(horizontalSizeClass) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: isDesktop ? 8 : 4) {
-            if let rank = novel.rank {
-                HStack {
-                    Spacer()
-                    Text("#\(rank)")
-                        .font(.asterionMono(isDesktop ? 12 : 9))
-                        .foregroundStyle(Color.asterionDim)
+        VStack(alignment: .leading, spacing: 10) {
+            Color.clear
+                .aspectRatio(2 / 3, contentMode: .fit)
+                .overlay {
+                    NovelPosterArt(novel: novel)
                 }
-            }
-
-            CoverImageView(novel: novel, size: isDesktop ? .desktopTile : .tile)
-                .padding(.bottom, isDesktop ? 12 : 8)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
 
             Text(novel.title)
-                .font(.asterionSerif(isDesktop ? 22 : 15, weight: .medium))
+                .font(.asterionDisplay(isWideCanvas ? 20 : 17, weight: .medium))
                 .foregroundStyle(Color.asterionText)
                 .lineLimit(2)
                 .multilineTextAlignment(.leading)
 
             Text(novel.author ?? "Unknown")
-                .font(.asterionMono(isDesktop ? 13 : 11))
+                .font(.asterionReading(isWideCanvas ? 14 : 13))
                 .foregroundStyle(Color.asterionMuted)
                 .lineLimit(1)
-
-            HStack(spacing: 6) {
-                if let rating = novel.rating {
-                    Text("★ \(String(format: "%.1f", rating))")
-                        .font(.asterionMono(isDesktop ? 12 : 10))
-                        .foregroundStyle(Color.goldAccent)
-                }
-                if let status = novel.status {
-                    StatusPill(status: status)
-                }
-            }
-            .padding(.top, 4)
-
-            if let chapters = novel.totalChapters {
-                Text("\(chapters) chapters")
-                    .font(.asterionMono(isDesktop ? 11 : 9))
-                    .foregroundStyle(Color.asterionBorderHover)
-                    .padding(.top, 2)
-            }
         }
-        .padding(isDesktop ? 24 : 16)
-        .frame(minHeight: isDesktop ? 270 : nil, alignment: .topLeading)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 14)
-                .fill(Color.asterionCard)
-                .stroke(Color.asterionBorder, lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .clipped()
     }
 }
 
@@ -605,8 +876,6 @@ struct StatusPill: View {
             .foregroundStyle(pillColor)
             .padding(.horizontal, 8)
             .padding(.vertical, 2)
-            .overlay(
-                Capsule().stroke(pillColor.opacity(0.4), lineWidth: 1)
-            )
+            .background(pillColor.opacity(0.12), in: Capsule())
     }
 }
