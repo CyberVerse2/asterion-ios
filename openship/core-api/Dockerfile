@@ -37,4 +37,5 @@ EXPOSE 3001
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD node -e "fetch('http://127.0.0.1:' + process.env.API_PORT + '/health').then((response) => { if (!response.ok) process.exit(1) }).catch(() => process.exit(1))"
 
+# Openship overrides this with the api service entrypoint; keep the two identical.
 CMD ["sh", "-c", "npm run db:migrate:deploy && exec npm run start"]

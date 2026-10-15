@@ -14,9 +14,31 @@ const migrationFiles = (await readdir(migrationsDirectory))
   .filter((file) => file.endsWith(".sql"))
   .sort();
 
-const client = new pg.Client({ connectionString: databaseUrl });
+// Openship recreates Postgres a few seconds after the api container starts, so
+// keep retrying the connection for a minute; SQL errors still fail immediately.
+const connectAttempts = 30;
+const connectRetryDelayMs = 2000;
 
-await client.connect();
+async function connect() {
+  for (let attempt = 1; ; attempt += 1) {
+    const candidate = new pg.Client({ connectionString: databaseUrl });
+    try {
+      await candidate.connect();
+      return candidate;
+    } catch (error) {
+      await candidate.end().catch(() => {});
+      if (attempt >= connectAttempts) {
+        throw error;
+      }
+      console.log(
+        `Database not reachable (${error.code ?? error.message}); retrying in ${connectRetryDelayMs / 1000}s (${attempt}/${connectAttempts}).`
+      );
+      await new Promise((resolve) => setTimeout(resolve, connectRetryDelayMs));
+    }
+  }
+}
+
+const client = await connect();
 
 try {
   await client.query(`
