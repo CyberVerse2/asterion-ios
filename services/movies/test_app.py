@@ -123,12 +123,12 @@ class HLSProxyTests(unittest.TestCase):
         return self.client.get("/proxy/hls", query_string={"url": target}, **kwargs)
 
     @patch("playback.fetch_upstream")
-    def test_upstream_gateway_timeout_becomes_a_labelled_502(self, fetch):
+    def test_upstream_gateway_timeout_becomes_a_labelled_503(self, fetch):
         fetch.side_effect = lambda *a, **k: _upstream(504, b"error code: 504")
 
         response = self.get("https://cdn.example/master.m3u8")
 
-        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.status_code, 503)
         self.assertEqual(response.headers["X-Upstream-Status"], "504")
         self.assertEqual(response.headers["Cache-Control"], "no-store")
         self.assertEqual(fetch.call_count, playback.PROXY_ATTEMPTS)
@@ -150,7 +150,7 @@ class HLSProxyTests(unittest.TestCase):
     def test_reports_repeated_timeouts(self, _fetch):
         response = self.get("https://cdn.example/master.m3u8")
 
-        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.status_code, 503)
         self.assertEqual(response.headers["X-Upstream-Status"], "timeout")
 
     @patch("playback.fetch_upstream")
@@ -171,7 +171,7 @@ class HLSProxyTests(unittest.TestCase):
 
         response = self.get("https://cdn.example/master.m3u8")
 
-        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.status_code, 503)
         self.assertEqual(response.headers["X-Upstream-Status"], "invalid-playlist")
 
     @patch("playback.fetch_upstream")
@@ -237,7 +237,7 @@ class HLSProxyTests(unittest.TestCase):
 
         response = self.get("https://cdn.example/index.m3u8")
 
-        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.status_code, 503)
         self.assertEqual(response.headers["X-Upstream-Status"], "playlist-too-large")
 
 

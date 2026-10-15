@@ -332,9 +332,13 @@ def _proxy_error(status: int, message: str, upstream_status: str):
 
 
 def _upstream_failure(host: str, reason: str):
-    """Report an upstream failure as 502 so it is never mistaken for our own timeout."""
+    """Report an upstream failure as 503.
+
+    Cloudflare replaces origin 502/504 responses with its own error page and
+    drops our headers; a 503 reaches the client with X-Upstream-Status intact.
+    """
     app.logger.warning("HLS upstream %s failed: %s", host, reason)
-    return _proxy_error(502, f"Upstream failure: {reason}", reason)
+    return _proxy_error(503, f"Upstream failure: {reason}", reason)
 
 
 @app.route("/proxy/hls")

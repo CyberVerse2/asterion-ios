@@ -16,6 +16,7 @@
 - macOS (`apps/macos`, SwiftPM, macOS 26+) is the full novels, anime, movies, TV, and football hub; iOS (`apps/ios`) is a novels-only reader with widget, shortcuts, and Live Activities.
 - Shared user API is Fastify + Drizzle in `services/core-api` (default `http://localhost:3001`); Apple clients ship compiled service origins and fall back to `https://asterion-api.cyberverse.cloud/`.
 - Catalog and playback scrapers live in `services/anime`, `services/movies`, and `services/football` (Flask); public hosts are `asterion-scraper`, `asterion-movies`, and `asterion-football` on `cyberverse.cloud`. Anime catalog and `/api/health` depend on Redis (`REDIS_URL`).
+- Backend services (api, anime, movies, football, plus Postgres and Redis) deploy on the Openship project "Asterion" from `main`, with auto-deploy on push. Each service builds from `openship/<service>/Dockerfile`, and Openship sets each service's start command itself, so gunicorn flags must change in the Openship service config as well as the Dockerfile; `services/<service>/Dockerfile` is not used in production. All four hosts sit behind Cloudflare, which replaces origin 502/504 bodies and headers.
 - iOS device install uses SweetPad or `tooling/ios/build-install-launch-iphone.sh` / `build-install-launch-ipad.sh`; macOS uses `apps/macos/script/build_and_run.sh`.
 - Chapter bodies can be fetched individually (`/chapters/{id}`); chapter lists are paginated.
 - Clerk Native API, associated domains, and a stable code-signing identity are required for auth.
