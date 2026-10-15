@@ -21,6 +21,16 @@ export const users = pgTable("users", {
   uniqueIndex("users_clerk_user_id_key").on(table.clerkUserId),
 ]);
 
+/** Further Clerk accounts that sign in as an existing user, e.g. the same
+ *  person on the production and development Clerk instances. */
+export const userIdentities = pgTable("user_identities", {
+  clerkUserId: text("clerk_user_id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at", { withTimezone: false, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  index("user_identities_user_id_idx").on(table.userId),
+]);
+
 export const readingProgress = pgTable("reading_progress", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),

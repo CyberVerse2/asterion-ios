@@ -7,6 +7,10 @@ const envSchema = z.object({
   CLERK_ISSUER_URL: z.string().url(),
   CLERK_JWKS_URL: z.string().url(),
   CLERK_AUDIENCE: z.string().default(""),
+  // Further Clerk instances whose tokens are accepted, comma-separated issuer
+  // URLs. The production instance signs in the public Mac release while the
+  // iPhone app still uses the development one.
+  CLERK_ADDITIONAL_ISSUERS: z.string().default("https://clerk.cyberverse.cloud"),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
 });
 

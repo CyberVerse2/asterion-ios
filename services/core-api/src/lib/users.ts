@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
-import { userPreferences, users } from "../db/schema";
+import { userIdentities, userPreferences, users } from "../db/schema";
 import { db } from "./db";
 
 export async function ensureUser(clerkUserId: string) {
@@ -8,6 +8,14 @@ export async function ensureUser(clerkUserId: string) {
     where: eq(users.clerkUserId, clerkUserId),
   });
   if (existing) return { user: existing, created: false as const };
+
+  const identity = await db.query.userIdentities.findFirst({
+    where: eq(userIdentities.clerkUserId, clerkUserId),
+  });
+  if (identity) {
+    const linked = await db.query.users.findFirst({ where: eq(users.id, identity.userId) });
+    if (linked) return { user: linked, created: false as const };
+  }
 
   const [created] = await db
     .insert(users)

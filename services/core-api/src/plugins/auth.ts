@@ -13,6 +13,22 @@ type JwtPayload = {
 
 const clerkJwks = createRemoteJWKSet(new URL(env.CLERK_JWKS_URL));
 
+/** Issuer URL → key set, for every Clerk instance whose tokens are accepted. */
+const trustedIssuers = new Map([
+  [normalizeIssuer(env.CLERK_ISSUER_URL), { issuer: env.CLERK_ISSUER_URL, jwks: clerkJwks }],
+  ...env.CLERK_ADDITIONAL_ISSUERS.split(",")
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .map((issuer) => [
+      normalizeIssuer(issuer),
+      { issuer, jwks: createRemoteJWKSet(new URL(`${normalizeIssuer(issuer)}/.well-known/jwks.json`)) },
+    ] as const),
+]);
+
+function normalizeIssuer(value: string): string {
+  return value.replace(/\/+$/, "");
+}
+
 async function authenticate(request: FastifyRequest, reply: FastifyReply): Promise<void> {
   const authHeader = request.headers.authorization;
   const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
@@ -23,15 +39,19 @@ async function authenticate(request: FastifyRequest, reply: FastifyReply): Promi
 
   try {
     const decoded = decodeJwt(token) as JwtPayload;
+    const trusted = decoded.iss ? trustedIssuers.get(normalizeIssuer(decoded.iss)) : undefined;
+    if (!trusted) {
+      return reply.code(401).send({ error: "Invalid or expired token." });
+    }
     const verifyOptions: JWTVerifyOptions = {
-      issuer: env.CLERK_ISSUER_URL,
+      issuer: trusted.issuer,
     };
     if (env.CLERK_AUDIENCE && decoded.aud) {
       verifyOptions.audience = env.CLERK_AUDIENCE;
     } else if (env.CLERK_AUDIENCE && !decoded.aud) {
       request.log.info("Token missing aud claim; skipping audience check.");
     }
-    const { payload } = await jwtVerify(token, clerkJwks, verifyOptions);
+    const { payload } = await jwtVerify(token, trusted.jwks, verifyOptions);
     const jwtPayload = payload as JwtPayload;
 
     if (!jwtPayload.sub) {
