@@ -1,8 +1,9 @@
 ## Learned User Preferences
 
 - Prefer native Apple navigation (iOS 26 / Liquid Glass) over custom chrome; hide the navigation bar on Reader, Novel Details, and Chapters so those pages blend into content.
-- Treat `docs/product/app-store/code.jsx` and user screenshots as the visual source of truth for iOS; implement missed pieces from that reference rather than inventing UI.
-- Keep the app custom typeface on every page title and chrome; do not fall back to Roboto or the system font.
+- Asterion has no brand: older design artifacts (the crimson star logo, Cormorant/cream styling, `docs/product/app-store/code.jsx`, docs/design QA notes) are stale and are not a visual reference.
+- Both apps share one design language, "a dark room where the content is the light": always-dark canvas (#0E0F13), monochrome UI, colour only from artwork (artwork glow behind heroes and detail pages), SF Pro Expanded for page/hero/section titles, SF Mono for numbers, white primary capsule plus smoked secondary buttons, glowing white "light line" progress, red only for live football, green/amber only for state. Use the shared tokens and components in each app's Theme.swift and chrome components rather than one-off styling.
+- The reader keeps its own page themes (System follows the device appearance, Parchment, Night); Cormorant Garamond survives only as the reader's "Literary" typeface option.
 - Use Clerk for sign-in and Drizzle + PostgreSQL for user data; do not introduce Prisma.
 - Execute (build, clean rebuild, implement, and push when asked) instead of only advising; when asked to push, commit uncommitted work first. iOS iteration is typically SweetPad logs plus screenshots.
 - Offline downloads should be per-chapter files in an organized Asterion folder, not a single dump; Continue Reading should jump to the last read line and chapter.

@@ -26,7 +26,7 @@ xcodebuild \
   -derivedDataPath "${DERIVED_DATA_PATH}" \
   -allowProvisioningUpdates \
   -allowProvisioningDeviceRegistration \
-  "${SIGNING_ARGUMENTS[@]}" \
+  ${SIGNING_ARGUMENTS[@]+"${SIGNING_ARGUMENTS[@]}"} \
   build
 
 xcrun devicectl device install app \
