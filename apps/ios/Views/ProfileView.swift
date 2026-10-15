@@ -30,6 +30,7 @@ struct ProfileView: View {
     @State private var isApplyingServerPreferences = false
     @State private var startedNovelIds: Set<String> = []
     @State private var completedNovelIds: Set<String> = []
+    @AppStorage(DownloadAheadCoordinator.enabledKey) private var downloadAheadEnabled = true
     private var isDesktop: Bool {
         #if targetEnvironment(macCatalyst)
         true
@@ -85,6 +86,7 @@ struct ProfileView: View {
                 .frame(maxWidth: contentMaxWidth, alignment: .topLeading)
                 .frame(maxWidth: .infinity, alignment: .top)
             }
+            .asterionStatusBarScrim()
             .background { AsterionBackdrop() }
             .toolbar(.hidden, for: .navigationBar)
             .refreshable { await loadCloudProfileData() }
@@ -126,7 +128,10 @@ struct ProfileView: View {
     }
 
     private var pageTitleSection: some View {
-        AsterionPageHeader(title: "Account")
+        AsterionPageHeader(
+            title: "Account",
+            subtitle: authService.isSignedIn && cloudChaptersRead > 0 ? "\(cloudChaptersRead) chapters read" : nil
+        )
             .padding(.horizontal, pageHorizontalPadding)
             .padding(.top, isDesktop ? 12 : 0)
             .padding(.bottom, isDesktop ? 8 : 0)
@@ -136,22 +141,33 @@ struct ProfileView: View {
 
     private var signedOutContent: some View {
         VStack(spacing: 0) {
-            Spacer().frame(height: isDesktop ? 90 : 60)
+            Spacer().frame(height: isDesktop ? 72 : 40)
 
             Image(systemName: "person.crop.circle")
-                .font(.system(size: isDesktop ? 68 : 48, weight: .light))
+                .font(.system(size: 34, weight: .light))
                 .foregroundStyle(Color.asterionMuted)
-                .padding(.top, 8)
+                .frame(width: 84, height: 84)
+                .background {
+                    Circle()
+                        .fill(Color.white.opacity(0.035))
+                        .overlay(Circle().strokeBorder(Color.white.opacity(0.09)))
+                }
 
             Text("Welcome to Asterion")
-                .font(.asterionDisplay(isDesktop ? 34 : 28, weight: .medium))
+                .font(.asterionTitle(isDesktop ? 30 : 26, weight: .heavy))
                 .foregroundStyle(Color.asterionText)
-                .padding(.top, 16)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.8)
+                .padding(.horizontal, 12)
+                .padding(.top, 20)
 
-            Text("Sign in to sync your library")
-                .font(.asterionReading(16))
-                .foregroundStyle(Color.asterionSynopsis)
-                .padding(.top, 6)
+            Text("Sign in to keep your library, progress, and downloads in step across devices.")
+                .font(.asterionReading(15))
+                .foregroundStyle(Color.asterionMuted)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 360)
+                .padding(.top, 8)
 
             VStack(spacing: 12) {
                 Button {
@@ -159,9 +175,9 @@ struct ProfileView: View {
                     showAuthSheet = true
                 } label: {
                     Text("Sign in")
-                        .font(.asterionReading(isDesktop ? 18 : 16, weight: .semibold))
+                        .font(.asterionReading(isDesktop ? 17 : 16, weight: .semibold))
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, isDesktop ? 18 : 14)
+                        .padding(.vertical, isDesktop ? 16 : 14)
                 }
                 .buttonStyle(AsterionFilledButtonStyle())
 
@@ -170,19 +186,19 @@ struct ProfileView: View {
                     showAuthSheet = true
                 } label: {
                     Text("Create account")
-                        .font(.asterionReading(isDesktop ? 18 : 16, weight: .medium))
+                        .font(.asterionReading(isDesktop ? 17 : 16, weight: .medium))
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, isDesktop ? 18 : 14)
+                        .padding(.vertical, isDesktop ? 16 : 14)
                 }
                 .buttonStyle(AsterionOutlineButtonStyle())
             }
-            .frame(maxWidth: isDesktop ? 520 : .infinity)
+            .frame(maxWidth: isDesktop ? 420 : .infinity)
             .padding(.horizontal, isDesktop ? 0 : 32)
-            .padding(.top, 32)
+            .padding(.top, 30)
 
             if !mediaAccountService.snapshot.bookmarks.isEmpty || !mediaAccountService.snapshot.progress.isEmpty {
                 Text("Your guest saves and watch progress are ready to merge after sign-in.")
-                    .font(.asterionSerif(14))
+                    .font(.asterionReading(13.5))
                     .foregroundStyle(Color.asterionMuted)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 32)
@@ -190,64 +206,97 @@ struct ProfileView: View {
             }
 
             if let error = authService.authError {
-                Text(error)
-                    .font(.asterionMono(10))
-                    .foregroundStyle(.red.opacity(0.85))
-                    .padding(.top, 12)
+                statusMessage(error)
+                    .padding(.top, 14)
             }
 
             if let cloudSyncError {
-                Text(cloudSyncError)
-                    .font(.asterionMono(10))
-                    .foregroundStyle(.orange.opacity(0.9))
-                    .multilineTextAlignment(.center)
+                statusMessage(cloudSyncError)
                     .padding(.top, 10)
-                    .padding(.horizontal, 20)
             }
+
+            downloadsSection
+                .padding(.top, 40)
 
             Spacer().frame(height: 60)
         }
         .frame(maxWidth: .infinity)
     }
 
+    private func statusMessage(_ message: String) -> some View {
+        Label(message, systemImage: "exclamationmark.triangle.fill")
+            .font(.asterionReading(12.5, weight: .medium))
+            .foregroundStyle(Color.asterionWarning)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 24)
+    }
+
     // MARK: - Signed In
 
     private var signedInContent: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: AsterionLayout.sectionSpacing) {
             avatarSection
+            statisticsSection
             recentActivitySection
-            readingStatisticsSection
-            readingStatusSection
             readingPreferencesSection
+            downloadsSection
             notificationsSection
             aboutSection
             footerBrand
         }
-        .padding(.bottom, 24)
+        .padding(.top, 18)
+        .padding(.bottom, 40)
     }
 
-    // MARK: - Avatar
+    // MARK: - Profile header
+
+    private var displayName: String {
+        cloudProfile?.username ?? authService.currentUser?.username ?? "Reader"
+    }
+
+    private var displayEmail: String? {
+        let email = cloudProfile?.email ?? authService.currentUser?.email
+        guard let email, !email.isEmpty else { return nil }
+        return email
+    }
 
     private var avatarSection: some View {
-        HStack(alignment: .center, spacing: 14) {
+        HStack(alignment: .center, spacing: 18) {
             avatarImage
-                .frame(width: 44, height: 44)
+                .frame(width: 80, height: 80)
                 .clipShape(Circle())
+                .overlay(Circle().strokeBorder(Color.white.opacity(0.12)))
+                .padding(5)
+                .background {
+                    Circle()
+                        .fill(Color.white.opacity(0.035))
+                        .overlay(Circle().strokeBorder(Color.white.opacity(0.09)))
+                }
+                .shadow(color: .white.opacity(0.08), radius: 16)
+                .accessibilityLabel("Profile photo for \(displayName)")
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(cloudProfile?.username ?? authService.currentUser?.username ?? "Reader")
-                    .font(.asterionReading(18, weight: .medium))
+            VStack(alignment: .leading, spacing: 5) {
+                Text(displayName)
+                    .font(.asterionTitle(26, weight: .heavy))
                     .foregroundStyle(Color.asterionText)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.7)
+                    .accessibilityAddTraits(.isHeader)
 
-                Text(statsSentence)
-                    .font(.asterionReading(14))
-                    .foregroundStyle(Color.asterionMuted)
+                if let displayEmail {
+                    Text(displayEmail)
+                        .font(.asterionReading(13.5))
+                        .foregroundStyle(Color.asterionMuted)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+
+                SyncChip(hasIssue: cloudSyncError != nil)
+                    .padding(.top, 5)
             }
             Spacer(minLength: 0)
         }
         .padding(.horizontal, pageHorizontalPadding)
-        .padding(.top, 6)
-        .padding(.bottom, 20)
     }
 
     @ViewBuilder
@@ -270,19 +319,9 @@ struct ProfileView: View {
         Color.asterionCard
             .overlay {
                 Text(initials)
-                    .font(.asterionDisplay(28, weight: .medium))
+                    .font(.asterionTitle(28, weight: .heavy))
                     .foregroundStyle(Color.asterionText)
             }
-    }
-
-    private var statsSentence: String {
-        let saved = libraryNovels.count + mediaAccountService.snapshot.bookmarks.count
-        let inProgress = cloudProgressCount + mediaAccountService.snapshot.stats.titlesInProgress
-        var parts = ["\(saved) saved", "\(inProgress) in progress"]
-        if cloudChaptersRead > 0 {
-            parts.append("\(cloudChaptersRead) chapters")
-        }
-        return parts.joined(separator: "  ·  ")
     }
 
     private var initials: String {
@@ -297,6 +336,7 @@ struct ProfileView: View {
         let imageURL: URL?
         let caption: String
         let date: Date
+        var progress: Double? = nil
     }
 
     private var recentActivity: [RecentActivity] {
@@ -308,8 +348,9 @@ struct ProfileView: View {
             let id = "novel-\(novel.id)"
             activityByID[id] = RecentActivity(
                 id: id, title: novel.title, imageURL: novel.imageUrl.flatMap(URL.init(string:)),
-                caption: "\(Int(progress.percentage))% read  ·  \(date.formatted(.relative(presentation: .named)))",
-                date: date
+                caption: "\(Int(progress.percentage))% read · \(date.formatted(.relative(presentation: .named)))",
+                date: date,
+                progress: progress.percentage / 100
             )
         }
         // Preserve the latest reading session saved by earlier app versions, too.
@@ -319,14 +360,15 @@ struct ProfileView: View {
                 activityByID[id] = RecentActivity(
                     id: id, title: snapshot.novelTitle,
                     imageURL: novelsByID[snapshot.novelId]?.imageUrl.flatMap(URL.init(string:)),
-                    caption: "\(snapshot.chapterTitle)  ·  \(snapshot.updatedAt.formatted(.relative(presentation: .named)))",
+                    caption: "\(snapshot.chapterTitle) · \(snapshot.updatedAt.formatted(.relative(presentation: .named)))",
                     date: snapshot.updatedAt
                 )
             }
         }
         let media = MediaHistoryEntry.latestPerTitle(mediaAccountService.snapshot.history).map { entry in
             RecentActivity(id: "media-\(entry.mediaType.rawValue)-\(entry.contentId)", title: entry.title, imageURL: entry.imageURL,
-                           caption: activityCaption(for: entry), date: entry.lastViewedAt)
+                           caption: activityCaption(for: entry), date: entry.lastViewedAt,
+                           progress: entry.completed ? 1 : entry.percentage / 100)
         }
         return Array((Array(activityByID.values) + media).sorted {
             if $0.date == $1.date { return $0.id < $1.id }
@@ -338,40 +380,47 @@ struct ProfileView: View {
     private var recentActivitySection: some View {
         let activity = recentActivity
         if !activity.isEmpty {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Recent")
-                    .font(.asterionReading(15, weight: .medium))
-                    .foregroundStyle(Color.asterionText)
-                    .padding(.horizontal, pageHorizontalPadding)
-                    .padding(.bottom, 4)
+            VStack(alignment: .leading, spacing: 14) {
+                AsterionSectionLabel(title: "Reading and watching", detail: "Most recent first")
 
-                ForEach(activity) { entry in
-                    HStack(alignment: .center, spacing: 14) {
-                        MediaArtwork(url: entry.imageURL, width: 56)
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(entry.title)
-                                .font(.asterionReading(16))
-                                .foregroundStyle(Color.asterionText)
-                                .lineLimit(2)
-                            Text(entry.caption)
-                                .font(.asterionReading(13))
-                                .foregroundStyle(Color.asterionMuted)
-                                .lineLimit(1)
+                VStack(spacing: 0) {
+                    ForEach(Array(activity.enumerated()), id: \.element.id) { index, entry in
+                        HStack(alignment: .center, spacing: 14) {
+                            MediaArtwork(url: entry.imageURL, width: 44)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(entry.title)
+                                    .font(.asterionReading(14.5, weight: .semibold))
+                                    .foregroundStyle(Color.asterionText)
+                                    .lineLimit(1)
+                                Text(entry.caption)
+                                    .font(.asterionReading(12.5))
+                                    .foregroundStyle(Color.asterionMuted)
+                                    .lineLimit(1)
+                                if let progress = entry.progress, progress > 0 {
+                                    AsterionLightLine(fraction: progress, height: 2.5)
+                                        .padding(.top, 6)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
+                        .overlay(alignment: .top) {
+                            if index > 0 { hairline.padding(.leading, 14 + 44 + 14) }
+                        }
+                        .accessibilityElement(children: .combine)
                     }
-                    .padding(.horizontal, pageHorizontalPadding)
-                    .padding(.vertical, 10)
                 }
+                .asterionPanel(cornerRadius: 16)
             }
-            .padding(.bottom, 20)
+            .padding(.horizontal, pageHorizontalPadding)
         }
     }
 
     private func activityCaption(for entry: MediaHistoryEntry) -> String {
         let unit = entry.unitTitle ?? (entry.completed ? "Finished" : "Watched")
         let when = entry.lastViewedAt.formatted(.relative(presentation: .named))
-        return "\(unit)  ·  \(when)"
+        return "\(unit) · \(when)"
     }
 
     private func loadCloudProfileData() async {
@@ -484,42 +533,83 @@ struct ProfileView: View {
         }
     }
 
-    // MARK: - Reading Status
+    // MARK: - Statistics
 
-    @ViewBuilder
-    private var readingStatusSection: some View {
-        if !libraryNovels.isEmpty {
-            Text("\(ongoing) ongoing  ·  \(completed) finished  ·  \(unreadInLibrary) unread")
-                .font(.asterionReading(14))
-                .foregroundStyle(Color.asterionMuted)
-                .padding(.horizontal, pageHorizontalPadding)
-                .padding(.bottom, 28)
-        }
-    }
+    /// One panel: what is saved, what is underway, and this week's reading.
+    private var statisticsSection: some View {
+        let activity = readingActivityService.summary(history: readingHistory, goal: readingGoal)
+        let saved = libraryNovels.count + mediaAccountService.snapshot.bookmarks.count
+        let inProgress = ongoing + mediaAccountService.snapshot.stats.titlesInProgress
 
-    // MARK: - Reading Preferences
-
-    private var readingStatisticsSection: some View {
-        let stats = readingActivityService.summary(history: readingHistory, goal: readingGoal)
         return VStack(alignment: .leading, spacing: 14) {
-            Text("Reading activity")
-                .font(.asterionDisplay(24, weight: .medium))
-                .foregroundStyle(Color.asterionText)
-            Text("\(stats.weeklyChapters) of \(stats.goal) chapters this week")
-                .font(.asterionReading(16))
-                .foregroundStyle(Color.asterionText)
-            ProgressView(value: stats.goalFraction)
-                .tint(Color.asterionInk)
-                .accessibilityLabel("Weekly reading goal")
-                .accessibilityValue("\(stats.weeklyChapters) of \(stats.goal) chapters")
-            HStack(alignment: .top, spacing: 20) {
-                readingMetric(timeLabel(stats.todaySeconds), label: "Reading today")
-                readingMetric(timeLabel(stats.weeklySeconds), label: "This week")
-                readingMetric("\(stats.streak)", label: "Day streak")
+            AsterionSectionLabel(
+                title: "Your Asterion",
+                detail: libraryNovels.isEmpty ? nil : "\(unreadInLibrary) unread"
+            )
+
+            VStack(spacing: 0) {
+                statRow([
+                    ("\(saved)", "Saved"),
+                    ("\(inProgress)", "In progress"),
+                    ("\(completed)", "Finished"),
+                ])
+                hairline
+                statRow([
+                    (timeLabel(activity.todaySeconds), "Today"),
+                    (timeLabel(activity.weeklySeconds), "This week"),
+                    ("\(activity.streak)", "Day streak"),
+                ])
+                hairline
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("Weekly goal")
+                            .font(.asterionReading(13.5, weight: .medium))
+                            .foregroundStyle(Color.asterionText)
+                        Spacer(minLength: 8)
+                        Text("\(activity.weeklyChapters) of \(activity.goal) chapters")
+                            .font(.asterionMono(12, weight: .medium))
+                            .foregroundStyle(Color.asterionMuted)
+                    }
+                    AsterionLightLine(fraction: activity.goalFraction, height: 3)
+                        .accessibilityLabel("Weekly reading goal")
+                        .accessibilityValue("\(activity.weeklyChapters) of \(activity.goal) chapters")
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 16)
             }
+            .asterionPanel(cornerRadius: 16)
         }
         .padding(.horizontal, pageHorizontalPadding)
-        .padding(.bottom, 28)
+    }
+
+    private func statRow(_ items: [(value: String, label: String)]) -> some View {
+        HStack(alignment: .top, spacing: 0) {
+            ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+                VStack(spacing: 5) {
+                    Text(item.value)
+                        .font(.asterionTitle(22, weight: .heavy))
+                        .foregroundStyle(Color.asterionText)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                    Text(item.label)
+                        .font(.asterionReading(12))
+                        .foregroundStyle(Color.asterionMuted)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 6)
+                .overlay(alignment: .leading) {
+                    if index > 0 {
+                        Rectangle()
+                            .fill(Color.asterionHairline)
+                            .frame(width: 1, height: 32)
+                    }
+                }
+                .accessibilityElement(children: .combine)
+            }
+        }
+        .padding(.vertical, 18)
     }
 
     private func timeLabel(_ seconds: Double) -> String {
@@ -528,74 +618,104 @@ struct ProfileView: View {
         return minutes >= 60 ? "\(minutes / 60)h \(minutes % 60)m" : "\(minutes) min"
     }
 
-    private func readingMetric(_ value: String, label: String) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(value).font(.asterionDisplay(26, weight: .medium)).foregroundStyle(Color.asterionText)
-            Text(label).font(.asterionReading(13)).foregroundStyle(Color.asterionMuted)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+    private var hairline: some View {
+        Rectangle()
+            .fill(Color.asterionHairline)
+            .frame(height: 1)
     }
 
-    private var readingPreferencesSection: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            AsterionSectionLabel(title: "Reading")
-                .padding(.horizontal, pageHorizontalPadding)
+    // MARK: - Reading Preferences
 
+    private var readingPreferencesSection: some View {
+        settingsGroup(title: "Reading") {
             settingsRow(label: "Font size", sublabel: fontSizePref.rawValue.capitalized) {
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     ForEach(FontSizePref.allCases, id: \.self) { size in
-                        Button { fontSizePref = size } label: {
+                        let selected = fontSizePref == size
+                        Button {
+                            if fontSizePref != size { Haptics.selection() }
+                            fontSizePref = size
+                        } label: {
                             Text("A")
-                                .font(.asterionReading(size == .small ? 13 : size == .medium ? 16 : 19, weight: .medium))
-                                .foregroundStyle(fontSizePref == size ? Color.asterionOnInk : Color.asterionText)
-                                .frame(width: 36, height: 36)
-                                .background(
-                                    fontSizePref == size ? Color.asterionInk : Color.asterionCard,
-                                    in: Circle()
-                                )
+                                .font(.asterionReading(size == .small ? 12 : size == .medium ? 15 : 18, weight: .semibold))
+                                .foregroundStyle(selected ? Color.asterionOnInk : Color.asterionText)
+                                .frame(width: 34, height: 34)
+                                .background(selected ? Color.asterionInk : Color.white.opacity(0.06), in: Circle())
+                                .overlay(Circle().strokeBorder(Color.white.opacity(selected ? 0 : 0.08)))
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel("\(size.rawValue.capitalized) font size")
+                        .accessibilityAddTraits(selected ? .isSelected : [])
                     }
                 }
             }
 
-            settingsRow(label: "Weekly goal", sublabel: "\(readingGoal) chapters") {
-                HStack(spacing: 16) {
-                    Button("–") { readingGoal = max(5, readingGoal - 5) }
+            settingsRow(label: "Weekly goal", sublabel: "Chapters to read each week") {
+                HStack(spacing: 10) {
+                    stepButton(systemName: "minus", label: "Decrease weekly goal") {
+                        readingGoal = max(5, readingGoal - 5)
+                    }
                     Text("\(readingGoal)")
-                        .font(.asterionReading(16, weight: .medium))
+                        .font(.asterionMono(15, weight: .semibold))
                         .foregroundStyle(Color.asterionText)
-                        .monospacedDigit()
-                        .frame(minWidth: 24)
-                    Button("+") { readingGoal = min(100, readingGoal + 5) }
+                        .frame(minWidth: 28)
+                    stepButton(systemName: "plus", label: "Increase weekly goal") {
+                        readingGoal = min(100, readingGoal + 5)
+                    }
                 }
-                .font(.asterionReading(20, weight: .medium))
-                .foregroundStyle(Color.asterionText)
-                .buttonStyle(.plain)
             }
 
-            settingsRow(label: "Appearance", sublabel: "Follows the device", showBorder: false) {
-                Text("System")
+            settingsRow(label: "Appearance", sublabel: "The reader keeps its own page themes", showBorder: false) {
+                Text("Dark")
                     .font(.asterionReading(14))
                     .foregroundStyle(Color.asterionMuted)
             }
         }
-        .padding(.bottom, 24)
+    }
+
+    // MARK: - Downloads
+
+    private var downloadsSection: some View {
+        settingsGroup(title: "Downloads") {
+            settingsRow(
+                label: "Download ahead",
+                sublabel: "Keep the next \(DownloadAheadCoordinator.chaptersAhead) chapters and the next \(DownloadAheadCoordinator.episodesAhead) episodes ready offline, on Wi-Fi",
+                showBorder: false
+            ) {
+                Toggle("", isOn: $downloadAheadEnabled)
+                    .tint(Color.asterionSuccess)
+                    .labelsHidden()
+                    .accessibilityLabel("Download ahead")
+            }
+        }
+    }
+
+    private func stepButton(systemName: String, label: String, action: @escaping () -> Void) -> some View {
+        Button {
+            Haptics.selection()
+            action()
+        } label: {
+            Image(systemName: systemName)
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(Color.asterionText)
+                .frame(width: 32, height: 32)
+                .background(Color.white.opacity(0.06), in: Circle())
+                .overlay(Circle().strokeBorder(Color.asterionBorder))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
     }
 
     // MARK: - Notifications
 
     private var notificationsSection: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            AsterionSectionLabel(title: "Notifications")
-                .padding(.horizontal, pageHorizontalPadding)
-
+        settingsGroup(title: "Notifications") {
             settingsRow(label: "New chapters", sublabel: "When a saved novel updates") {
                 Toggle("", isOn: Binding(get: { notificationsOn }, set: { enabled in
                     notificationsOn = enabled
                     Task { await contentNotifications.setEnabled(enabled, kind: .novel) }
                 }))
-                    .tint(Color.asterionInk)
+                    .tint(Color.asterionSuccess)
                     .labelsHidden()
                     .accessibilityLabel("New chapter alerts")
             }
@@ -604,68 +724,104 @@ struct ProfileView: View {
                 Toggle("", isOn: Binding(get: { contentNotifications.episodeAlerts }, set: { enabled in
                     Task { await contentNotifications.setEnabled(enabled, kind: .anime) }
                 }))
-                .tint(Color.asterionInk)
+                .tint(Color.asterionSuccess)
                 .labelsHidden()
                 .accessibilityLabel("New anime episode alerts")
             }
+
             if contentNotifications.permissionDenied {
-                Button("Allow notifications in Settings") {
+                Button {
                     if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                        Text("Notifications are off. Allow them in Settings")
+                            .multilineTextAlignment(.leading)
+                        Spacer(minLength: 0)
+                        Image(systemName: "arrow.up.right")
+                            .font(.system(size: 11, weight: .semibold))
+                    }
+                    .font(.asterionReading(13.5, weight: .medium))
+                    .foregroundStyle(Color.asterionWarning)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 13)
+                    .overlay(alignment: .bottom) { hairline.padding(.leading, 16) }
+                    .contentShape(Rectangle())
                 }
-                .font(.asterionReading(14))
-                .foregroundStyle(Color.asterionInk)
-                .padding(.horizontal, pageHorizontalPadding)
-                .padding(.vertical, 12)
+                .buttonStyle(.plain)
             }
 
             settingsRow(label: "Siri Shortcuts", sublabel: "Open the last chapter from Siri", showBorder: false) {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Color.asterionMuted)
+                chevron
             }
         }
-        .padding(.bottom, 24)
     }
 
     // MARK: - About
 
     private var aboutSection: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            AsterionSectionLabel(title: "About")
-                .padding(.horizontal, pageHorizontalPadding)
-
+        settingsGroup(title: "About") {
             ForEach(Array(["Widget setup", "Rate Asterion", "Privacy policy", "Terms of service"].enumerated()), id: \.offset) { index, item in
                 settingsRow(label: item, showBorder: index < 3) {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color.asterionMuted)
+                    chevron
                 }
             }
         }
-        .padding(.bottom, 28)
+    }
+
+    private var chevron: some View {
+        Image(systemName: "chevron.right")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(Color.asterionFaint)
     }
 
     // MARK: - Footer
 
     private var footerBrand: some View {
-        VStack(spacing: 16) {
-            Button("Sign out") {
+        VStack(spacing: 14) {
+            Button(role: .destructive) {
                 authService.signOut()
                 apiClient.setSessionToken(nil)
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "rectangle.portrait.and.arrow.right")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(Color.asterionMuted)
+                    Text("Sign out")
+                        .font(.asterionReading(15, weight: .medium))
+                        .foregroundStyle(Color.asterionText)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 15)
+                .contentShape(Rectangle())
             }
-            .font(.asterionReading(15, weight: .medium))
-            .foregroundStyle(Color.asterionText)
             .buttonStyle(.plain)
+            .asterionPanel(cornerRadius: 16)
 
-            Text("Asterion  ·  \(appVersion)")
-                .font(.asterionReading(13))
-                .foregroundStyle(Color.asterionMuted)
+            Text("Asterion · \(appVersion)")
+                .font(.asterionMono(11.5))
+                .foregroundStyle(Color.asterionFaint)
+                .frame(maxWidth: .infinity)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.top, 8)
+        .padding(.horizontal, pageHorizontalPadding)
     }
 
-    // MARK: - Settings Row Helper
+    // MARK: - Settings Helpers
+
+    private func settingsGroup<Content: View>(
+        title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            AsterionSectionLabel(title: title)
+            VStack(spacing: 0) {
+                content()
+            }
+            .asterionPanel(cornerRadius: 16)
+        }
+        .padding(.horizontal, pageHorizontalPadding)
+    }
 
     private func settingsRow<Trailing: View>(
         label: String,
@@ -676,19 +832,47 @@ struct ProfileView: View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(label)
-                    .font(.asterionReading(16))
+                    .font(.asterionReading(15, weight: .medium))
                     .foregroundStyle(Color.asterionText)
                 if let sublabel {
                     Text(sublabel)
-                        .font(.asterionReading(13))
+                        .font(.asterionReading(12.5))
                         .foregroundStyle(Color.asterionMuted)
                 }
             }
             Spacer(minLength: 8)
             trailing()
         }
-        .padding(.horizontal, pageHorizontalPadding)
-        .padding(.vertical, 14)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 13)
+        .frame(minHeight: 56)
+        .overlay(alignment: .bottom) {
+            if showBorder { hairline.padding(.leading, 16) }
+        }
+    }
+}
+
+/// Small smoked chip: a green dot when the account is in sync.
+private struct SyncChip: View {
+    let hasIssue: Bool
+
+    var body: some View {
+        let tint = hasIssue ? Color.asterionWarning : Color.asterionSuccess
+        HStack(spacing: 7) {
+            Circle()
+                .fill(tint)
+                .frame(width: 6, height: 6)
+                .shadow(color: tint.opacity(0.7), radius: 3)
+            Text(hasIssue ? "Needs attention" : "Synced")
+                .font(.asterionReading(11.5, weight: .semibold))
+                .foregroundStyle(Color.asterionText.opacity(0.88))
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(Color.white.opacity(0.06), in: Capsule())
+        .overlay(Capsule().strokeBorder(Color.asterionBorder))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(hasIssue ? "Signed in, sync needs attention" : "Signed in, synced")
     }
 }
 
@@ -735,12 +919,12 @@ private struct DesktopAuthSheet: View {
         VStack(alignment: .leading, spacing: 24) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(needsVerificationCode ? "Verify Email" : (isCreatingAccount ? "Create Account" : "Sign In"))
-                        .font(.asterionSerif(34, weight: .semibold))
+                    Text(needsVerificationCode ? "Verify email" : (isCreatingAccount ? "Create account" : "Sign in"))
+                        .font(.asterionTitle(28, weight: .heavy))
                         .foregroundStyle(Color.asterionText)
                     Text(needsVerificationCode ? "Enter the code Clerk sent to your email." : "Use your Asterion email and password.")
-                        .font(.asterionSerif(17))
-                        .foregroundStyle(Color.asterionDim)
+                        .font(.asterionReading(15))
+                        .foregroundStyle(Color.asterionMuted)
                 }
                 Spacer()
                 Button {
@@ -748,9 +932,10 @@ private struct DesktopAuthSheet: View {
                 } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(Color.asterionDim)
+                        .foregroundStyle(Color.asterionText)
                         .frame(width: 38, height: 38)
-                        .background(Circle().fill(Color.asterionCard))
+                        .background(Circle().fill(Color.white.opacity(0.06)))
+                        .overlay(Circle().strokeBorder(Color.asterionBorder))
                 }
                 .buttonStyle(.plain)
             }
@@ -766,8 +951,8 @@ private struct DesktopAuthSheet: View {
 
             if let errorMessage {
                 Text(errorMessage)
-                    .font(.asterionMono(12))
-                    .foregroundStyle(Color.red.opacity(0.9))
+                    .font(.asterionReading(12.5, weight: .medium))
+                    .foregroundStyle(Color.asterionWarning)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -786,20 +971,15 @@ private struct DesktopAuthSheet: View {
                     if isWorking {
                         ProgressView()
                             .controlSize(.small)
-                            .tint(Color.asterionBackground)
+                            .tint(Color.asterionOnInk)
                     }
                     Text(buttonTitle)
-                        .font(.asterionSerif(20, weight: .medium))
+                        .font(.asterionReading(16, weight: .semibold))
                 }
-                .foregroundStyle(Color.asterionBackground)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 17)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(canSubmit ? Color.goldAccent : Color.goldAccent.opacity(0.45))
-                )
+                .padding(.vertical, 15)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(AsterionFilledButtonStyle())
             .disabled(!canSubmit)
 
             if !needsVerificationCode {
@@ -807,8 +987,8 @@ private struct DesktopAuthSheet: View {
                     toggleAuthMode()
                 } label: {
                     Text(isCreatingAccount ? "Already have an account? Sign in" : "New to Asterion? Create an account")
-                        .font(.asterionSerif(16))
-                        .foregroundStyle(Color.goldAccent)
+                        .font(.asterionReading(14, weight: .medium))
+                        .foregroundStyle(Color.asterionMuted)
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.plain)
@@ -820,26 +1000,26 @@ private struct DesktopAuthSheet: View {
     }
 
     private var buttonTitle: String {
-        if needsVerificationCode { return "Verify and Continue" }
-        return isCreatingAccount ? "Create Account" : "Sign In"
+        if needsVerificationCode { return "Verify and continue" }
+        return isCreatingAccount ? "Create account" : "Sign in"
     }
 
     private func authField(title: String, text: Binding<String>) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title.uppercased())
-                .font(.asterionMono(11))
-                .foregroundStyle(Color.asterionDim)
-                .tracking(1.5)
+                .font(.system(size: 10.5, weight: .semibold).width(.expanded))
+                .foregroundStyle(Color.asterionMuted)
+                .tracking(1.3)
             TextField(title, text: text)
                 .textContentType(title == "Email" ? .emailAddress : .oneTimeCode)
                 .textFieldStyle(.plain)
-                .font(.asterionSerif(19))
+                .font(.asterionReading(16))
                 .foregroundStyle(Color.asterionText)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 15)
                 .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.asterionCard)
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color.asterionSurface)
                         .stroke(Color.asterionBorder, lineWidth: 1)
                 )
         }
@@ -848,19 +1028,19 @@ private struct DesktopAuthSheet: View {
     private func secureAuthField(title: String, text: Binding<String>) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title.uppercased())
-                .font(.asterionMono(11))
-                .foregroundStyle(Color.asterionDim)
-                .tracking(1.5)
+                .font(.system(size: 10.5, weight: .semibold).width(.expanded))
+                .foregroundStyle(Color.asterionMuted)
+                .tracking(1.3)
             SecureField(title, text: text)
                 .textContentType(.password)
                 .textFieldStyle(.plain)
-                .font(.asterionSerif(19))
+                .font(.asterionReading(16))
                 .foregroundStyle(Color.asterionText)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 15)
                 .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.asterionCard)
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color.asterionSurface)
                         .stroke(Color.asterionBorder, lineWidth: 1)
                 )
         }

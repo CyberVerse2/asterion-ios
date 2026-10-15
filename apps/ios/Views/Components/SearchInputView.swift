@@ -6,42 +6,60 @@ struct SearchInputView: View {
     @ObserveInjection var inject
     @Binding var text: String
     var placeholder: String = "Search"
+    /// Focus the field as soon as it appears (dedicated search screens).
+    var autoFocus: Bool = false
 
     @FocusState private var isFocused: Bool
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 14) {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(isFocused ? Color.asterionText : Color.asterionMuted)
+
             ZStack(alignment: .leading) {
                 if text.isEmpty {
                     Text(placeholder)
-                        .font(.asterionDisplay(24, weight: .regular))
+                        .font(.asterionReading(16))
                         .foregroundStyle(Color.asterionMuted)
                         .allowsHitTesting(false)
                 }
 
                 TextField("", text: $text)
-                    .font(.asterionDisplay(24, weight: .medium))
+                    .font(.asterionReading(16, weight: .medium))
                     .foregroundStyle(Color.asterionText)
                     .focused($isFocused)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
                     .submitLabel(.search)
                     .onSubmit { isFocused = false }
+                    .accessibilityLabel(placeholder)
+                    .task {
+                        guard autoFocus else { return }
+                        try? await Task.sleep(for: .milliseconds(350))
+                        isFocused = true
+                    }
             }
 
             if !text.isEmpty {
-                Button("Clear") { text = "" }
-                    .font(.asterionReading(14, weight: .medium))
-                    .foregroundStyle(Color.asterionMuted)
-                    .buttonStyle(.plain)
+                Button {
+                    text = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 16))
+                        .foregroundStyle(Color.asterionMuted)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear search")
             }
         }
-        .padding(.bottom, 10)
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(isFocused ? Color.asterionInk : Color.asterionText.opacity(0.28))
-                .frame(height: isFocused ? 1.5 : 1)
-        }
+        .padding(.horizontal, 16)
+        .frame(height: 46)
+        .background(Color.white.opacity(isFocused ? 0.09 : 0.06), in: Capsule())
+        .overlay(Capsule().strokeBorder(Color.white.opacity(isFocused ? 0.2 : 0.08)))
+        .contentShape(Capsule())
+        .onTapGesture { isFocused = true }
+        .animation(.easeOut(duration: 0.15), value: isFocused)
         .enableInjection()
     }
 }

@@ -27,14 +27,18 @@ final class OfflineVideoDownloadService: NSObject, ObservableObject {
     @Published private(set) var records: [OfflineVideoRecord]
     @Published private(set) var transfers: [OfflineVideoTransfer] = []
     @Published private(set) var lastError: String?
+    /// Request IDs saved by "Download ahead" rather than by the user.
+    @Published private(set) var downloadedAheadIDs: Set<String>
 
     private static let recordsKey = "asterion.offline-video.records.v1"
+    private static let downloadedAheadKey = "asterion.offline-video.downloaded-ahead.v1"
     private var progressByID: [String: Double] = [:]
     private var metadataByTaskID: [Int: OfflineVideoTaskMetadata] = [:]
     private var session: AVAssetDownloadURLSession!
 
     override init() {
         records = Self.loadRecords()
+        downloadedAheadIDs = Set(UserDefaults.standard.stringArray(forKey: Self.downloadedAheadKey) ?? [])
         super.init()
 
         let configuration = URLSessionConfiguration.background(
@@ -53,8 +57,19 @@ final class OfflineVideoDownloadService: NSObject, ObservableObject {
     }
 
     func start(_ request: PlaybackRequest) {
+        start(request, automatic: false)
+    }
+
+    /// `automatic` downloads come from "Download ahead": they fail quietly and may be pruned once watched.
+    func start(_ request: PlaybackRequest, automatic: Bool) {
+        if !automatic, downloadedAheadIDs.contains(request.id) {
+            // The user asked for it themselves, so it is theirs to keep.
+            setDownloadedAhead(request.id, false)
+        }
         guard let directURL = request.directURL else {
-            lastError = "This stream does not expose a downloadable video source."
+            if !automatic {
+                lastError = "This stream does not expose a downloadable video source."
+            }
             return
         }
         guard localURL(forRequestID: request.id) == nil,
@@ -77,8 +92,13 @@ final class OfflineVideoDownloadService: NSObject, ObservableObject {
             assetArtworkData: nil,
             options: nil
         ) else {
-            lastError = "The video download could not be prepared."
+            if !automatic {
+                lastError = "The video download could not be prepared."
+            }
             return
+        }
+        if automatic {
+            setDownloadedAhead(request.id, true)
         }
         if let data = try? JSONEncoder().encode(metadata) {
             task.taskDescription = data.base64EncodedString()
@@ -97,6 +117,7 @@ final class OfflineVideoDownloadService: NSObject, ObservableObject {
             }
         }
         progressByID.removeValue(forKey: requestID)
+        setDownloadedAhead(requestID, false)
         rebuildTransfers()
     }
 
@@ -105,7 +126,38 @@ final class OfflineVideoDownloadService: NSObject, ObservableObject {
             try? FileManager.default.removeItem(at: url)
         }
         records.removeAll { $0.id == record.id }
+        setDownloadedAhead(record.id, false)
         saveRecords()
+    }
+
+    func isDownloadedAhead(id: String) -> Bool {
+        downloadedAheadIDs.contains(id)
+    }
+
+    /// True while a transfer for this request is running.
+    func isTransferring(id: String) -> Bool {
+        progressByID.keys.contains(id)
+    }
+
+    /// Deletes "Download ahead" episodes the viewer has since finished.
+    func pruneWatchedDownloadsAhead(progress: [MediaPlaybackProgress]) {
+        let finished = Set(
+            progress.filter(\.completed).map { "\($0.mediaType.rawValue):\($0.contentId):\($0.unitId)" }
+        )
+        guard !finished.isEmpty else { return }
+        for record in records where downloadedAheadIDs.contains(record.id) {
+            guard let playback = record.playback else { continue }
+            let key = "\(playback.item.mediaType.rawValue):\(playback.item.contentID):\(playback.unitID)"
+            if finished.contains(key) {
+                remove(record)
+            }
+        }
+    }
+
+    private func setDownloadedAhead(_ id: String, _ isAhead: Bool) {
+        let changed = isAhead ? downloadedAheadIDs.insert(id).inserted : downloadedAheadIDs.remove(id) != nil
+        guard changed else { return }
+        UserDefaults.standard.set(Array(downloadedAheadIDs), forKey: Self.downloadedAheadKey)
     }
 
     func localURL(for request: PlaybackRequest) -> URL? {
@@ -183,7 +235,9 @@ final class OfflineVideoDownloadService: NSObject, ObservableObject {
         progressByID.removeValue(forKey: metadata.id)
         metadataByTaskID.removeValue(forKey: task.taskIdentifier)
         rebuildTransfers()
-        if (error as NSError).code != NSURLErrorCancelled {
+        let wasAhead = downloadedAheadIDs.contains(metadata.id)
+        setDownloadedAhead(metadata.id, false)
+        if (error as NSError).code != NSURLErrorCancelled, !wasAhead {
             lastError = error.localizedDescription
         }
     }

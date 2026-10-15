@@ -118,9 +118,12 @@ struct ReaderFeatureTests {
         let chapter = Chapter(id: "id", chapterNumber: 1, title: "Chapter 1: Start", content: nil, url: nil)
         _ = try await store.saveDownloadedChapter(novelTitle: novel.title, chapterNumber: 1,
             chapterTitle: chapter.title, content: "\(novel.title)\nChapter 1: Start\n\nBody.", novel: novel, chapter: chapter)
+        await store.flushDownloadedManifests()
         try FileManager.default.moveItem(at: old, to: new)
         let relocated = OfflineChapterStore(baseDirectory: root.appendingPathComponent("cache"), documentsDirectory: new)
         let collection = try #require(await relocated.downloadedCollections().first)
+        #expect(collection.novel.id == novel.id)
+        #expect(collection.chapters[0].id == "id")
         #expect(try relocated.downloadedChapter(collection.chapters[0]).plainContent == "Body.")
     }
 

@@ -58,6 +58,80 @@ struct AsterionTests {
     }
 
     @Test @MainActor
+    func homeBreaksEqualRatingTiesByRankThenTitle() {
+        let ranked = novel(id: "ranked", genres: ["Fantasy"], rating: 4.5, rank: "3")
+        let titledB = novel(id: "Beta", genres: ["Fantasy"], rating: 4.5)
+        let titledA = novel(id: "Alpha", genres: ["Fantasy"], rating: 4.5)
+
+        let result = NovelPersonalizer.order([titledB, titledA, ranked], preferredGenres: ["fantasy"])
+
+        #expect(result.map(\.id) == ["ranked", "Alpha", "Beta"])
+    }
+
+    @Test @MainActor
+    func downloadAheadPruningKeepsManualChaptersAndUnreadOnes() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = OfflineChapterStore(baseDirectory: root.appendingPathComponent("cache"),
+                                        documentsDirectory: root.appendingPathComponent("documents"))
+        let book = novel(id: "book", genres: [], rating: 4)
+        for (number, automatic) in [(1, false), (2, true), (3, true), (4, true)] {
+            let chapter = Chapter(id: "c\(number)", chapterNumber: number, title: "Chapter \(number)",
+                                  content: "Body \(number)", url: nil)
+            _ = try await store.saveDownloadedChapter(
+                novelTitle: book.title, chapterNumber: number, chapterTitle: chapter.title,
+                content: "\(book.title)\nChapter \(number)\n\nBody \(number)",
+                novel: book, chapter: chapter, automatic: automatic
+            )
+        }
+
+        let removed = await store.pruneDownloadedAheadChapters(novel: book, readingChapterNumber: 3)
+
+        #expect(removed == 1)
+        let collection = try #require(await store.downloadedCollections().first)
+        #expect(collection.chapters.map(\.id) == ["c1", "c3", "c4"])
+        #expect(collection.downloadedAheadCount == 2)
+    }
+
+    @Test @MainActor
+    func bulkDownloadKeepsEveryChapterInTheManifestOnceFlushed() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let cache = root.appendingPathComponent("cache")
+        let documents = root.appendingPathComponent("documents")
+        let store = OfflineChapterStore(baseDirectory: cache, documentsDirectory: documents)
+        let book = novel(id: "book", genres: [], rating: 4)
+        for number in 1...300 {
+            let chapter = Chapter(id: "c\(number)", chapterNumber: number, title: "Chapter \(number)",
+                                  content: nil, url: nil)
+            _ = try await store.saveDownloadedChapter(
+                novelTitle: book.title, chapterNumber: number, chapterTitle: chapter.title,
+                content: "\(book.title)\nChapter \(number)\n\nBody \(number)",
+                novel: book, chapter: chapter, automatic: true
+            )
+        }
+        // Saving a downloaded-ahead chapter yourself keeps it from being pruned.
+        let first = Chapter(id: "c1", chapterNumber: 1, title: "Chapter 1", content: nil, url: nil)
+        _ = try await store.saveDownloadedChapter(
+            novelTitle: book.title, chapterNumber: 1, chapterTitle: first.title,
+            content: "\(book.title)\nChapter 1\n\nBody 1", novel: book, chapter: first
+        )
+        await store.flushDownloadedManifests()
+
+        // A fresh store reads only what reached disk.
+        let reopened = OfflineChapterStore(baseDirectory: cache, documentsDirectory: documents)
+        let collection = try #require(await reopened.downloadedCollections().first)
+        #expect(collection.novel.id == "book")
+        #expect(collection.chapters.map(\.id) == (1...300).map { "c\($0)" })
+        #expect(collection.downloadedAheadCount == 299)
+
+        #expect(await reopened.pruneDownloadedAheadChapters(novel: book, readingChapterNumber: 11) == 9)
+        let pruned = try #require(await reopened.downloadedCollections().first)
+        #expect(pruned.chapterCount == 291)
+        #expect(pruned.chapters.first?.id == "c1")
+    }
+
+    @Test @MainActor
     func mobileShellKeepsTheFiveTaskDestinations() {
         #expect(AsterionTab.allCases == [.home, .browse, .library, .downloads, .account])
         #expect(Set(AsterionTab.allCases.map(\.label)).count == AsterionTab.allCases.count)

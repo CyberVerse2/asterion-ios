@@ -3,59 +3,40 @@ import ClerkKitUI
 import SwiftUI
 
 struct SignInView: View {
-    @State private var showAuth = false
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    private var pageHorizontalPadding: CGFloat { AsterionLayout.pagePadding(horizontalSizeClass) }
 
     var body: some View {
         ZStack {
             AsterionBackdrop()
 
-            VStack(spacing: 0) {
-                Spacer()
+            VStack(alignment: .leading, spacing: 22) {
+                VStack(alignment: .leading, spacing: 8) {
+                    AsterionEyebrow(text: "Asterion")
 
-                VStack(alignment: .leading, spacing: 12) {
-                    AsterionMark(size: 22)
-                    Text("Asterion")
-                        .font(.asterionDisplay(40, weight: .medium))
+                    Text("Sign in")
+                        .font(.asterionTitle(28, weight: .heavy))
                         .foregroundStyle(Color.asterionText)
-                        .tracking(-0.6)
+                        .accessibilityAddTraits(.isHeader)
 
-                    Text("Sign in to keep your library with you.")
-                        .font(.asterionReading(17))
-                        .foregroundStyle(Color.asterionSynopsis)
+                    Text("Keep your library, reading progress, and downloads with you on every device.")
+                        .font(.asterionReading(14.5))
+                        .foregroundStyle(Color.asterionMuted)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .frame(maxWidth: 420, alignment: .leading)
-                .padding(.horizontal, 32)
 
-                Spacer()
-
-                VStack(spacing: 12) {
-                    Button {
-                        showAuth = true
-                    } label: {
-                        Text("Sign in")
-                            .font(.asterionReading(16, weight: .semibold))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 15)
-                    }
-                    .buttonStyle(AsterionFilledButtonStyle())
-
-                    Button {
-                        showAuth = true
-                    } label: {
-                        Text("Create account")
-                            .font(.asterionReading(16, weight: .medium))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 15)
-                    }
-                    .buttonStyle(AsterionOutlineButtonStyle())
-                }
-                .padding(.horizontal, 32)
-                .padding(.bottom, 48)
+                AuthView(isDismissable: false)
+                    .environment(Clerk.shared)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .asterionPanel(cornerRadius: 16)
             }
-        }
-        .sheet(isPresented: $showAuth) {
-            AuthView()
-                .environment(Clerk.shared)
+            .frame(maxWidth: 480, alignment: .leading)
+            .padding(.horizontal, pageHorizontalPadding)
+            .padding(.top, 24)
+            .padding(.bottom, 16)
+            .frame(maxWidth: .infinity)
         }
     }
 }

@@ -1,6 +1,10 @@
+import AVFoundation
 import Inject
 import Combine
+import MediaPlayer
+import NaturalLanguage
 import SwiftUI
+import UIKit
 import WidgetKit
 
 private enum ReaderThemePreference: String, CaseIterable {
@@ -13,6 +17,37 @@ private enum ReaderTypefacePreference: String, CaseIterable {
     case literary = "Literary"
     case classic = "Classic"
     case accessible = "Accessible"
+}
+
+/// Handoff contract shared with the macOS app (keep the keys in step).
+private enum ReaderHandoff {
+    static let readingActivityType = "cloud.cyberverse.asterion.reading"
+    /// Advertised position is refreshed at most this often.
+    static let minimumUpdateInterval: TimeInterval = 5
+
+    /// "progress" key: 0 at the first paragraph, 1 at the last.
+    static func progress(line: Int, lineCount: Int) -> Double {
+        guard lineCount > 1 else { return 0 }
+        return min(1, max(0, Double(line) / Double(lineCount - 1)))
+    }
+
+    /// Prefers the sender's paragraph index when both sides split the chapter
+    /// into the same number of paragraphs (or the sender didn't say), and
+    /// otherwise maps the sender's fraction onto this chapter.
+    static func resolveLine(line: Int, lineCount: Int?, progress: Double?, paragraphCount: Int) -> Int {
+        let lastLine = max(0, paragraphCount - 1)
+        if let lineCount, let progress, paragraphCount > 0, lineCount != paragraphCount {
+            return min(lastLine, max(0, Int((progress * Double(lastLine)).rounded())))
+        }
+        return paragraphCount > 0 ? min(line, lastLine) : line
+    }
+}
+
+private struct ReaderHandoffPosition: Equatable {
+    var chapterID = ""
+    var chapterTitle = ""
+    var line = 0
+    var lineCount = 0
 }
 
 struct ReaderView: View {
@@ -32,6 +67,12 @@ struct ReaderView: View {
     let shouldAutoResumeFromSavedProgress: Bool
     let offlineOnly: Bool
     let offlineChapterFiles: [DownloadedChapterFile]
+    /// Line to open at, overriding saved progress (used by Handoff). Nil keeps the default behaviour.
+    let initialLine: Int?
+    /// Handoff only: the sender's paragraph count and 0...1 position, used to
+    /// place `initialLine` when this device splits the chapter differently.
+    let initialLineCount: Int?
+    let initialLineProgress: Double?
     @State private var lastReadingTick: Date?
     @State private var readerVisible = false
     private let readingTimer = Timer.publish(every: 15, on: .main, in: .common).autoconnect()
@@ -58,6 +99,11 @@ struct ReaderView: View {
     @AppStorage("asterion.reader.theme") private var readerThemeRaw = ReaderThemePreference.system.rawValue
     @AppStorage("asterion.reader.typeface") private var readerTypefaceRaw = ReaderTypefacePreference.literary.rawValue
     @AppStorage("asterion.reader.line-spacing") private var savedLineSpacing = 0.85
+    @AppStorage("asterion.reader.listen-rate") private var listenRate = 1.0
+    @StateObject private var speech = ReaderSpeechController()
+    @State private var handoffPosition = ReaderHandoffPosition()
+    @State private var lastHandoffUpdate = Date.distantPast
+    @State private var handoffUpdateTask: Task<Void, Never>?
 
     private var readerTheme: ReaderThemePreference {
         ReaderThemePreference(rawValue: readerThemeRaw) ?? .system
@@ -65,15 +111,26 @@ struct ReaderView: View {
     private var readerTypeface: ReaderTypefacePreference {
         ReaderTypefacePreference(rawValue: readerTypefaceRaw) ?? .literary
     }
-    private var readerBackground: Color {
+    private var readerBackground: Color { Self.paper(for: readerTheme) }
+    private var readerForeground: Color { Self.ink(for: readerTheme) }
+    /// Window appearance while reading: System follows the device, the other
+    /// themes pin the status bar to match their page.
+    private var readerWindowStyle: UIUserInterfaceStyle {
         switch readerTheme {
-        case .system: Color.asterionBackground
+        case .system: .unspecified
+        case .parchment: .light
+        case .night: .dark
+        }
+    }
+    private static func paper(for theme: ReaderThemePreference) -> Color {
+        switch theme {
+        case .system: Color.asterionReaderPaper
         case .parchment: Color(red: 0.94, green: 0.90, blue: 0.80)
         case .night: Color(red: 0.035, green: 0.04, blue: 0.05)
         }
     }
-    private var readerForeground: Color {
-        switch readerTheme {
+    private static func ink(for theme: ReaderThemePreference) -> Color {
+        switch theme {
         case .system: Color.asterionReaderText
         case .parchment: Color(red: 0.18, green: 0.15, blue: 0.11)
         case .night: Color(red: 0.86, green: 0.84, blue: 0.79)
@@ -156,16 +213,18 @@ struct ReaderView: View {
         if isLargeIPadLayout { return 1120 }
         return 640
     }
-    private var topBarTopPadding: CGFloat { isDesktop ? 18 : 44 }
+    private var topBarTopPadding: CGFloat { isDesktop ? 18 : 8 }
     private var bottomBarBottomPadding: CGFloat { isDesktop ? 22 : 34 }
 
-    private var paragraphs: [String] {
-        currentChapter.plainContent
+    private var paragraphs: [String] { paragraphs(for: currentChapter) }
+
+    private func paragraphs(for chapter: Chapter) -> [String] {
+        chapter.plainContent
             .components(separatedBy: "\n")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .map { $0.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression) }
             .filter { !$0.isEmpty }
-            .filter { !shouldFilterMetadataLine($0) }
+            .filter { !shouldFilterMetadataLine($0, chapter: chapter) }
     }
 
     init(
@@ -174,7 +233,10 @@ struct ReaderView: View {
         allChapters: [Chapter],
         shouldAutoResumeFromSavedProgress: Bool = true,
         offlineOnly: Bool = false,
-        offlineChapterFiles: [DownloadedChapterFile] = []
+        offlineChapterFiles: [DownloadedChapterFile] = [],
+        initialLine: Int? = nil,
+        initialLineCount: Int? = nil,
+        initialLineProgress: Double? = nil
     ) {
         self.initialChapter = initialChapter
         self.novel = novel
@@ -182,6 +244,9 @@ struct ReaderView: View {
         self.shouldAutoResumeFromSavedProgress = shouldAutoResumeFromSavedProgress
         self.offlineOnly = offlineOnly
         self.offlineChapterFiles = offlineChapterFiles
+        self.initialLine = initialLine.map { max(0, $0) }
+        self.initialLineCount = initialLineCount
+        self.initialLineProgress = initialLineProgress
         self._currentChapter = State(initialValue: initialChapter)
         #if targetEnvironment(macCatalyst)
         self._fontSize = State(initialValue: 20)
@@ -222,13 +287,7 @@ struct ReaderView: View {
             }
 
             if loadingChapter {
-                readerBackground.opacity(0.92).ignoresSafeArea()
-                VStack(spacing: 14) {
-                    ProgressView().tint(Color.asterionInk)
-                    Text("Loading chapter")
-                        .font(.asterionReading(14))
-                        .foregroundStyle(Color.asterionMuted)
-                }
+                readerLoadingOverlay
             }
         }
         .background(readerBackground.ignoresSafeArea())
@@ -238,6 +297,11 @@ struct ReaderView: View {
         .toolbarVisibility(.hidden, for: .navigationBar)
         .toolbarVisibility(.hidden, for: .tabBar)
         .statusBarHidden(isDesktop ? false : !showControls)
+        .onAppear { WindowAppearance.apply(readerWindowStyle) }
+        .onChange(of: readerThemeRaw) { _, _ in
+            WindowAppearance.apply(readerWindowStyle)
+        }
+        .onDisappear { WindowAppearance.apply(.dark) }
         .onAppear {
             readerVisible = true
             lastReadingTick = .now
@@ -247,9 +311,12 @@ struct ReaderView: View {
             Task { await refreshCurrentChapterDownloadState() }
             Task { await updateReadingLiveActivity() }
             Task { await refreshCurrentBookmark() }
+            connectSpeechCallbacks()
         }
         .onDisappear { tabBarState.isVisible = true }
         .onDisappear {
+            speech.stop()
+            handoffUpdateTask?.cancel()
             recordReadingTime()
             readerVisible = false
             lastReadingTick = nil
@@ -259,12 +326,34 @@ struct ReaderView: View {
             syncReadingPosition(reloadWidget: true)
         }
         .onReceive(readingTimer) { _ in
-            guard readerVisible, scenePhase == .active else { return }
+            // Listening with the screen locked counts as reading time too.
+            guard readerVisible, scenePhase == .active || speech.isPlaying else { return }
             recordReadingTime()
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active, readerVisible { lastReadingTick = .now }
             else { recordReadingTime(); lastReadingTick = nil }
+        }
+        .onChange(of: listenRate) { _, rate in
+            // Slider steps drift (1.2000000001); keep the stored rate on tenths.
+            let tidy = (rate * 10).rounded() / 10
+            if tidy != rate { listenRate = tidy; return }
+            speech.setRate(rate)
+        }
+        .userActivity(ReaderHandoff.readingActivityType, isActive: readerVisible && canAdvertiseHandoff) { activity in
+            activity.title = "\(novel.title) · \(handoffPosition.chapterTitle)"
+            activity.isEligibleForHandoff = true
+            activity.isEligibleForSearch = false
+            activity.isEligibleForPrediction = false
+            activity.userInfo = [
+                "novelId": novel.id,
+                "chapterId": handoffPosition.chapterID,
+                "line": handoffPosition.line,
+                "lineCount": handoffPosition.lineCount,
+                "progress": ReaderHandoff.progress(line: handoffPosition.line, lineCount: handoffPosition.lineCount),
+                "novelTitle": novel.title,
+                "chapterTitle": handoffPosition.chapterTitle,
+            ]
         }
         .alert(alertTitle, isPresented: $showDownloadAlert) {
             Button("OK", role: .cancel) {}
@@ -275,10 +364,17 @@ struct ReaderView: View {
         .sheet(isPresented: $showReaderSettings) {
             readerSettingsSheet
                 .presentationDetents([.medium, .large])
+                .presentationBackground(Color.asterionBackground)
+                .preferredColorScheme(.dark)
         }
         .sheet(isPresented: $showChapterPicker) {
             chapterPickerSheet
                 .presentationDetents([.medium, .large])
+                .presentationBackground(Color.asterionBackground)
+                .preferredColorScheme(.dark)
+        }
+        .onChange(of: loadingChapter) { _, isLoading in
+            if !isLoading { scheduleReadingLiveActivityUpdate() }
         }
         .onChange(of: currentChapter.id) { _, _ in
             currentLine = 0
@@ -295,32 +391,34 @@ struct ReaderView: View {
     // MARK: - Chapter Heading
 
     private var chapterHeading: some View {
-        VStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: 10) {
             Spacer().frame(height: 72)
 
-            Text(novel.title)
-                .font(.asterionReading(13))
-                .foregroundStyle(Color.asterionMuted)
-                .lineLimit(1)
+            AsterionEyebrow(text: novel.title, color: readerForeground.opacity(0.5))
 
             if currentChapter.chapterNumber > 0 {
                 Text("Chapter \(currentChapter.chapterNumber)")
-                    .font(.asterionReading(13, weight: .medium))
-                    .foregroundStyle(Color.asterionMuted)
+                    .font(.asterionMono(12, weight: .medium))
+                    .tracking(0.6)
+                    .foregroundStyle(readerForeground.opacity(0.55))
             }
 
             if !currentChapter.displayTitle.isEmpty {
                 Text(currentChapter.displayTitle)
-                    .font(.asterionDisplay(28, weight: .medium))
-                    .foregroundStyle(Color.asterionText)
-                    .multilineTextAlignment(.center)
+                    .font(.asterionReading(isLargeIPadLayout || isDesktop ? 32 : 28, weight: .semibold))
+                    .foregroundStyle(readerForeground)
+                    .multilineTextAlignment(.leading)
                     .lineLimit(3)
                     .minimumScaleFactor(0.8)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityAddTraits(.isHeader)
             }
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, readerHorizontalPadding)
-        .padding(.bottom, 22)
+        .frame(maxWidth: readerMaxContentWidth)
+        .frame(maxWidth: .infinity)
+        .padding(.bottom, 28)
     }
 
     // MARK: - Chapter Content
@@ -334,6 +432,7 @@ struct ReaderView: View {
                     .lineSpacing(fontSize * savedLineSpacing)
                     .foregroundStyle(readerForeground)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .background { spokenParagraphHighlight(isSpoken: isSpokenParagraph(index)) }
                     .padding(.leading, index > 0 ? readerHorizontalPadding : 0)
                     .background {
                         GeometryReader { geo in
@@ -351,43 +450,114 @@ struct ReaderView: View {
         .frame(maxWidth: .infinity)
     }
 
+    private func isSpokenParagraph(_ index: Int) -> Bool {
+        speech.isActive && speech.spokenParagraph == index
+    }
+
+    /// A soft wash in the page's own ink behind the paragraph being read aloud.
+    private func spokenParagraphHighlight(isSpoken: Bool) -> some View {
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .fill(readerForeground.opacity(isSpoken ? 0.08 : 0))
+            .padding(.horizontal, -12)
+            .padding(.vertical, -8)
+            .animation(.easeInOut(duration: 0.3), value: isSpoken)
+            .accessibilityHidden(true)
+    }
+
     // MARK: - End of Chapter Nav
 
+    /// Sits on the page itself, so it is drawn in the page's own ink.
     private var endOfChapterNav: some View {
-        HStack(spacing: 10) {
-            if shouldShowPrevButton {
-                Button {
-                    navigateChapter(direction: -1)
-                } label: {
-                    Text("Previous")
-                        .font(.asterionReading(15, weight: .medium))
-                        .foregroundStyle(canNavigatePrev ? Color.asterionText : Color.asterionMuted)
-                        .padding(.horizontal, 22)
-                        .padding(.vertical, 13)
-                        .background(Color.asterionCard, in: Capsule())
-                }
-                .buttonStyle(.plain)
-                .disabled(!canNavigatePrev)
-            }
+        VStack(spacing: 18) {
+            Rectangle()
+                .fill(readerForeground.opacity(0.12))
+                .frame(height: 1)
 
-            Button {
-                navigateChapter(direction: 1)
-            } label: {
-                Text("Next chapter")
-                    .font(.asterionReading(15, weight: .semibold))
-                    .foregroundStyle(canNavigateNext ? Color.asterionOnInk : Color.asterionMuted)
-                    .padding(.horizontal, 22)
-                    .padding(.vertical, 13)
-                    .background(
-                        canNavigateNext ? Color.asterionInk : Color.asterionCard,
-                        in: Capsule()
-                    )
+            VStack(spacing: 4) {
+                Text("End of chapter")
+                    .font(.asterionReading(12.5))
+                    .foregroundStyle(readerForeground.opacity(0.5))
+                if currentChapter.chapterNumber > 0 {
+                    Text(chapterPositionLabel)
+                        .font(.asterionMono(11, weight: .medium))
+                        .foregroundStyle(readerForeground.opacity(0.5))
+                }
             }
-            .buttonStyle(.plain)
-            .disabled(!canNavigateNext)
+            .accessibilityElement(children: .combine)
+
+            HStack(spacing: 12) {
+                if shouldShowPrevButton {
+                    Button {
+                        navigateChapter(direction: -1)
+                    } label: {
+                        HStack(spacing: 7) {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 11, weight: .bold))
+                            Text("Previous")
+                        }
+                    }
+                    .buttonStyle(ReaderPageCapsuleStyle(ink: readerForeground, paper: readerBackground))
+                    .disabled(!canNavigatePrev)
+                    .accessibilityLabel("Previous chapter")
+                }
+
+                Spacer(minLength: 0)
+
+                Button {
+                    navigateChapter(direction: 1)
+                } label: {
+                    HStack(spacing: 7) {
+                        Text("Next chapter")
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 11, weight: .bold))
+                    }
+                }
+                .buttonStyle(ReaderPageCapsuleStyle(ink: readerForeground, paper: readerBackground, isProminent: true))
+                .disabled(!canNavigateNext)
+                .accessibilityLabel("Next chapter")
+            }
         }
-        .padding(.top, 28)
-        .padding(.bottom, 36)
+        .padding(.horizontal, readerHorizontalPadding)
+        .frame(maxWidth: readerMaxContentWidth)
+        .frame(maxWidth: .infinity)
+        .padding(.bottom, 110)
+        .accessibilityElement(children: .contain)
+    }
+
+    private var chapterPositionLabel: String {
+        if let totalChapterCountHint, totalChapterCountHint > 0 {
+            return "\(currentChapter.chapterNumber.formatted()) of \(totalChapterCountHint.formatted())"
+        }
+        return "Chapter \(currentChapter.chapterNumber.formatted())"
+    }
+
+    // MARK: - Loading
+
+    private var readerLoadingOverlay: some View {
+        ZStack {
+            readerBackground.opacity(0.92)
+
+            ArtworkToneReader(url: novel.imageUrl.flatMap(URL.init(string:))) { tone in
+                RadialGradient(
+                    colors: [tone.opacity(0.16), tone.opacity(0.04), .clear],
+                    center: .center,
+                    startRadius: 4,
+                    endRadius: 300
+                )
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+
+            VStack(spacing: 14) {
+                ProgressView()
+                    .tint(readerForeground.opacity(0.7))
+                Text("Loading chapter")
+                    .font(.asterionReading(13.5))
+                    .foregroundStyle(readerForeground.opacity(0.6))
+            }
+            .accessibilityElement(children: .combine)
+        }
+        .ignoresSafeArea()
     }
 
     // MARK: - Top Control Bar
@@ -395,9 +565,21 @@ struct ReaderView: View {
     private var topControlBar: some View {
         AsterionDetailBar(onBack: { dismiss() }, topPadding: topBarTopPadding) {
             HStack(spacing: 8) {
+                Button {
+                    if speech.isActive { speech.stop() } else { startListening() }
+                } label: {
+                    Image(systemName: "headphones")
+                        .font(.system(size: 14, weight: .semibold))
+                        .modifier(ReaderListenCircle(isLit: speech.isActive))
+                }
+                .buttonStyle(ReaderFloatingButtonStyle())
+                .disabled(loadingChapter && !speech.isActive)
+                .accessibilityLabel(speech.isActive ? "Stop listening" : "Listen")
+                .accessibilityHint(speech.isActive ? "" : "Reads the chapter aloud from where you are")
+
                 Button { fontSize = max(14, fontSize - 1) } label: {
                     Text("A−")
-                        .font(.asterionReading(14, weight: .medium))
+                        .font(.asterionReading(13, weight: .semibold))
                         .modifier(ReaderChromeCircle())
                 }
                 .buttonStyle(.plain)
@@ -405,7 +587,7 @@ struct ReaderView: View {
 
                 Button { fontSize = min(28, fontSize + 1) } label: {
                     Text("A+")
-                        .font(.asterionReading(15, weight: .medium))
+                        .font(.asterionReading(15, weight: .semibold))
                         .modifier(ReaderChromeCircle())
                 }
                 .buttonStyle(.plain)
@@ -454,12 +636,19 @@ struct ReaderView: View {
                 .accessibilityLabel("More")
             }
         }
+        .padding(.bottom, 18)
         .background {
             LinearGradient(
-                colors: [readerBackground, readerBackground.opacity(0.96), readerBackground.opacity(0)],
+                stops: [
+                    .init(color: readerBackground, location: 0),
+                    .init(color: readerBackground.opacity(0.94), location: 0.6),
+                    .init(color: readerBackground.opacity(0), location: 1),
+                ],
                 startPoint: .top,
                 endPoint: .bottom
             )
+            // Reach past the buttons so text never sits directly behind them.
+            .padding(.bottom, -36)
             .ignoresSafeArea(edges: .top)
         }
         .opacity(showControls ? 1 : 0)
@@ -469,41 +658,76 @@ struct ReaderView: View {
 
     // MARK: - Bottom Control Bar
 
+    /// Floating dock: smoked controls with white icons, legible on any page.
     private var bottomControlBar: some View {
-        HStack(spacing: 10) {
-            if shouldShowPrevButton {
-                Button { navigateChapter(direction: -1) } label: {
-                    Text("Previous")
-                        .font(.asterionReading(15, weight: .medium))
-                        .foregroundStyle(canNavigatePrev ? Color.asterionText : Color.asterionMuted)
-                        .padding(.horizontal, 22)
-                        .padding(.vertical, 13)
-                        .background(Color.asterionCard, in: Capsule())
-                }
-                .buttonStyle(.plain)
-                .disabled(!canNavigatePrev)
-            }
+        let lineCount = paragraphs.count
+        let fraction = lineCount > 1 ? min(1, max(0, Double(currentLine) / Double(lineCount - 1))) : 0
+        let percent = Int((fraction * 100).rounded())
+        let chapterLabel = currentChapter.chapterNumber > 0
+            ? "Ch. \(currentChapter.chapterNumber) · \(percent)%"
+            : "\(percent)%"
 
-            Button { navigateChapter(direction: 1) } label: {
-                Text("Next chapter")
-                    .font(.asterionReading(15, weight: .semibold))
-                    .foregroundStyle(canNavigateNext ? Color.asterionOnInk : Color.asterionMuted)
-                    .padding(.horizontal, 22)
-                    .padding(.vertical, 13)
-                    .background(
-                        canNavigateNext ? Color.asterionInk : Color.asterionCard,
-                        in: Capsule()
-                    )
+        return VStack(spacing: 12) {
+            if speech.isActive {
+                listeningControls
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
-            .buttonStyle(.plain)
-            .disabled(!canNavigateNext)
+            HStack(spacing: 10) {
+                Button { navigateChapter(direction: -1) } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 14, weight: .semibold))
+                        .modifier(ReaderChromeCircle(size: 46))
+                }
+                .buttonStyle(ReaderFloatingButtonStyle())
+                .disabled(!canNavigatePrev || !shouldShowPrevButton)
+                .opacity(shouldShowPrevButton ? 1 : 0)
+                .accessibilityHidden(!shouldShowPrevButton)
+                .accessibilityLabel("Previous chapter")
+
+                Button {
+                    showChapterPicker = true
+                } label: {
+                    VStack(spacing: 7) {
+                        Text(chapterLabel)
+                            .font(.asterionMono(11.5, weight: .medium))
+                            .foregroundStyle(Color.white.opacity(0.88))
+                            .lineLimit(1)
+                            .contentTransition(.numericText())
+                        AsterionLightLine(fraction: fraction, height: 2)
+                            .frame(width: 128)
+                            .accessibilityHidden(true)
+                    }
+                    .padding(.horizontal, 20)
+                    .frame(height: 46)
+                    .modifier(ReaderSmokedBackground(shape: Capsule()))
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(ReaderFloatingButtonStyle())
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Choose chapter")
+                .accessibilityValue(
+                    currentChapter.chapterNumber > 0
+                        ? "Chapter \(currentChapter.chapterNumber), \(percent) percent read"
+                        : "\(percent) percent read"
+                )
+
+                Button { navigateChapter(direction: 1) } label: {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 14, weight: .semibold))
+                        .modifier(ReaderChromeCircle(size: 46))
+                }
+                .buttonStyle(ReaderFloatingButtonStyle())
+                .disabled(!canNavigateNext)
+                .accessibilityLabel("Next chapter")
+            }
         }
+        .animation(.easeInOut(duration: 0.25), value: speech.isActive)
         .padding(.bottom, bottomBarBottomPadding)
-        .padding(.top, 20)
+        .padding(.top, 24)
         .frame(maxWidth: .infinity)
         .background {
             LinearGradient(
-                colors: [readerBackground.opacity(0), readerBackground.opacity(0.94), readerBackground],
+                colors: [readerBackground.opacity(0), readerBackground.opacity(0.9), readerBackground],
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -514,57 +738,180 @@ struct ReaderView: View {
         .allowsHitTesting(showControls)
     }
 
+    // MARK: - Listening Controls
+
+    private var listenRateLabel: String {
+        listenRate.formatted(.number.precision(.fractionLength(1))) + "×"
+    }
+
+    /// Smoked transport shown above the dock while the chapter is read aloud.
+    private var listeningControls: some View {
+        HStack(spacing: 0) {
+            Button { speech.skipParagraph(by: -1) } label: {
+                Image(systemName: "backward.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .frame(width: 40, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel("Previous paragraph")
+
+            Button { speech.togglePlayback() } label: {
+                Image(systemName: speech.isPlaying ? "pause.fill" : "play.fill")
+                    .font(.system(size: 15, weight: .semibold))
+                    .contentTransition(.symbolEffect(.replace))
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel(speech.isPlaying ? "Pause" : "Resume")
+
+            Button { speech.skipParagraph(by: 1) } label: {
+                Image(systemName: "forward.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .frame(width: 40, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel("Next paragraph")
+
+            Rectangle()
+                .fill(Color.white.opacity(0.18))
+                .frame(width: 1, height: 18)
+                .padding(.horizontal, 4)
+                .accessibilityHidden(true)
+
+            Menu {
+                Picker("Speed", selection: $listenRate) {
+                    ForEach(ReaderSpeechController.rateSteps, id: \.self) { step in
+                        Text(step.formatted(.number.precision(.fractionLength(1))) + "×").tag(step)
+                    }
+                }
+            } label: {
+                Text(listenRateLabel)
+                    .font(.asterionMono(11.5, weight: .medium))
+                    .foregroundStyle(Color.white.opacity(0.8))
+                    .contentTransition(.numericText())
+                    .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel("Speed")
+            .accessibilityValue(listenRateLabel)
+
+            Button { speech.stop() } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .bold))
+                    .frame(width: 40, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel("Stop listening")
+        }
+        .buttonStyle(ReaderFloatingButtonStyle())
+        .foregroundStyle(Color.white)
+        .padding(.horizontal, 6)
+        .modifier(ReaderSmokedBackground(shape: Capsule()))
+    }
+
+    // MARK: - Settings Sheet
+
     private var readerSettingsSheet: some View {
         NavigationStack {
-            Form {
-                Section("Appearance") {
-                    Picker("Theme", selection: $readerThemeRaw) {
-                        ForEach(ReaderThemePreference.allCases, id: \.rawValue) { theme in
-                            Text(theme.rawValue).tag(theme.rawValue)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 26) {
+                    settingsGroup("Page") {
+                        HStack(spacing: 10) {
+                            ForEach(ReaderThemePreference.allCases, id: \.rawValue) { theme in
+                                themeSwatch(theme)
+                            }
                         }
                     }
-                    Picker("Typeface", selection: $readerTypefaceRaw) {
-                        ForEach(ReaderTypefacePreference.allCases, id: \.rawValue) { typeface in
-                            Text(typeface.rawValue).tag(typeface.rawValue)
-                        }
-                    }
-                }
 
-                Section("Text") {
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack {
-                            Text("Size")
-                            Spacer()
-                            Text("\(Int(fontSize)) pt")
-                                .foregroundStyle(Color.asterionMuted)
+                    settingsGroup("Typeface") {
+                        HStack(spacing: 8) {
+                            ForEach(ReaderTypefacePreference.allCases, id: \.rawValue) { typeface in
+                                let selected = readerTypeface == typeface
+                                Button {
+                                    readerTypefaceRaw = typeface.rawValue
+                                } label: {
+                                    Text(typeface.rawValue)
+                                        .font(.asterionReading(13, weight: .semibold))
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.8)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 10)
+                                        .frame(maxWidth: .infinity)
+                                        .contentShape(Capsule())
+                                }
+                                .buttonStyle(.plain)
+                                .asterionGlassPill(isSelected: selected)
+                                .accessibilityAddTraits(selected ? .isSelected : [])
+                            }
                         }
-                        Slider(value: $fontSize, in: 14...30, step: 1)
-                            .tint(Color.asterionInk)
                     }
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack {
-                            Text("Line spacing")
-                            Spacer()
-                            Text(savedLineSpacing, format: .number.precision(.fractionLength(1)))
-                                .foregroundStyle(Color.asterionMuted)
-                        }
-                        Slider(value: $savedLineSpacing, in: 0.5...1.4, step: 0.1)
-                            .tint(Color.asterionInk)
-                    }
-                }
 
-                Section("Preview") {
-                    Text("A good reader disappears, leaving only the world on the page.")
-                        .font(readerFont)
-                        .lineSpacing(fontSize * savedLineSpacing)
-                        .foregroundStyle(readerForeground)
-                        .padding(.vertical, 12)
-                        .listRowBackground(readerBackground)
+                    settingsGroup("Text") {
+                        VStack(spacing: 0) {
+                            settingsSliderRow(title: "Size", value: "\(Int(fontSize)) pt") {
+                                Slider(value: $fontSize, in: 14...30, step: 1)
+                                    .tint(Color.asterionInk)
+                                    .accessibilityLabel("Text size")
+                            }
+                            Rectangle()
+                                .fill(Color.asterionHairline)
+                                .frame(height: 1)
+                                .padding(.leading, 16)
+                            settingsSliderRow(
+                                title: "Line spacing",
+                                value: savedLineSpacing.formatted(.number.precision(.fractionLength(1)))
+                            ) {
+                                Slider(value: $savedLineSpacing, in: 0.5...1.4, step: 0.1)
+                                    .tint(Color.asterionInk)
+                                    .accessibilityLabel("Line spacing")
+                            }
+                        }
+                        .asterionPanel(cornerRadius: 14)
+                    }
+
+                    settingsGroup("Listen") {
+                        VStack(alignment: .leading, spacing: 10) {
+                            settingsSliderRow(title: "Speed", value: listenRateLabel) {
+                                Slider(
+                                    value: $listenRate,
+                                    in: ReaderSpeechController.rateRange,
+                                    step: 0.1
+                                )
+                                .tint(Color.asterionInk)
+                                .accessibilityLabel("Listening speed")
+                                .accessibilityValue(listenRateLabel)
+                            }
+                            .asterionPanel(cornerRadius: 14)
+
+                            Text(ReaderSpeechController.voiceSummary)
+                                .font(.asterionReading(12.5))
+                                .foregroundStyle(Color.asterionMuted)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .padding(.horizontal, 4)
+                        }
+                    }
+
+                    settingsGroup("Preview") {
+                        Text("A good reader disappears, leaving only the world on the page.")
+                            .font(readerFont)
+                            .lineSpacing(fontSize * savedLineSpacing)
+                            .foregroundStyle(readerForeground)
+                            .padding(18)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(readerBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .strokeBorder(Color.asterionBorder)
+                            }
+                    }
                 }
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
+                .padding(.bottom, 28)
             }
-            .scrollContentBackground(.hidden)
             .background(Color.asterionBackground)
             .navigationTitle("Reading settings")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { showReaderSettings = false }
@@ -573,41 +920,80 @@ struct ReaderView: View {
         }
     }
 
-    private var chapterPickerSheet: some View {
-        NavigationStack {
-            List(navigationChapters) { chapter in
-                Button {
-                    showChapterPicker = false
-                    Task { await openChapter(chapter) }
-                } label: {
-                    HStack(spacing: 12) {
-                        Text(chapter.chapterNumber > 0 ? "\(chapter.chapterNumber)" : "•")
-                            .font(.asterionReading(13, weight: .medium))
-                            .foregroundStyle(Color.asterionMuted)
-                            .monospacedDigit()
-                            .frame(width: 36, alignment: .trailing)
-                        Text(chapter.displayTitle.isEmpty ? chapter.labeledTitle : chapter.displayTitle)
-                            .font(.asterionReading(16))
-                            .foregroundStyle(Color.asterionText)
-                            .lineLimit(2)
-                        Spacer()
-                        if chapter.id == currentChapter.id {
-                            Image(systemName: "checkmark")
-                                .foregroundStyle(Color.asterionInk)
-                        }
-                    }
-                }
-                .buttonStyle(.plain)
-            }
-            .scrollContentBackground(.hidden)
-            .background(Color.asterionBackground)
-            .navigationTitle("Chapters")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { showChapterPicker = false }
-                }
-            }
+    private func settingsGroup<Content: View>(
+        _ title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            AsterionEyebrow(text: title)
+                .accessibilityAddTraits(.isHeader)
+            content()
         }
+    }
+
+    private func settingsSliderRow<Control: View>(
+        title: String,
+        value: String,
+        @ViewBuilder control: () -> Control
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(title)
+                    .font(.asterionReading(14.5, weight: .medium))
+                    .foregroundStyle(Color.asterionText)
+                Spacer()
+                Text(value)
+                    .font(.asterionMono(12, weight: .medium))
+                    .foregroundStyle(Color.asterionMuted)
+            }
+            control()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+    }
+
+    private func themeSwatch(_ theme: ReaderThemePreference) -> some View {
+        let selected = readerTheme == theme
+        return Button {
+            readerThemeRaw = theme.rawValue
+        } label: {
+            VStack(spacing: 8) {
+                Text("Aa")
+                    .font(.asterionReading(18, weight: .semibold))
+                    .foregroundStyle(Self.ink(for: theme))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 58)
+                    .background(Self.paper(for: theme), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .strokeBorder(
+                                selected ? Color.asterionInk : Color.asterionBorder,
+                                lineWidth: selected ? 2 : 1
+                            )
+                    }
+                Text(theme.rawValue)
+                    .font(.asterionReading(12.5, weight: selected ? .semibold : .medium))
+                    .foregroundStyle(selected ? Color.asterionText : Color.asterionMuted)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(theme.rawValue) page")
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    // MARK: - Chapter Picker Sheet
+
+    private var chapterPickerSheet: some View {
+        ReaderChapterPickerSheet(
+            chapters: navigationChapters,
+            currentChapterID: currentChapter.id,
+            onSelect: { chapter in
+                showChapterPicker = false
+                Task { await openChapter(chapter) }
+            },
+            onClose: { showChapterPicker = false }
+        )
     }
 
     private var exportText: String {
@@ -625,23 +1011,27 @@ struct ReaderView: View {
     private func openChapter(_ chapter: Chapter) async {
         recordReadingTime()
         if offlineOnly {
-            guard let loaded = loadOfflineChapter(chapter) else { return }
+            guard let loaded = loadOfflineChapter(chapter) else { speech.chapterUnavailable(); return }
             currentLine = 0
             currentChapter = loaded
             syncReadingPosition()
+            continueListening(in: loaded)
             scheduleHideControls()
             return
         }
         currentLine = 0
         loadingChapter = true
         defer { loadingChapter = false; lastReadingTick = .now }
+        let loaded: Chapter
         do {
-            currentChapter = try await apiClient.fetchChapter(id: chapter.id)
-            await OfflineChapterStore.shared.cacheChapter(currentChapter)
+            loaded = try await apiClient.fetchChapter(id: chapter.id)
+            await OfflineChapterStore.shared.cacheChapter(loaded)
         } catch {
-            currentChapter = await OfflineChapterStore.shared.chapter(id: chapter.id) ?? chapter
+            loaded = await OfflineChapterStore.shared.chapter(id: chapter.id) ?? chapter
         }
+        currentChapter = loaded
         syncReadingPosition()
+        continueListening(in: loaded)
         scheduleHideControls()
     }
 
@@ -672,13 +1062,16 @@ struct ReaderView: View {
             if let currentBookmarkID {
                 _ = try await apiClient.deleteBookmark(id: currentBookmarkID)
                 self.currentBookmarkID = nil
+                Haptics.tap()
             } else {
                 currentBookmarkID = try await apiClient.createBookmark(
                     novelId: novel.id,
                     chapterId: currentChapter.id
                 ).id
+                Haptics.success()
             }
         } catch {
+            Haptics.error()
             alertTitle = "Bookmark unavailable"
             downloadAlertMessage = "The bookmark could not be saved. Please try again."
             showDownloadAlert = true
@@ -702,6 +1095,8 @@ struct ReaderView: View {
     }
 
     private func navigateChapter(direction: Int) {
+        // Listen mode turns chapters on its own; only a manual turn taps.
+        if !speech.isActive { Haptics.selection() }
         recordReadingTime()
         loadingChapter = true
         Task {
@@ -715,29 +1110,33 @@ struct ReaderView: View {
                 target = await fetchAdjacentChapterFallback(direction: direction)
             }
 
-            guard let target else { return }
+            guard let target else { speech.chapterUnavailable(); return }
             if offlineOnly {
-                guard let loaded = loadOfflineChapter(target) else { return }
+                guard let loaded = loadOfflineChapter(target) else { speech.chapterUnavailable(); return }
                 currentLine = 0
                 currentChapter = loaded
                 syncReadingPosition()
+                continueListening(in: loaded)
                 scheduleHideControls()
                 return
             }
             currentLine = 0
 
+            let loaded: Chapter
             do {
                 let full = try await apiClient.fetchChapter(id: target.id)
-                currentChapter = full
+                loaded = full
                 await OfflineChapterStore.shared.cacheChapter(full)
             } catch {
                 if let cached = await OfflineChapterStore.shared.chapter(id: target.id) {
-                    currentChapter = cached
+                    loaded = cached
                 } else {
-                    currentChapter = target
+                    loaded = target
                 }
             }
+            currentChapter = loaded
             syncReadingPosition()
+            continueListening(in: loaded)
             scheduleHideControls()
         }
     }
@@ -800,6 +1199,7 @@ struct ReaderView: View {
                 currentLine = saved.currentLine
                 pendingRestoreLine = saved.currentLine
             }
+            applyInitialLineIfNeeded()
             guard let loaded = loadOfflineChapter(currentChapter) else { return }
             currentChapter = loaded
             lastReadingTick = .now
@@ -836,6 +1236,7 @@ struct ReaderView: View {
                 }
             }
         }
+        applyInitialLineIfNeeded()
         await loadInitialChapter()
         await MainActor.run {
             restoreScrollPositionIfNeeded()
@@ -843,6 +1244,8 @@ struct ReaderView: View {
     }
 
     private func updateCurrentLineFromOffsets(_ offsets: [Int: CGFloat]) {
+        // While listening, the spoken paragraph is the reading position.
+        guard !speech.isActive else { return }
         // Use a stable target below the top controls for better perceived resume accuracy.
         let targetY: CGFloat = 120
         guard let best = offsets.min(by: { abs($0.value - targetY) < abs($1.value - targetY) }) else {
@@ -874,11 +1277,17 @@ struct ReaderView: View {
     }
 
     private func updateReadingLiveActivity() async {
+        let lines = paragraphs
+        // Wait for the chapter text; starting on an empty chapter shows 0%.
+        guard !lines.isEmpty else { return }
+        let start = max(0, min(currentLine, lines.count - 1))
+        let wordsLeft = lines[start...].reduce(0) { $0 + $1.split(whereSeparator: \.isWhitespace).count }
         await ReadingLiveActivityManager.shared.startOrUpdate(
             novelTitle: novel.title,
             chapterTitle: currentChapter.title,
             currentLine: currentLine,
-            totalLines: max(1, paragraphs.count)
+            totalLines: lines.count,
+            minutesLeft: max(1, Int((Double(wordsLeft) / 230).rounded(.up)))
         )
     }
 
@@ -902,13 +1311,137 @@ struct ReaderView: View {
                 chapterTitle: currentChapter.title,
                 chapterNumber: currentChapter.chapterNumber,
                 progress: percentage,
-                updatedAt: Date()
+                updatedAt: Date(),
+                coverURL: novel.imageUrl
             )
         )
 
         if reloadWidget {
             WidgetCenter.shared.reloadTimelines(ofKind: "ReadingWidget")
         }
+        updateHandoffPosition()
+    }
+
+    // MARK: - Handoff
+
+    private var canAdvertiseHandoff: Bool {
+        !novel.id.hasPrefix("offline-")
+            && !handoffPosition.chapterID.isEmpty
+            && !handoffPosition.chapterID.hasPrefix("offline-")
+    }
+
+    /// Moves the advertised position, at most every few seconds; a chapter
+    /// change is published straight away so chapter and line never disagree.
+    private func updateHandoffPosition() {
+        let next = currentHandoffPosition()
+        guard next != handoffPosition else { return }
+        handoffUpdateTask?.cancel()
+        let elapsed = Date().timeIntervalSince(lastHandoffUpdate)
+        if next.chapterID != handoffPosition.chapterID || elapsed >= ReaderHandoff.minimumUpdateInterval {
+            handoffPosition = next
+            lastHandoffUpdate = .now
+            return
+        }
+        handoffUpdateTask = Task {
+            try? await Task.sleep(for: .seconds(ReaderHandoff.minimumUpdateInterval - elapsed))
+            guard !Task.isCancelled else { return }
+            handoffPosition = currentHandoffPosition()
+            lastHandoffUpdate = .now
+        }
+    }
+
+    private func currentHandoffPosition() -> ReaderHandoffPosition {
+        let lineCount = paragraphs.count
+        return ReaderHandoffPosition(
+            chapterID: currentChapter.id,
+            chapterTitle: currentChapter.title,
+            line: lineCount > 0 ? min(currentLine, lineCount - 1) : 0,
+            lineCount: lineCount
+        )
+    }
+
+    private func applyInitialLineIfNeeded() {
+        guard let initialLine, currentChapter.id == initialChapter.id else { return }
+        let line = ReaderHandoff.resolveLine(
+            line: initialLine,
+            lineCount: initialLineCount,
+            progress: initialLineProgress,
+            paragraphCount: paragraphs.count
+        )
+        currentLine = line
+        pendingRestoreLine = line
+    }
+
+    // MARK: - Listening
+
+    private func connectSpeechCallbacks() {
+        speech.onParagraphStart = { index in handleSpokenParagraph(index) }
+        speech.onChapterFinished = { handleListeningChapterFinished() }
+        speech.onRequestChapter = { direction in handleListeningChapterRequest(direction) }
+    }
+
+    private func startListening() {
+        let lines = paragraphs
+        guard !lines.isEmpty else {
+            alertTitle = "Nothing to read aloud"
+            downloadAlertMessage = "This chapter has no text yet. Try again once it has loaded."
+            showDownloadAlert = true
+            return
+        }
+        connectSpeechCallbacks()
+        let start = max(0, min(currentLine, lines.count - 1))
+        speech.start(
+            paragraphs: lines,
+            from: start,
+            heading: start == 0 ? currentChapter.labeledTitle : nil,
+            novelTitle: novel.title,
+            chapterTitle: currentChapter.labeledTitle,
+            rate: listenRate,
+            artworkURL: novel.imageUrl.flatMap(URL.init(string:))
+        )
+        scheduleHideControls()
+    }
+
+    /// Keeps line tracking, progress sync and the Live Activity moving exactly
+    /// as scrolling would, and keeps the spoken paragraph on screen.
+    private func handleSpokenParagraph(_ index: Int) {
+        guard index >= 0, index < paragraphs.count else { return }
+        if index != currentLine {
+            currentLine = index
+            scheduleProgressSync()
+            scheduleReadingLiveActivityUpdate()
+        }
+        withAnimation(.easeInOut(duration: 0.45)) {
+            scrollProxy?.scrollTo(lineAnchorId(for: index), anchor: UnitPoint(x: 0.5, y: 0.22))
+        }
+    }
+
+    private func handleListeningChapterFinished() {
+        guard canNavigateNext else {
+            speech.stop()
+            return
+        }
+        navigateChapter(direction: 1)
+    }
+
+    private func handleListeningChapterRequest(_ direction: Int) {
+        if direction > 0, canNavigateNext {
+            navigateChapter(direction: 1)
+        } else if direction < 0, canNavigatePrev, shouldShowPrevButton {
+            navigateChapter(direction: -1)
+        } else {
+            speech.chapterUnavailable()
+        }
+    }
+
+    /// When a chapter opens during a listening session, read it from the top.
+    private func continueListening(in chapter: Chapter) {
+        guard speech.isActive else { return }
+        speech.loadChapter(
+            paragraphs: paragraphs(for: chapter),
+            heading: chapter.labeledTitle,
+            chapterTitle: chapter.labeledTitle
+        )
     }
 
     private func restoreScrollPositionIfNeeded() {
@@ -968,9 +1501,11 @@ struct ReaderView: View {
             isCurrentChapterDownloaded = true
             downloadAlertMessage = "Saved to \(fileURL.deletingLastPathComponent().lastPathComponent)"
             showDownloadAlert = true
+            Haptics.success()
         } catch {
             downloadAlertMessage = "Couldn't save chapter to local folder."
             showDownloadAlert = true
+            Haptics.error()
         }
     }
 
@@ -982,7 +1517,7 @@ struct ReaderView: View {
         )
     }
 
-    private func shouldFilterMetadataLine(_ line: String) -> Bool {
+    private func shouldFilterMetadataLine(_ line: String, chapter: Chapter) -> Bool {
         let lowered = line.lowercased()
         let compact = lowered.replacingOccurrences(of: " ", with: "")
 
@@ -1036,8 +1571,8 @@ struct ReaderView: View {
         }
 
         // ReaderView already renders a dedicated title header.
-        if lowered == currentChapter.title.lowercased()
-            || lowered == currentChapter.displayTitle.lowercased() {
+        if lowered == chapter.title.lowercased()
+            || lowered == chapter.displayTitle.lowercased() {
             return true
         }
 
@@ -1049,12 +1584,656 @@ struct ReaderView: View {
     }
 }
 
-private struct ReaderChromeCircle: ViewModifier {
+// MARK: - Listen mode
+
+/// Reads a chapter aloud paragraph by paragraph with AVSpeechSynthesizer.
+///
+/// Every remaining paragraph of the chapter is queued up front so speech keeps
+/// flowing with the screen locked. The lock screen shows the novel and chapter,
+/// and remote commands map as follows:
+/// - play / pause / toggle: pause and resume at the next word boundary.
+/// - next / previous track: next / previous paragraph. At the end (or start)
+///   of a chapter they roll into the next (or previous) chapter, so headphone
+///   double/triple-clicks behave like skipping a passage in an audiobook.
+@MainActor
+private final class ReaderSpeechController: NSObject, ObservableObject {
+    static let rateRange: ClosedRange<Double> = 0.8...1.6
+    static let rateSteps: [Double] = [0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6]
+
+    /// A listening session exists (playing or paused).
+    @Published private(set) var isActive = false
+    @Published private(set) var isPlaying = false
+    @Published private(set) var spokenParagraph: Int?
+
+    var onParagraphStart: ((Int) -> Void)?
+    var onChapterFinished: (() -> Void)?
+    /// -1 for the previous chapter, +1 for the next.
+    var onRequestChapter: ((Int) -> Void)?
+
+    private var synthesizer = AVSpeechSynthesizer()
+    private var paragraphs: [String] = []
+    private var novelTitle = ""
+    private var chapterTitle = ""
+    private var rateMultiplier: Float = 1
+    private var voice: AVSpeechSynthesisVoice?
+    /// Utterances currently queued, keyed to their paragraph (-1 = chapter heading).
+    private var queued: [ObjectIdentifier: Int] = [:]
+    private var queuedUtterances: [AVSpeechUtterance] = []
+    private var lastQueuedParagraph = -1
+    private var needsRequeueOnResume = false
+    private var awaitingChapter = false
+    private var resumeAfterInterruption = false
+    private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
+    private var observers: [NSObjectProtocol] = []
+    private var commandTargets: [(MPRemoteCommand, Any)] = []
+    private var artwork: MPMediaItemArtwork?
+    private var artworkURL: URL?
+
+    override init() {
+        super.init()
+        synthesizer.delegate = self
+        synthesizer.usesApplicationAudioSession = true
+    }
+
+    // MARK: Session
+
+    func start(
+        paragraphs: [String],
+        from index: Int,
+        heading: String?,
+        novelTitle: String,
+        chapterTitle: String,
+        rate: Double,
+        artworkURL: URL?
+    ) {
+        self.paragraphs = paragraphs
+        self.novelTitle = novelTitle
+        self.chapterTitle = chapterTitle
+        rateMultiplier = Float(min(Self.rateRange.upperBound, max(Self.rateRange.lowerBound, rate)))
+        voice = Self.preferredVoice(sample: paragraphs.prefix(6).joined(separator: " "))
+        if !isActive {
+            activateAudioSession()
+            observeAudioSession()
+            registerRemoteCommands()
+        }
+        isActive = true
+        loadArtwork(artworkURL)
+        enqueue(from: index, heading: heading)
+    }
+
+    /// Swap in a newly opened chapter. Keeps playing if the session was playing.
+    func loadChapter(paragraphs: [String], heading: String?, chapterTitle: String) {
+        guard isActive else { return }
+        let shouldPlay = isPlaying || awaitingChapter
+        awaitingChapter = false
+        self.paragraphs = paragraphs
+        self.chapterTitle = chapterTitle
+        defer { releaseBackgroundTime() }
+        guard !paragraphs.isEmpty else { stop(); return }
+        if shouldPlay {
+            enqueue(from: 0, heading: heading)
+        } else {
+            clearQueue()
+            spokenParagraph = 0
+            needsRequeueOnResume = true
+            updateNowPlaying()
+        }
+    }
+
+    /// The reader could not open the chapter that was asked for.
+    func chapterUnavailable() {
+        guard awaitingChapter else { return }
+        stop()
+    }
+
+    func stop() {
+        guard isActive else { return }
+        clearQueue()
+        isActive = false
+        isPlaying = false
+        spokenParagraph = nil
+        awaitingChapter = false
+        needsRequeueOnResume = false
+        resumeAfterInterruption = false
+        onParagraphStart = nil
+        onChapterFinished = nil
+        onRequestChapter = nil
+        for (command, target) in commandTargets { command.removeTarget(target) }
+        commandTargets.removeAll()
+        for observer in observers { NotificationCenter.default.removeObserver(observer) }
+        observers.removeAll()
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        releaseBackgroundTime()
+    }
+
+    // MARK: Transport
+
+    func togglePlayback() {
+        isPlaying ? pause() : resume()
+    }
+
+    func pause() {
+        guard isActive, isPlaying else { return }
+        if synthesizer.isSpeaking { synthesizer.pauseSpeaking(at: .word) }
+        isPlaying = false
+        updateNowPlaying()
+    }
+
+    func resume() {
+        guard isActive, !isPlaying else { return }
+        activateAudioSession()
+        if synthesizer.isPaused, !needsRequeueOnResume {
+            synthesizer.continueSpeaking()
+            isPlaying = true
+            updateNowPlaying()
+        } else {
+            enqueue(from: spokenParagraph ?? 0, heading: nil)
+        }
+    }
+
+    /// Steps a paragraph; past either end of the chapter it asks for the adjacent one.
+    func skipParagraph(by delta: Int) {
+        guard isActive else { return }
+        let target = (spokenParagraph ?? 0) + delta
+        if target < 0 {
+            onRequestChapter?(-1)
+        } else if target >= paragraphs.count {
+            onRequestChapter?(1)
+        } else if isPlaying {
+            enqueue(from: target, heading: nil)
+        } else {
+            clearQueue()
+            spokenParagraph = target
+            needsRequeueOnResume = true
+            onParagraphStart?(target)
+            updateNowPlaying()
+        }
+    }
+
+    func setRate(_ rate: Double) {
+        let clamped = Float(min(Self.rateRange.upperBound, max(Self.rateRange.lowerBound, rate)))
+        guard clamped != rateMultiplier else { return }
+        rateMultiplier = clamped
+        guard isActive else { return }
+        // Queued utterances keep their rate, so restart the current paragraph.
+        if isPlaying {
+            enqueue(from: spokenParagraph ?? 0, heading: nil)
+        } else {
+            needsRequeueOnResume = true
+        }
+    }
+
+    // MARK: Queue
+
+    private func enqueue(from index: Int, heading: String?) {
+        clearQueue()
+        guard !paragraphs.isEmpty else { stop(); return }
+        let start = max(0, min(index, paragraphs.count - 1))
+        spokenParagraph = start
+        needsRequeueOnResume = false
+        if let heading, !heading.isEmpty, start == 0 {
+            let utterance = makeUtterance(heading)
+            utterance.postUtteranceDelay = 0.5
+            queue(utterance, paragraph: -1)
+        }
+        for index in start..<paragraphs.count {
+            queue(makeUtterance(paragraphs[index]), paragraph: index)
+        }
+        lastQueuedParagraph = paragraphs.count - 1
+        isPlaying = true
+        updateNowPlaying()
+    }
+
+    private func queue(_ utterance: AVSpeechUtterance, paragraph: Int) {
+        queued[ObjectIdentifier(utterance)] = paragraph
+        queuedUtterances.append(utterance)
+        synthesizer.speak(utterance)
+    }
+
+    private func clearQueue() {
+        queued.removeAll()
+        queuedUtterances.removeAll()
+        lastQueuedParagraph = -1
+        guard synthesizer.isSpeaking || synthesizer.isPaused else { return }
+        // A fresh synthesizer avoids speak() racing the old one's asynchronous stop.
+        let old = synthesizer
+        old.delegate = nil
+        old.stopSpeaking(at: .immediate)
+        synthesizer = AVSpeechSynthesizer()
+        synthesizer.usesApplicationAudioSession = true
+        synthesizer.delegate = self
+    }
+
+    private func makeUtterance(_ text: String) -> AVSpeechUtterance {
+        let utterance = AVSpeechUtterance(string: text)
+        utterance.voice = voice
+        utterance.rate = min(
+            AVSpeechUtteranceMaximumSpeechRate,
+            max(AVSpeechUtteranceMinimumSpeechRate, AVSpeechUtteranceDefaultSpeechRate * rateMultiplier)
+        )
+        utterance.postUtteranceDelay = 0.15
+        return utterance
+    }
+
+    fileprivate func utteranceStarted(_ id: ObjectIdentifier) {
+        guard let paragraph = queued[id], paragraph >= 0 else { return }
+        spokenParagraph = paragraph
+        onParagraphStart?(paragraph)
+        updateNowPlaying()
+    }
+
+    fileprivate func utteranceFinished(_ id: ObjectIdentifier) {
+        guard let paragraph = queued.removeValue(forKey: id) else { return }
+        queuedUtterances.removeAll { ObjectIdentifier($0) == id }
+        guard paragraph == lastQueuedParagraph, queued.isEmpty else { return }
+        // Chapter done. Hold a little background time so the next chapter can
+        // load with the screen locked, then hand over to the reader.
+        awaitingChapter = true
+        holdBackgroundTime()
+        onChapterFinished?()
+    }
+
+    // MARK: Background time
+
+    private func holdBackgroundTime() {
+        guard backgroundTask == .invalid else { return }
+        backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "Asterion.listen.next-chapter") { [weak self] in
+            MainActor.assumeIsolated { self?.releaseBackgroundTime() }
+        }
+    }
+
+    private func releaseBackgroundTime() {
+        guard backgroundTask != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(backgroundTask)
+        backgroundTask = .invalid
+    }
+
+    // MARK: Audio session
+
+    private func activateAudioSession() {
+        let session = AVAudioSession.sharedInstance()
+        try? session.setCategory(.playback, mode: .spokenAudio, options: [])
+        try? session.setActive(true)
+    }
+
+    private func observeAudioSession() {
+        let center = NotificationCenter.default
+        let session = AVAudioSession.sharedInstance()
+        observers.append(center.addObserver(
+            forName: AVAudioSession.interruptionNotification, object: session, queue: .main
+        ) { [weak self] note in
+            let type = (note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt)
+                .flatMap(AVAudioSession.InterruptionType.init(rawValue:))
+            let options = AVAudioSession.InterruptionOptions(
+                rawValue: note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+            )
+            MainActor.assumeIsolated { self?.handleInterruption(type, options: options) }
+        })
+        observers.append(center.addObserver(
+            forName: AVAudioSession.routeChangeNotification, object: session, queue: .main
+        ) { [weak self] note in
+            let reason = (note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt)
+                .flatMap(AVAudioSession.RouteChangeReason.init(rawValue:))
+            // Headphones unplugged or disconnected: pause, as every audio app does.
+            guard reason == .oldDeviceUnavailable else { return }
+            MainActor.assumeIsolated { self?.pause() }
+        })
+    }
+
+    private func handleInterruption(_ type: AVAudioSession.InterruptionType?, options: AVAudioSession.InterruptionOptions) {
+        switch type {
+        case .began:
+            resumeAfterInterruption = isPlaying
+            pause()
+            // The system may have torn down the synthesizer's audio; restart the paragraph on resume.
+            needsRequeueOnResume = true
+        case .ended:
+            if resumeAfterInterruption, options.contains(.shouldResume) { resume() }
+            resumeAfterInterruption = false
+        default:
+            break
+        }
+    }
+
+    // MARK: Lock screen
+
+    private func registerRemoteCommands() {
+        let center = MPRemoteCommandCenter.shared()
+        let bindings: [(MPRemoteCommand, @MainActor (ReaderSpeechController) -> Void)] = [
+            (center.playCommand, { $0.resume() }),
+            (center.pauseCommand, { $0.pause() }),
+            (center.togglePlayPauseCommand, { $0.togglePlayback() }),
+            (center.nextTrackCommand, { $0.skipParagraph(by: 1) }),
+            (center.previousTrackCommand, { $0.skipParagraph(by: -1) }),
+        ]
+        for (command, action) in bindings {
+            command.isEnabled = true
+            commandTargets.append((command, command.addTarget(handler: Self.remoteHandler(self, action))))
+        }
+        center.skipForwardCommand.isEnabled = false
+        center.skipBackwardCommand.isEnabled = false
+        center.changePlaybackPositionCommand.isEnabled = false
+    }
+
+    private nonisolated static func remoteHandler(
+        _ owner: ReaderSpeechController,
+        _ action: @escaping @MainActor (ReaderSpeechController) -> Void
+    ) -> (MPRemoteCommandEvent) -> MPRemoteCommandHandlerStatus {
+        { [weak owner] _ in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let owner, owner.isActive else { return }
+                    action(owner)
+                }
+            }
+            return .success
+        }
+    }
+
+    private func updateNowPlaying() {
+        guard isActive else {
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+            return
+        }
+        var info: [String: Any] = [
+            MPMediaItemPropertyTitle: chapterTitle,
+            MPMediaItemPropertyAlbumTitle: novelTitle,
+            MPMediaItemPropertyArtist: novelTitle,
+            MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.audio.rawValue,
+            MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? 1.0 : 0.0,
+            MPNowPlayingInfoPropertyDefaultPlaybackRate: 1.0,
+        ]
+        if paragraphs.count > 1, let spokenParagraph {
+            info[MPNowPlayingInfoPropertyPlaybackProgress] = Float(spokenParagraph) / Float(paragraphs.count - 1)
+        }
+        if let artwork { info[MPMediaItemPropertyArtwork] = artwork }
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+    }
+
+    private func loadArtwork(_ url: URL?) {
+        guard let url, url != artworkURL else { return }
+        artworkURL = url
+        artwork = nil
+        Task { [weak self] in
+            guard let result = try? await URLSession.shared.data(from: url),
+                  let image = UIImage(data: result.0) else { return }
+            guard let self, self.artworkURL == url else { return }
+            self.artwork = Self.makeArtwork(image)
+            self.updateNowPlaying()
+        }
+    }
+
+    /// Built outside the main actor: MediaPlayer calls the handler on its own queue.
+    private nonisolated static func makeArtwork(_ image: UIImage) -> MPMediaItemArtwork {
+        MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+    }
+
+    // MARK: Voice
+
+    /// Best installed voice for the text's language, preferring the device's
+    /// region and premium or enhanced voices; novelty and personal voices are skipped.
+    private static func preferredVoice(sample: String) -> AVSpeechSynthesisVoice? {
+        let device = Locale.preferredLanguages.first ?? AVSpeechSynthesisVoice.currentLanguageCode()
+        let deviceLocale = Locale(identifier: device)
+        var languageCode = deviceLocale.language.languageCode?.identifier ?? String(device.prefix(2))
+
+        // Read novels in the language they are written in when it differs from the device.
+        let recognizer = NLLanguageRecognizer()
+        recognizer.processString(sample)
+        if let detected = recognizer.dominantLanguage, detected != .undetermined {
+            let detectedCode = Locale(identifier: detected.rawValue).language.languageCode?.identifier
+                ?? detected.rawValue
+            if detectedCode != languageCode { languageCode = detectedCode }
+        }
+
+        let region = deviceLocale.region?.identifier ?? Locale.current.region?.identifier
+        let candidates = AVSpeechSynthesisVoice.speechVoices().filter { voice in
+            !voice.voiceTraits.contains(.isNoveltyVoice)
+                && !voice.voiceTraits.contains(.isPersonalVoice)
+                && Locale(identifier: voice.language).language.languageCode?.identifier == languageCode
+        }
+        func score(_ voice: AVSpeechSynthesisVoice) -> Int {
+            var value: Int
+            switch voice.quality {
+            case .premium: value = 300
+            case .enhanced: value = 200
+            default: value = 100
+            }
+            let voiceRegion = Locale(identifier: voice.language).region?.identifier
+            if let region, voiceRegion == region { value += 20 }
+            if voice.language == AVSpeechSynthesisVoice.currentLanguageCode() { value += 10 }
+            if voiceRegion == "US" || voiceRegion == "GB" { value += 1 }
+            return value
+        }
+        if let best = candidates.max(by: { score($0) < score($1) }) { return best }
+        return AVSpeechSynthesisVoice(language: languageCode) ?? AVSpeechSynthesisVoice(language: device)
+    }
+
+    /// One line for the settings sheet describing the voice that will be used.
+    static let voiceSummary: String = {
+        let device = Locale.preferredLanguages.first ?? AVSpeechSynthesisVoice.currentLanguageCode()
+        guard let voice = ReaderSpeechController.preferredVoice(sample: "") ?? AVSpeechSynthesisVoice(language: device) else {
+            return "Reads the chapter aloud from where you are, and carries on into the next chapter."
+        }
+        let quality: String
+        switch voice.quality {
+        case .premium: quality = "premium"
+        case .enhanced: quality = "enhanced"
+        default: quality = "standard"
+        }
+        let base = "Reads aloud with \(voice.name) (\(quality)) and carries on into the next chapter."
+        guard voice.quality == .default else { return base }
+        return base + " Download an enhanced voice in Settings › Accessibility › Spoken Content for a more natural read."
+    }()
+}
+
+extension ReaderSpeechController: AVSpeechSynthesizerDelegate {
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didStart utterance: AVSpeechUtterance) {
+        let id = ObjectIdentifier(utterance)
+        DispatchQueue.main.async { MainActor.assumeIsolated { self.utteranceStarted(id) } }
+    }
+
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        let id = ObjectIdentifier(utterance)
+        DispatchQueue.main.async { MainActor.assumeIsolated { self.utteranceFinished(id) } }
+    }
+}
+
+/// Reader chrome circle that lights up (white disc, dark glyph) while active.
+private struct ReaderListenCircle: ViewModifier {
+    let isLit: Bool
+
+    func body(content: Content) -> some View {
+        if isLit {
+            content
+                .foregroundStyle(Color.black)
+                .frame(width: 38, height: 38)
+                .background(Circle().fill(Color.white))
+                .shadow(color: .white.opacity(0.35), radius: 6)
+                .contentShape(Circle())
+        } else {
+            content.modifier(ReaderChromeCircle())
+        }
+    }
+}
+
+/// Smoked glass for controls that float over the page: material, a dark wash,
+/// and a hairline, so white icons stay legible on paper, parchment, or night.
+private struct ReaderSmokedBackground<S: InsettableShape>: ViewModifier {
+    let shape: S
+
     func body(content: Content) -> some View {
         content
-            .foregroundStyle(Color.asterionInk)
-            .frame(width: 36, height: 36)
-            .background(Color.asterionCard, in: Circle())
+            .background {
+                shape
+                    .fill(.ultraThinMaterial)
+                    .overlay(shape.fill(Color.black.opacity(0.32)))
+            }
+            .overlay(shape.strokeBorder(Color.white.opacity(0.16)))
+            .environment(\.colorScheme, .dark)
+    }
+}
+
+/// White icon on a smoked circle.
+private struct ReaderChromeCircle: ViewModifier {
+    var size: CGFloat = 38
+
+    func body(content: Content) -> some View {
+        content
+            .foregroundStyle(Color.white)
+            .frame(width: size, height: size)
+            .modifier(ReaderSmokedBackground(shape: Circle()))
+            .contentShape(Circle())
+    }
+}
+
+/// Press and disabled feedback for floating reader controls.
+private struct ReaderFloatingButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(isEnabled ? (configuration.isPressed ? 0.75 : 1) : 0.4)
+            .scaleEffect(configuration.isPressed ? 0.96 : 1)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
+/// Capsule drawn in the page's own ink, for controls that sit on the page.
+/// The prominent variant inverts: ink fill with paper-coloured text.
+private struct ReaderPageCapsuleStyle: ButtonStyle {
+    let ink: Color
+    let paper: Color
+    var isProminent = false
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.asterionReading(14.5, weight: .semibold))
+            .lineLimit(1)
+            .foregroundStyle(isProminent ? paper : ink)
+            .padding(.horizontal, 18)
+            .frame(minHeight: 44)
+            .background {
+                Capsule().fill(
+                    isProminent
+                        ? ink.opacity(configuration.isPressed ? 0.8 : 1)
+                        : ink.opacity(configuration.isPressed ? 0.12 : 0.05)
+                )
+            }
+            .overlay(Capsule().strokeBorder(ink.opacity(isProminent ? 0 : 0.16)))
+            .opacity(isEnabled ? 1 : 0.35)
+            .scaleEffect(configuration.isPressed ? 0.98 : 1)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+            .contentShape(Capsule())
+    }
+}
+
+/// Chapter list on the dark canvas: mono numbers, the open chapter lit.
+private struct ReaderChapterPickerSheet: View {
+    let chapters: [Chapter]
+    let currentChapterID: String
+    let onSelect: (Chapter) -> Void
+    let onClose: () -> Void
+
+    @State private var query = ""
+
+    private var filteredChapters: [Chapter] {
+        let search = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !search.isEmpty else { return chapters }
+        return chapters.filter {
+            String($0.chapterNumber).localizedCaseInsensitiveContains(search)
+                || $0.displayTitle.localizedCaseInsensitiveContains(search)
+                || $0.title.localizedCaseInsensitiveContains(search)
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    if filteredChapters.isEmpty {
+                        AsterionEmptyState(
+                            symbol: "magnifyingglass",
+                            title: "No chapters found",
+                            message: "Try a chapter number or a word from its title."
+                        )
+                    } else {
+                        LazyVStack(spacing: 2) {
+                            ForEach(filteredChapters) { chapter in
+                                row(chapter)
+                                    .id(chapter.id)
+                            }
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                    }
+                }
+                .scrollDismissesKeyboard(.interactively)
+                .onAppear {
+                    Task { @MainActor in
+                        await Task.yield()
+                        proxy.scrollTo(currentChapterID, anchor: .center)
+                    }
+                }
+            }
+            .background(Color.asterionBackground)
+            .navigationTitle("Chapters")
+            .navigationBarTitleDisplayMode(.inline)
+            .searchable(text: $query, prompt: "Find a chapter")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close", action: onClose)
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Text(chapters.count.formatted())
+                        .font(.asterionMono(12, weight: .medium))
+                        .foregroundStyle(Color.asterionFaint)
+                        .accessibilityLabel("\(chapters.count) chapters")
+                }
+            }
+        }
+    }
+
+    private func row(_ chapter: Chapter) -> some View {
+        let isCurrent = chapter.id == currentChapterID
+        let title = chapter.displayTitle.isEmpty ? chapter.labeledTitle : chapter.displayTitle
+        return Button {
+            onSelect(chapter)
+        } label: {
+            HStack(spacing: 12) {
+                Text(chapter.chapterNumber > 0 ? "\(chapter.chapterNumber)" : "•")
+                    .font(.asterionMono(12, weight: .medium))
+                    .foregroundStyle(isCurrent ? Color.asterionText : Color.asterionFaint)
+                    .frame(width: 44, alignment: .trailing)
+
+                Text(title)
+                    .font(.asterionReading(14.5, weight: isCurrent ? .semibold : .regular))
+                    .foregroundStyle(isCurrent ? Color.asterionText : Color.asterionText.opacity(0.8))
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                if isCurrent {
+                    Circle()
+                        .fill(Color.asterionText)
+                        .frame(width: 6, height: 6)
+                        .shadow(color: .white.opacity(0.7), radius: 3)
+                        .accessibilityHidden(true)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 12)
+            .background {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.white.opacity(isCurrent ? 0.08 : 0))
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Chapter \(chapter.chapterNumber), \(title)")
+        .accessibilityAddTraits(isCurrent ? .isSelected : [])
     }
 }
 

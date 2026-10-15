@@ -7,5 +7,7 @@ struct AsterionWidgetBundle: WidgetBundle {
         ReadingWidget()
         ChapterDownloadLiveActivityWidget()
         ReadingSessionLiveActivityWidget()
+        WatchingLiveActivityWidget()
+        MatchLiveActivityWidget()
     }
 }

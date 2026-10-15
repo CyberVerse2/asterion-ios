@@ -16,6 +16,7 @@ struct AsterionMark: View {
     }
 }
 
+/// Title block that opens a page without a hero.
 struct AsterionPageHeader: View {
     enum Style {
         case wordmark
@@ -29,16 +30,16 @@ struct AsterionPageHeader: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
-                .font(.asterionDisplay(style == .wordmark ? 36 : 32, weight: .medium))
+                .font(.asterionTitle(style == .wordmark ? 32 : 30, weight: .heavy))
                 .foregroundStyle(Color.asterionText)
-                .tracking(-0.6)
                 .lineLimit(2)
-                .minimumScaleFactor(0.8)
+                .minimumScaleFactor(0.7)
+                .accessibilityAddTraits(.isHeader)
 
             if let subtitle, !subtitle.isEmpty {
                 Text(subtitle)
-                    .font(.asterionReading(16))
-                    .foregroundStyle(Color.asterionSynopsis)
+                    .font(.asterionReading(14))
+                    .foregroundStyle(Color.asterionMuted)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: 620, alignment: .leading)
             }
@@ -49,16 +50,34 @@ struct AsterionPageHeader: View {
     }
 }
 
+/// Shelf and section heading in the title-card face.
 struct AsterionSectionLabel: View {
     let title: String
+    var detail: String? = nil
 
     var body: some View {
-        Text(title)
-            .font(.asterionDisplay(22, weight: .medium))
-            .foregroundStyle(Color.asterionText)
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(title)
+                .font(.asterionTitle(17, weight: .bold))
+                .foregroundStyle(Color.asterionText)
+                .accessibilityAddTraits(.isHeader)
+            if let detail, !detail.isEmpty {
+                Text(detail)
+                    .font(.asterionReading(13))
+                    .foregroundStyle(Color.asterionMuted)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }
     }
 }
 
+/// Navigation between sibling sections.
+///
+/// `.header` switches between whole catalogs (Novels, Anime, …) and is set
+/// as large title-card words: the selected one lit, the rest faint.
+/// `.section` and `.subheader` are a smoked pill bar with a lit selection,
+/// matching the desktop section bar.
 struct AsterionIndexTabs<Item: Hashable>: View {
     enum Rank {
         case header
@@ -71,89 +90,83 @@ struct AsterionIndexTabs<Item: Hashable>: View {
     var rank: Rank = .header
     @Binding var selection: Item
 
-    var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(alignment: .lastTextBaseline, spacing: itemSpacing) {
-                ForEach(items, id: \.self) { item in
-                    let selected = selection == item
-                    Button {
-                        withAnimation(.snappy) { selection = item }
-                    } label: {
-                        VStack(alignment: .leading, spacing: underlineGap) {
-                            Text(title(item))
-                                .font(labelFont)
-                                .foregroundStyle(selected ? Color.asterionText : Color.asterionMuted)
-                                .tracking(rank == .header ? -0.4 : 0)
+    @Namespace private var selectionNamespace
 
-                            if showsUnderline {
-                                Rectangle()
-                                    .fill(selected ? Color.asterionInk : Color.clear)
-                                    .frame(height: rank == .header ? 1.5 : 1)
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                Group {
+                    if rank == .header {
+                        headerTabs
+                    } else {
+                        pillTabs
+                    }
+                }
+                .padding(.horizontal, 20)
+            }
+            .onChange(of: selection) { _, item in
+                withAnimation(.snappy) { proxy.scrollTo(item, anchor: .center) }
+            }
+        }
+        .padding(.top, rank == .header ? 6 : 4)
+        .padding(.bottom, rank == .header ? 10 : 8)
+    }
+
+    private var headerTabs: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 18) {
+            ForEach(items, id: \.self) { item in
+                let selected = selection == item
+                Button {
+                    if selection != item { Haptics.selection() }
+                    withAnimation(.snappy) { selection = item }
+                } label: {
+                    Text(title(item))
+                        .font(.asterionTitle(22, weight: .heavy))
+                        .foregroundStyle(selected ? Color.asterionText : Color.asterionFaint)
+                        .fixedSize()
+                }
+                .buttonStyle(.plain)
+                .id(item)
+                .accessibilityAddTraits(selected ? [.isSelected, .isHeader] : [])
+            }
+        }
+    }
+
+    private var pillTabs: some View {
+        HStack(spacing: 2) {
+            ForEach(items, id: \.self) { item in
+                let selected = selection == item
+                Button {
+                    if selection != item { Haptics.selection() }
+                    withAnimation(.spring(duration: 0.32, bounce: 0.12)) { selection = item }
+                } label: {
+                    Text(title(item))
+                        .font(.asterionReading(13, weight: .semibold))
+                        .foregroundStyle(selected ? Color.asterionOnInk : Color.asterionText.opacity(0.78))
+                        .padding(.horizontal, 13)
+                        .padding(.vertical, 7)
+                        .background {
+                            if selected {
+                                Capsule()
+                                    .fill(Color.asterionInk)
+                                    .matchedGeometryEffect(id: "selection", in: selectionNamespace)
                             }
                         }
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityAddTraits(selected ? .isSelected : [])
+                        .contentShape(Capsule())
+                        .fixedSize()
                 }
+                .buttonStyle(.plain)
+                .id(item)
+                .accessibilityAddTraits(selected ? .isSelected : [])
             }
-            .padding(.horizontal, 24)
         }
-        .padding(.top, topPadding)
-        .padding(.bottom, bottomPadding)
-        .background(Color.asterionBackground)
-    }
-
-    private var showsUnderline: Bool {
-        switch rank {
-        case .header, .section: true
-        case .subheader: false
-        }
-    }
-
-    private var itemSpacing: CGFloat {
-        switch rank {
-        case .header: 20
-        case .section: 16
-        case .subheader: 18
-        }
-    }
-
-    private var underlineGap: CGFloat {
-        switch rank {
-        case .header: 7
-        case .section: 5
-        case .subheader: 0
-        }
-    }
-
-    private var topPadding: CGFloat {
-        switch rank {
-        case .header: 8
-        case .section: 4
-        case .subheader: 14
-        }
-    }
-
-    private var bottomPadding: CGFloat {
-        switch rank {
-        case .header: 2
-        case .section: 4
-        case .subheader: 12
-        }
-    }
-
-    private var labelFont: Font {
-        switch rank {
-        case .header:
-            .asterionDisplay(26, weight: .medium)
-        case .section:
-            .asterionDisplay(18, weight: .medium)
-        case .subheader:
-            .asterionDisplay(17, weight: .regular)
-        }
+        .padding(3)
+        .background(Color.white.opacity(0.06), in: Capsule())
+        .overlay(Capsule().strokeBorder(Color.white.opacity(0.08)))
     }
 }
 
+/// Resume card: 16:9 artwork with title, detail, and a light-line progress.
 struct AsterionContinueCard<Artwork: View>: View {
     let title: String
     let subtitle: String
@@ -172,37 +185,46 @@ struct AsterionContinueCard<Artwork: View>: View {
                 .clipped()
 
             LinearGradient(
-                colors: [.clear, .black.opacity(0.28), .black.opacity(0.78)],
+                stops: [
+                    .init(color: .clear, location: 0.25),
+                    .init(color: .black.opacity(0.55), location: 0.6),
+                    .init(color: .black.opacity(0.92), location: 1),
+                ],
                 startPoint: .top,
                 endPoint: .bottom
             )
 
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 6) {
                 Text(title)
-                    .font(.asterionDisplay(22, weight: .medium))
+                    .font(.asterionReading(15, weight: .semibold))
                     .foregroundStyle(.white)
-                    .lineLimit(2)
-                Text(subtitle)
-                    .font(.asterionReading(13))
-                    .foregroundStyle(.white.opacity(0.82))
                     .lineLimit(1)
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(.white.opacity(0.28))
-                        Capsule()
-                            .fill(.white)
-                            .frame(width: geo.size.width * min(1, max(0, percentage / 100)))
-                    }
+                HStack(spacing: 6) {
+                    Text(subtitle)
+                        .lineLimit(1)
+                    Spacer(minLength: 6)
+                    Text("\(Int(percentage.rounded()))%")
+                        .font(.asterionMono(11, weight: .medium))
                 }
-                .frame(height: 3)
+                .font(.asterionReading(12, weight: .medium))
+                .foregroundStyle(.white.opacity(0.72))
+
+                AsterionLightLine(fraction: percentage / 100, height: 3)
+                    .padding(.top, 2)
             }
-            .padding(14)
+            .padding(.horizontal, 14)
+            .padding(.bottom, 13)
         }
         .frame(width: cardSize.width, height: cardSize.height)
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.08))
+        }
     }
 }
 
+/// Centered empty or error state: what happened and what to do next.
 struct AsterionEmptyState: View {
     let symbol: String
     let title: String
@@ -211,23 +233,66 @@ struct AsterionEmptyState: View {
     var body: some View {
         VStack(spacing: 12) {
             Image(systemName: symbol)
-                .font(.system(size: 34, weight: .light, design: .rounded))
+                .font(.system(size: 28, weight: .light))
                 .foregroundStyle(Color.asterionMuted)
+                .frame(width: 72, height: 72)
+                .background {
+                    Circle()
+                        .fill(
+                            RadialGradient(
+                                colors: [.white.opacity(0.09), .white.opacity(0)],
+                                center: .center,
+                                startRadius: 2,
+                                endRadius: 44
+                            )
+                        )
+                }
 
             Text(title)
-                .font(.asterionDisplay(24, weight: .medium))
+                .font(.asterionTitle(19, weight: .bold))
                 .foregroundStyle(Color.asterionText)
                 .multilineTextAlignment(.center)
 
             if let message {
                 Text(message)
-                    .font(.asterionReading(15))
+                    .font(.asterionReading(14))
                     .foregroundStyle(Color.asterionMuted)
                     .multilineTextAlignment(.center)
+                    .frame(maxWidth: 340)
             }
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 48)
         .padding(.horizontal, 20)
+    }
+}
+
+// MARK: - Status bar scrim
+
+/// Pages hide the navigation bar, so scrolling content passes under the
+/// clock. The canvas fades in behind the status bar to keep it legible.
+struct AsterionStatusBarScrim: ViewModifier {
+    func body(content: Content) -> some View {
+        content.overlay(alignment: .top) {
+            LinearGradient(
+                stops: [
+                    .init(color: Color.asterionBackground.opacity(0.94), location: 0),
+                    .init(color: Color.asterionBackground.opacity(0.94), location: 0.7),
+                    .init(color: Color.asterionBackground.opacity(0), location: 1),
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .frame(height: 18)
+            .ignoresSafeArea(edges: .top)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+        }
+    }
+}
+
+extension View {
+    func asterionStatusBarScrim() -> some View {
+        modifier(AsterionStatusBarScrim())
     }
 }

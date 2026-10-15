@@ -8,6 +8,7 @@ struct LibraryView: View {
     @EnvironmentObject private var mediaAccountService: MediaAccountService
     @EnvironmentObject private var tabBarState: TabBarState
     @EnvironmentObject private var readingProgressService: ReadingProgressService
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     @State private var novels: [LibraryItem] = []
     @State private var loadingNovels = false
@@ -18,7 +19,7 @@ struct LibraryView: View {
     @State private var sortOption: SortOption = .lastRead
     @State private var navigationPath = NavigationPath()
 
-    private let pageHorizontalPadding: CGFloat = 24
+    private var pageHorizontalPadding: CGFloat { AsterionLayout.pagePadding(horizontalSizeClass) }
 
     enum LibraryFilter: String, CaseIterable {
         case all = "All"
@@ -29,9 +30,9 @@ struct LibraryView: View {
     }
 
     enum SortOption: String, CaseIterable {
-        case lastRead = "Last Read"
-        case lastAdded = "Last Added"
-        case lastUpdated = "Last Updated"
+        case lastRead = "Last read"
+        case lastAdded = "Last added"
+        case lastUpdated = "Last updated"
     }
 
     struct LibraryItem: Identifiable {
@@ -39,6 +40,7 @@ struct LibraryView: View {
         let addedAt: Date?
         let updatedAt: Date?
         let lastReadAt: Date?
+        var percentage: Double? = nil
         var id: String { novel.id }
     }
 
@@ -84,14 +86,34 @@ struct LibraryView: View {
         !filteredNovels.isEmpty || !filteredBookmarks.isEmpty || !continueWatching.isEmpty
     }
 
+    private var isLoadingFirstPage: Bool {
+        (loadingNovels || mediaAccountService.isLoading) && !hasVisibleContent
+    }
+
+    /// "12 saved · 3 in progress", across every kind of title.
+    private var librarySubtitle: String {
+        let saved = novels.count + mediaAccountService.snapshot.bookmarks.count
+        let readingNow = novels.filter { item in
+            let started = readingProgressService.lastReadAt(for: item.id, remote: item.lastReadAt) != nil
+            return started && (item.percentage ?? 0) < 100
+        }.count
+        let watchingNow = mediaAccountService.snapshot.progress.filter { !$0.completed && $0.positionSeconds > 0 }.count
+        let inProgress = readingNow + watchingNow
+        guard saved > 0 || inProgress > 0 else {
+            return "Everything you save to read or watch lives here."
+        }
+        return "\(saved) saved · \(inProgress) in progress"
+    }
+
     var body: some View {
         NavigationStack(path: $navigationPath) {
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    AsterionPageHeader(title: "Library")
+                VStack(alignment: .leading, spacing: 24) {
+                    VStack(alignment: .leading, spacing: 18) {
+                        AsterionPageHeader(title: "Library", subtitle: librarySubtitle)
+                        SearchInputView(text: $search, placeholder: "Search your library")
+                    }
 
-                    SearchInputView(text: $search)
-                        .padding(.top, 8)
                     filterPicker
 
                     if !continueWatching.isEmpty {
@@ -106,22 +128,20 @@ struct LibraryView: View {
                         savedMediaSection
                     }
 
-                    if (loadingNovels || mediaAccountService.isLoading) && !hasVisibleContent {
-                        ProgressView()
-                            .tint(Color.goldAccent)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 48)
-                    } else if !hasVisibleContent {
+                    if isLoadingFirstPage {
+                        loadingGrid
+                    } else if !hasVisibleContent, !showsNovelSpecificState {
                         emptyState
                     }
                 }
                 .padding(.horizontal, pageHorizontalPadding)
-                .padding(.bottom, 32)
-                .frame(maxWidth: 1120, alignment: .topLeading)
+                .padding(.bottom, 40)
+                .frame(maxWidth: AsterionLayout.pageMaxWidth(horizontalSizeClass), alignment: .topLeading)
                 .frame(maxWidth: .infinity)
             }
             .scrollDismissesKeyboard(.interactively)
             .refreshable { await refresh() }
+            .asterionStatusBarScrim()
             .background { AsterionBackdrop() }
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: Novel.self) { novel in
@@ -145,15 +165,16 @@ struct LibraryView: View {
             selection: $filter
         )
         .padding(.horizontal, -pageHorizontalPadding)
+        .padding(.vertical, -6)
     }
 
+    // MARK: - Continue
+
     private var continueWatchingSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Continue")
-                .font(.asterionReading(15, weight: .medium))
-                .foregroundStyle(Color.asterionText)
+        VStack(alignment: .leading, spacing: 14) {
+            AsterionSectionLabel(title: "Continue watching", detail: "\(continueWatching.count)")
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 13) {
+                HStack(spacing: 14) {
                     ForEach(continueWatching) { item in
                         NavigationLink {
                             MediaDestinationView(
@@ -186,107 +207,250 @@ struct LibraryView: View {
         }
     }
 
+    // MARK: - Novels
+
+    private var showsNovelSpecificState: Bool {
+        filter == .novels && filteredNovels.isEmpty && (!authService.isSignedIn || failedNovels)
+    }
+
     @ViewBuilder
     private var novelSection: some View {
         if !filteredNovels.isEmpty {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(alignment: .firstTextBaseline) {
-                    if filter == .all {
-                        Text("Novels")
-                            .font(.asterionReading(15, weight: .medium))
-                            .foregroundStyle(Color.asterionText)
-                    }
-                    Spacer()
-                    Menu(sortOption.rawValue) {
-                        Picker("Sort novels", selection: $sortOption) {
-                            ForEach(SortOption.allCases, id: \.self) { option in
-                                Text(option.rawValue).tag(option)
-                            }
-                        }
-                    }
-                    .font(.asterionReading(14))
-                    .foregroundStyle(Color.asterionMuted)
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    AsterionSectionLabel(
+                        title: filter == .all ? "Novels" : "Saved novels",
+                        detail: "\(filteredNovels.count)"
+                    )
+                    sortMenu
                 }
 
-                ForEach(filteredNovels) { item in
-                    NavigationLink(value: item.novel) {
-                        LibraryNovelRow(novel: item.novel)
+                LazyVGrid(columns: AsterionLayout.posterColumns(horizontalSizeClass), spacing: 24) {
+                    ForEach(filteredNovels) { item in
+                        NavigationLink(value: item.novel) {
+                            LibraryPosterTile(
+                                title: item.novel.title,
+                                subtitle: item.novel.author ?? "Unknown author",
+                                progress: item.percentage.map { $0 / 100 }
+                            ) {
+                                NovelPosterArt(novel: item.novel)
+                            }
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
             }
         } else if filter == .novels, !authService.isSignedIn {
             signInForNovelsState
         } else if failedNovels, filter == .novels {
-            inlineMessage("Your novels could not be loaded. Pull down to try again.", systemImage: "wifi.exclamationmark")
+            novelsFailedState
         }
     }
+
+    private var sortMenu: some View {
+        Menu {
+            Picker("Sort novels", selection: $sortOption) {
+                ForEach(SortOption.allCases, id: \.self) { option in
+                    Text(option.rawValue).tag(option)
+                }
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "arrow.up.arrow.down")
+                    .font(.system(size: 10.5, weight: .semibold))
+                Text(sortOption.rawValue)
+                    .font(.asterionReading(12.5, weight: .semibold))
+            }
+            .foregroundStyle(Color.asterionText.opacity(0.85))
+            .padding(.horizontal, 11)
+            .padding(.vertical, 6)
+            .background(Color.white.opacity(0.06), in: Capsule())
+            .overlay(Capsule().strokeBorder(Color.asterionBorder))
+            .fixedSize()
+        }
+        .accessibilityLabel("Sort novels")
+        .accessibilityValue(sortOption.rawValue)
+    }
+
+    // MARK: - Saved media
 
     @ViewBuilder
     private var savedMediaSection: some View {
         if !filteredBookmarks.isEmpty {
-            VStack(alignment: .leading, spacing: 4) {
-                if filter == .all {
-                    Text("Saved")
-                        .font(.asterionReading(15, weight: .medium))
-                        .foregroundStyle(Color.asterionText)
-                }
-                ForEach(filteredBookmarks) { bookmark in
-                    NavigationLink {
-                        MediaDestinationView(
-                            mediaType: bookmark.mediaType,
-                            contentID: bookmark.contentId,
-                            title: bookmark.title,
-                            imageURL: bookmark.imageURL
-                        )
-                    } label: {
-                        MediaBookmarkRow(bookmark: bookmark, showsKind: filter == .all)
+            VStack(alignment: .leading, spacing: 16) {
+                AsterionSectionLabel(
+                    title: filter == .all ? "Saved" : "Saved \(filter.rawValue.lowercased())",
+                    detail: "\(filteredBookmarks.count)"
+                )
+
+                LazyVGrid(columns: AsterionLayout.posterColumns(horizontalSizeClass), spacing: 24) {
+                    ForEach(filteredBookmarks) { bookmark in
+                        NavigationLink {
+                            MediaDestinationView(
+                                mediaType: bookmark.mediaType,
+                                contentID: bookmark.contentId,
+                                title: bookmark.title,
+                                imageURL: bookmark.imageURL
+                            )
+                        } label: {
+                            LibraryPosterTile(
+                                title: bookmark.title,
+                                subtitle: bookmarkCaption(bookmark, showsKind: filter == .all),
+                                progress: nil
+                            ) {
+                                BookmarkArtwork(bookmark: bookmark)
+                            }
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
             }
         }
     }
 
-    private var emptyState: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(debouncedSearch.isEmpty ? "Nothing saved" : "No matches")
-                .font(.asterionDisplay(26, weight: .medium))
-                .foregroundStyle(Color.asterionText)
+    // MARK: - States
 
-            if debouncedSearch.isEmpty {
+    private var loadingGrid: some View {
+        LazyVGrid(columns: AsterionLayout.posterColumns(horizontalSizeClass), spacing: 24) {
+            ForEach(0..<4, id: \.self) { _ in
+                VStack(alignment: .leading, spacing: 9) {
+                    AsterionSkeleton(cornerRadius: 10)
+                        .aspectRatio(2 / 3, contentMode: .fit)
+                    AsterionSkeleton(cornerRadius: 4)
+                        .frame(width: 110, height: 11)
+                    AsterionSkeleton(cornerRadius: 4)
+                        .frame(width: 70, height: 9)
+                }
+            }
+        }
+        .accessibilityElement()
+        .accessibilityLabel("Loading your library")
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 4) {
+            if !debouncedSearch.isEmpty {
+                AsterionEmptyState(
+                    symbol: "magnifyingglass",
+                    title: "No matches",
+                    message: "Nothing in your library matches \u{201C}\(debouncedSearch)\u{201D}. Try another title or author."
+                )
+            } else {
+                AsterionEmptyState(
+                    symbol: emptySymbol,
+                    title: emptyTitle,
+                    message: emptyMessage
+                )
+
                 Button {
                     tabBarState.selectedTab = .browse
                 } label: {
                     Text("Browse the catalog")
-                        .font(.asterionReading(16, weight: .semibold))
-                        .foregroundStyle(Color.asterionOnInk)
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 12)
-                        .background(Color.asterionInk, in: Capsule())
+                        .font(.asterionReading(15, weight: .semibold))
+                        .padding(.horizontal, 22)
+                        .padding(.vertical, 13)
                 }
-                .buttonStyle(.plain)
-            } else {
-                Text("Try another title.")
-                    .font(.asterionReading(16))
-                    .foregroundStyle(Color.asterionMuted)
+                .buttonStyle(AsterionFilledButtonStyle())
+                .padding(.top, -24)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.top, 28)
+        .frame(maxWidth: .infinity)
+        .padding(.top, 8)
+    }
+
+    private var emptySymbol: String {
+        switch filter {
+        case .all: "books.vertical"
+        case .novels: "book.closed"
+        case .anime: MediaAccountType.anime.systemImage
+        case .movies: MediaAccountType.movie.systemImage
+        case .football: MediaAccountType.football.systemImage
+        }
+    }
+
+    private var emptyTitle: String {
+        switch filter {
+        case .all: "Nothing saved yet"
+        case .novels: "No novels saved yet"
+        case .anime: "No anime saved yet"
+        case .movies: "No films or series saved yet"
+        case .football: "No matches saved yet"
+        }
+    }
+
+    private var emptyMessage: String {
+        switch filter {
+        case .all: "Save a novel, a series, or a match and it will be waiting for you here."
+        case .novels: "Add a novel from its page and it will be here, ready to pick up where you left off."
+        case .anime: "Save a show from its page to keep it close."
+        case .movies: "Save a film or series from its page to keep it close."
+        case .football: "Save a match to find it again quickly."
+        }
     }
 
     private var signInForNovelsState: some View {
-        inlineMessage("Sign in from Account to save novels and keep reading progress across devices.", systemImage: "person.crop.circle.badge.plus")
+        inlineMessage(
+            "Sign in from Account to save novels and keep reading progress across devices.",
+            systemImage: "person.crop.circle.badge.plus"
+        )
+    }
+
+    private var novelsFailedState: some View {
+        VStack(spacing: 4) {
+            AsterionEmptyState(
+                symbol: "wifi.exclamationmark",
+                title: "Your novels could not be loaded",
+                message: "Check your connection, then try again."
+            )
+            Button {
+                Task { await loadNovels() }
+            } label: {
+                Text("Try again")
+                    .font(.asterionReading(15, weight: .semibold))
+                    .padding(.horizontal, 22)
+                    .padding(.vertical, 12)
+            }
+            .buttonStyle(AsterionOutlineButtonStyle())
+            .padding(.top, -24)
+        }
+        .frame(maxWidth: .infinity)
     }
 
     private func inlineMessage(_ message: String, systemImage: String) -> some View {
-        Label(message, systemImage: systemImage)
-            .font(.asterionSerif(14))
-            .foregroundStyle(Color.asterionMuted)
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .asterionGlassSurface(cornerRadius: 16)
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Image(systemName: systemImage)
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(Color.asterionMuted)
+            Text(message)
+                .font(.asterionReading(14))
+                .foregroundStyle(Color.asterionMuted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .asterionPanel(cornerRadius: 14)
+        .accessibilityElement(children: .combine)
+    }
+
+    // MARK: - Helpers
+
+    private func bookmarkCaption(_ bookmark: MediaBookmark, showsKind: Bool) -> String {
+        if let raw = bookmark.subtitle?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty {
+            switch raw.lowercased() {
+            case "tv series", "tv", "series":
+                return "TV series"
+            case "movie", "movies", "movies & tv":
+                return "Movie"
+            default:
+                return raw.localizedCapitalized
+            }
+        }
+        guard showsKind else { return bookmark.mediaType.title }
+        switch bookmark.mediaType {
+        case .anime: return "Anime"
+        case .movie: return "Movie"
+        case .football: return "Football"
+        }
     }
 
     private func matchesSearch(title: String, subtitle: String?) -> Bool {
@@ -333,7 +497,8 @@ struct LibraryView: View {
                     novel: novel,
                     addedAt: entry.createdAt,
                     updatedAt: entry.updatedAt,
-                    lastReadAt: progressByNovel[entry.novelId]?.updatedAt
+                    lastReadAt: progressByNovel[entry.novelId]?.updatedAt,
+                    percentage: progressByNovel[entry.novelId]?.percentage
                 )
             }
             await OfflineChapterStore.shared.saveLibrarySnapshot(
@@ -350,8 +515,18 @@ struct LibraryView: View {
         } catch {
             let cached = await OfflineChapterStore.shared.loadLibrarySnapshot()
             if !cached.isEmpty {
+                let local = Dictionary(
+                    readingProgressService.localProgress.map { ($0.novelId, $0.percentage) },
+                    uniquingKeysWith: { first, _ in first }
+                )
                 novels = cached.map {
-                    LibraryItem(novel: $0.novel, addedAt: $0.addedAt, updatedAt: $0.updatedAt, lastReadAt: $0.lastReadAt)
+                    LibraryItem(
+                        novel: $0.novel,
+                        addedAt: $0.addedAt,
+                        updatedAt: $0.updatedAt,
+                        lastReadAt: $0.lastReadAt,
+                        percentage: local[$0.novel.id]
+                    )
                 }
                 failedNovels = false
             } else {
@@ -366,78 +541,83 @@ struct LibraryView: View {
     }
 }
 
-private struct LibraryNovelRow: View {
-    let novel: Novel
+/// 2:3 poster with its title beneath the art and, when started, a line of
+/// light along the bottom edge of the artwork.
+private struct LibraryPosterTile<Artwork: View>: View {
+    let title: String
+    let subtitle: String
+    let progress: Double?
+    @ViewBuilder var artwork: () -> Artwork
+
+    private var visibleProgress: Double? {
+        guard let progress, progress > 0 else { return nil }
+        return progress
+    }
 
     var body: some View {
-        HStack(alignment: .center, spacing: 16) {
-            CoverImageView(novel: novel, size: .md)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(novel.title)
-                    .font(.asterionReading(16))
+        VStack(alignment: .leading, spacing: 9) {
+            Color.clear
+                .aspectRatio(2 / 3, contentMode: .fit)
+                .overlay { artwork() }
+                .overlay(alignment: .bottom) {
+                    if let visibleProgress {
+                        ZStack(alignment: .bottom) {
+                            LinearGradient(
+                                colors: [.clear, .black.opacity(0.6)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                            .frame(height: 44)
+                            AsterionLightLine(fraction: visibleProgress, height: 3)
+                                .padding(.horizontal, 10)
+                                .padding(.bottom, 10)
+                        }
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(Color.asterionBorder)
+                }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.asterionReading(13, weight: .semibold))
                     .foregroundStyle(Color.asterionText)
                     .lineLimit(2)
-                Text(novel.author ?? "Unknown author")
-                    .font(.asterionReading(13))
+                    .multilineTextAlignment(.leading)
+                Text(subtitle)
+                    .font(.asterionReading(11.5))
                     .foregroundStyle(Color.asterionMuted)
                     .lineLimit(1)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 2)
         }
-        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityValue(visibleProgress.map { "\(Int(($0 * 100).rounded())) percent read" } ?? "")
     }
 }
 
-private struct MediaBookmarkRow: View {
+private struct BookmarkArtwork: View {
     let bookmark: MediaBookmark
-    var showsKind: Bool = false
 
     var body: some View {
-        HStack(alignment: .center, spacing: 16) {
-            MediaArtwork(url: bookmark.imageURL, width: 72)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(bookmark.title)
-                    .font(.asterionReading(16))
-                    .foregroundStyle(Color.asterionText)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(bookmarkCaption)
-                    .font(.asterionReading(13))
-                    .foregroundStyle(Color.asterionMuted)
-                    .lineLimit(1)
+        Color.asterionCard
+            .overlay {
+                Image(systemName: bookmark.mediaType.systemImage)
+                    .font(.system(size: 26, weight: .light))
+                    .foregroundStyle(Color.asterionFaint)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.vertical, 8)
-    }
-
-    private var bookmarkCaption: String {
-        if let detail = cleanedSubtitle {
-            return detail
-        }
-        return showsKind ? shortKind : bookmark.mediaType.title
-    }
-
-    private var shortKind: String {
-        switch bookmark.mediaType {
-        case .anime: "Anime"
-        case .movie: "Movie"
-        case .football: "Football"
-        }
-    }
-
-    private var cleanedSubtitle: String? {
-        guard let raw = bookmark.subtitle?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
-            return nil
-        }
-        switch raw.lowercased() {
-        case "tv series", "tv", "series":
-            return "TV series"
-        case "movie", "movies", "movies & tv":
-            return "Movie"
-        default:
-            return raw.localizedCapitalized
-        }
+            .overlay {
+                AsyncImage(url: bookmark.imageURL) { phase in
+                    if let image = phase.image {
+                        image.resizable().scaledToFill()
+                    }
+                }
+            }
+            .clipped()
     }
 }
 
@@ -457,8 +637,11 @@ struct MediaArtwork: View {
                     }
                 }
             }
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .clipped()
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(Color.asterionBorder)
+            }
     }
 }
 
@@ -512,12 +695,12 @@ private struct SavedFootballDestination: View {
             if let match {
                 FootballDetailView(match: match)
             } else if isLoading {
-                ProgressView().tint(Color.goldAccent)
+                ProgressView().tint(Color.asterionInk)
             } else {
-                ContentUnavailableView(
-                    "Match no longer available",
-                    systemImage: "sportscourt",
-                    description: Text("It remains in your library until you remove it.")
+                AsterionEmptyState(
+                    symbol: "sportscourt",
+                    title: "Match no longer available",
+                    message: "It stays in your library until you remove it."
                 )
             }
         }

@@ -38,56 +38,62 @@ struct AsterionDetailHero<Poster: View>: View {
             poster()
             VStack(alignment: .leading, spacing: 8) {
                 Text(title)
-                    .font(.asterionDisplay(28, weight: .medium))
+                    .font(.asterionTitle(26, weight: .heavy))
                     .foregroundStyle(Color.asterionText)
                     .lineLimit(4)
-                    .minimumScaleFactor(0.8)
+                    .minimumScaleFactor(0.7)
+                    .shadow(color: .black.opacity(0.35), radius: 14, y: 3)
+                    .accessibilityAddTraits(.isHeader)
 
                 if let subtitle, !subtitle.isEmpty {
                     Text(subtitle)
-                        .font(.asterionReading(15))
-                        .foregroundStyle(Color.asterionSynopsis)
+                        .font(.asterionReading(14, weight: .medium))
+                        .foregroundStyle(Color.asterionMuted)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.top, 72)
-        .padding(.horizontal, 24)
-        .padding(.bottom, 16)
+        .padding(.horizontal, 20)
+        .padding(.bottom, 18)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
+/// The light a title's artwork casts onto the top of its page: a glow in the
+/// artwork's own colour over a faint, heavily blurred copy of the art.
 struct AsterionCoverBleed: View {
     let url: URL?
     var height: CGFloat = 420
 
     var body: some View {
-        AsyncImage(url: url) { phase in
-            if let image = phase.image {
-                image
-                    .resizable()
-                    .scaledToFill()
-                    .scaleEffect(1.2)
-                    .blur(radius: 26)
-                    .saturation(1.05)
+        ZStack(alignment: .top) {
+            AsyncImage(url: url) { phase in
+                if let image = phase.image {
+                    image
+                        .resizable()
+                        .scaledToFill()
+                        .scaleEffect(1.25)
+                        .blur(radius: 40)
+                        .opacity(0.22)
+                }
             }
-        }
-        .frame(maxWidth: .infinity)
-        .frame(height: height)
-        .clipped()
-        .mask {
-            LinearGradient(
-                stops: [
-                    .init(color: .black.opacity(0.7), location: 0),
-                    .init(color: .black.opacity(0.35), location: 0.42),
-                    .init(color: .clear, location: 0.78),
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
+            .frame(maxWidth: .infinity)
+            .frame(height: height)
+            .clipped()
+            .mask {
+                LinearGradient(
+                    colors: [.black, .black.opacity(0.6), .clear],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            }
+
+            ArtworkGlow(url: url, height: height * 1.5)
         }
         .frame(height: height, alignment: .top)
+        // Reach up under the status bar so the glow has no hard top edge.
+        .padding(.top, -140)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
@@ -104,15 +110,21 @@ struct AsterionDetailPoster: View {
             case .success(let image):
                 image.resizable().scaledToFill()
             default:
-                Color.asterionCard
+                Color.asterionSurface
                     .overlay {
                         Image(systemName: "photo")
-                            .foregroundStyle(Color.asterionMuted)
+                            .font(.system(size: 22, weight: .light))
+                            .foregroundStyle(Color.asterionFaint)
                     }
             }
         }
         .frame(width: width, height: height)
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.1))
+        }
+        .shadow(color: .black.opacity(0.45), radius: 22, y: 12)
     }
 }
 
@@ -122,20 +134,18 @@ struct AsterionDetailStatsRow: View {
     var body: some View {
         HStack(spacing: 18) {
             ForEach(visibleItems) { item in
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(item.label)
-                        .font(.asterionReading(12))
-                        .foregroundStyle(Color.asterionMuted)
+                VStack(alignment: .leading, spacing: 4) {
+                    AsterionEyebrow(text: item.label, color: .asterionFaint)
                     Text(displayValue(for: item))
-                        .font(.asterionDisplay(20, weight: .medium))
+                        .font(.asterionTitle(17, weight: .bold))
                         .foregroundStyle(Color.asterionText)
                         .lineLimit(1)
-                        .minimumScaleFactor(0.75)
+                        .minimumScaleFactor(0.7)
                 }
             }
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 24)
+        .padding(.horizontal, 20)
         .padding(.top, 4)
         .padding(.bottom, 18)
     }
@@ -166,14 +176,15 @@ struct AsterionChipRow: View {
             HStack(spacing: 8) {
                 ForEach(Array(chips.prefix(3)), id: \.self) { chip in
                     Text(chip)
-                        .font(.asterionReading(13, weight: .medium))
-                        .foregroundStyle(Color.asterionText)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(Color.asterionCard, in: Capsule())
+                        .font(.asterionReading(12.5, weight: .medium))
+                        .foregroundStyle(Color.asterionText.opacity(0.85))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(Color.white.opacity(0.06), in: Capsule())
+                        .overlay(Capsule().strokeBorder(Color.white.opacity(0.08)))
                 }
             }
-            .padding(.horizontal, 24)
+            .padding(.horizontal, 20)
         }
         .padding(.vertical, 16)
     }
@@ -187,27 +198,27 @@ struct AsterionSynopsisBlock: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             if !genres.isEmpty {
-                Text(genres.prefix(3).joined(separator: "  ·  "))
-                    .font(.asterionReading(13))
+                Text(genres.prefix(3).joined(separator: " · "))
+                    .font(.asterionReading(13, weight: .medium))
                     .foregroundStyle(Color.asterionMuted)
             }
             Text(cleaned)
-                .font(.asterionReading(16))
+                .font(.asterionReading(15))
                 .foregroundStyle(Color.asterionSynopsis)
-                .lineSpacing(6)
-                .lineLimit(expanded ? nil : 5)
+                .lineSpacing(5)
+                .lineLimit(expanded ? nil : 4)
             if cleaned.count > 180 {
                 Button {
                     withAnimation(.easeInOut(duration: 0.25)) { expanded.toggle() }
                 } label: {
-                    Text(expanded ? "Show less" : "Read more")
-                        .font(.asterionReading(15, weight: .medium))
+                    Text(expanded ? "Show less" : "More")
+                        .font(.asterionReading(14, weight: .semibold))
                         .foregroundStyle(Color.asterionInk)
                 }
                 .buttonStyle(.plain)
             }
         }
-        .padding(.horizontal, 24)
+        .padding(.horizontal, 20)
         .padding(.top, 4)
         .padding(.bottom, 16)
     }
@@ -225,13 +236,14 @@ struct AsterionPrimaryActionLabel: View {
 
     var body: some View {
         Text(title)
-            .font(.asterionReading(16, weight: .semibold))
+            .font(.asterionReading(15, weight: .semibold))
             .foregroundStyle(Color.asterionOnInk)
             .lineLimit(1)
-            .padding(.horizontal, 28)
+            .padding(.horizontal, 24)
             .padding(.vertical, 14)
             .fixedSize(horizontal: true, vertical: false)
             .background(tint, in: Capsule())
+            .shadow(color: .white.opacity(0.14), radius: 14)
     }
 }
 
@@ -250,16 +262,25 @@ struct AsterionCircleIconButton: View {
                         .scaleEffect(0.7)
                 } else {
                     Image(systemName: systemName)
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(Color.asterionInk)
+                        .contentTransition(.symbolEffect(.replace))
                 }
             }
-            .frame(width: 48, height: 48)
-            .background(Color.asterionCard, in: Circle())
+            .frame(width: 46, height: 46)
+            .background(smokedCircle)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(accessibilityLabel)
     }
+}
+
+/// Smoked circular backing for icon buttons that sit beside a primary action.
+private var smokedCircle: some View {
+    Circle()
+        .fill(.ultraThinMaterial)
+        .overlay(Circle().fill(Color.black.opacity(0.25)))
+        .overlay(Circle().strokeBorder(Color.white.opacity(0.16)))
 }
 
 struct MediaMassDownloadButton: View {
@@ -280,19 +301,15 @@ struct MediaMassDownloadButton: View {
                             style: StrokeStyle(lineWidth: 2, lineCap: .round)
                         )
                         .rotationEffect(.degrees(-90))
-                        .frame(width: 40, height: 40)
+                        .frame(width: 38, height: 38)
                 }
 
                 Image(systemName: isComplete ? "checkmark" : "arrow.down")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(
-                        isComplete
-                            ? Color(red: 0.353, green: 0.608, blue: 0.478)
-                            : Color.asterionInk
-                    )
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(isComplete ? Color.asterionSuccess : Color.asterionInk)
             }
-            .frame(width: 48, height: 48)
-            .background(Color.asterionCard, in: Circle())
+            .frame(width: 46, height: 46)
+            .background(smokedCircle)
         }
         .buttonStyle(.plain)
         .disabled(isBusy || isComplete)
@@ -320,46 +337,51 @@ struct AsterionEpisodeCard: View {
                         if let image = phase.image {
                             image.resizable().scaledToFill()
                         } else {
-                            Color.asterionCardHover
+                            Color.asterionSurface
                         }
                     }
                 }
                 .overlay {
                     LinearGradient(
                         stops: [
-                            .init(color: .clear, location: 0.52),
-                            .init(color: Color.asterionBackground.opacity(0.88), location: 1),
+                            .init(color: .clear, location: 0.35),
+                            .init(color: .black.opacity(0.88), location: 1),
                         ],
                         startPoint: .top,
                         endPoint: .bottom
                     )
                 }
                 .overlay(alignment: .topLeading) {
-                    Text("\(number)")
-                        .font(.asterionReading(13, weight: .semibold))
-                        .monospacedDigit()
+                    Text(String(format: "EP %02d", number))
+                        .font(.asterionMono(11, weight: .semibold))
                         .foregroundStyle(.white)
-                        .frame(minWidth: 28, minHeight: 28)
-                        .background(.black, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .background(.black.opacity(0.55), in: Capsule())
+                        .overlay(Capsule().strokeBorder(Color.white.opacity(0.14)))
                         .padding(10)
                 }
                 .overlay(alignment: .bottomLeading) {
                     VStack(alignment: .leading, spacing: 3) {
                         Text(title)
-                            .font(.asterionReading(17, weight: .semibold))
-                            .foregroundStyle(Color.asterionText)
+                            .font(.asterionReading(15, weight: .semibold))
+                            .foregroundStyle(.white)
                             .lineLimit(1)
                         Text(isBusy ? "Opening…" : subtitle)
-                            .font(.asterionReading(14))
-                            .foregroundStyle(Color.asterionMuted)
+                            .font(.asterionReading(12.5))
+                            .foregroundStyle(.white.opacity(0.65))
                             .lineLimit(1)
                     }
                     .padding(12)
                     .padding(.trailing, 52)
                 }
                 .clipped()
-                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-                .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.08))
+                }
+                .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .onTapGesture {
                     guard !isBusy else { return }
                     onPlay()
@@ -382,12 +404,12 @@ struct AsterionEpisodeCard: View {
                         .tint(Color.asterionInk)
                 } else {
                     Image(systemName: isDownloaded ? "checkmark" : "arrow.down")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(Color.asterionInk)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(isDownloaded ? Color.asterionSuccess : Color.asterionInk)
                 }
             }
-            .frame(width: 44, height: 44)
-            .background(Color.asterionCard, in: Circle())
+            .frame(width: 40, height: 40)
+            .background(smokedCircle)
             .contentShape(Circle())
         }
         .buttonStyle(.borderless)
@@ -413,7 +435,7 @@ struct AsterionFilterPills: View {
                 }
             }
         }
-        .padding(.horizontal, 24)
+        .padding(.horizontal, 20)
     }
 
     @ViewBuilder
@@ -423,9 +445,9 @@ struct AsterionFilterPills: View {
                 onSelect(index)
             } label: {
                 Text(titles[index])
-                    .font(.asterionReading(14, weight: .medium))
+                    .font(.asterionReading(13, weight: .semibold))
                     .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
+                    .padding(.vertical, 9)
                     .frame(maxWidth: fillsRow ? .infinity : nil)
             }
             .buttonStyle(.plain)
@@ -443,19 +465,19 @@ struct AsterionEpisodeShelf<Item: Identifiable, Card: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if let title {
-                AsterionSectionLabel(title: title)
-                    .padding(.horizontal, 24)
+                AsterionSectionLabel(title: title, detail: "\(items.count)")
+                    .padding(.horizontal, 20)
             }
 
             LazyVGrid(
                 columns: AsterionLayout.episodeColumns(horizontalSizeClass),
-                spacing: 16
+                spacing: 14
             ) {
                 ForEach(items) { item in
                     card(item)
                 }
             }
-            .padding(.horizontal, 24)
+            .padding(.horizontal, 20)
         }
         .padding(.vertical, 10)
     }
@@ -471,8 +493,10 @@ struct AsterionUnitGroup<Content: View>: View {
             VStack(spacing: 0) {
                 content()
             }
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .asterionPanel(cornerRadius: 16)
         }
-        .padding(.horizontal, 24)
+        .padding(.horizontal, 20)
         .padding(.vertical, 10)
     }
 }
@@ -486,13 +510,13 @@ struct AsterionUnitRow: View {
         HStack(spacing: 12) {
             if let index {
                 Text(index)
-                    .font(.asterionReading(13, weight: .medium))
-                    .foregroundStyle(Color.asterionMuted)
-                    .frame(width: 36, alignment: .leading)
+                    .font(.asterionMono(12, weight: .medium))
+                    .foregroundStyle(Color.asterionFaint)
+                    .frame(width: 40, alignment: .leading)
             }
 
             Text(title)
-                .font(.asterionReading(16, weight: .medium))
+                .font(.asterionReading(14.5, weight: .medium))
                 .foregroundStyle(Color.asterionText)
                 .lineLimit(2)
 
@@ -503,18 +527,24 @@ struct AsterionUnitRow: View {
             } else {
                 Image(systemName: "chevron.right")
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Color.asterionMuted)
+                    .foregroundStyle(Color.asterionFaint)
             }
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 16)
+        .padding(.vertical, 14)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color.asterionHairline)
+                .frame(height: 1)
+                .padding(.leading, index == nil ? 16 : 68)
+        }
         .contentShape(Rectangle())
     }
 }
 
 struct AsterionDetailBar<Trailing: View>: View {
     let onBack: () -> Void
-    var topPadding: CGFloat = 44
+    var topPadding: CGFloat = 6
     @ViewBuilder var trailing: () -> Trailing
 
     var body: some View {
@@ -523,8 +553,8 @@ struct AsterionDetailBar<Trailing: View>: View {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(Color.asterionText)
-                    .frame(width: 36, height: 36)
-                    .background(Color.asterionCard, in: Circle())
+                    .frame(width: 38, height: 38)
+                    .background(smokedCircle)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Back")

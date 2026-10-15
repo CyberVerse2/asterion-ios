@@ -1,5 +1,6 @@
 import AVFoundation
 import AVKit
+import Combine
 import SwiftUI
 import UIKit
 import WebKit
@@ -66,6 +67,8 @@ struct NativeMediaPlayerView: View {
     @State private var captionCues: [WebVTTCue] = []
     @State private var activeCaption: String?
     @State private var playbackSessionID = UUID()
+    @State private var watchingRateCancellable: AnyCancellable?
+    @State private var watchingIsPlaying: Bool?
 
     init(request: PlaybackRequest) {
         self.request = request
@@ -102,7 +105,7 @@ struct NativeMediaPlayerView: View {
                         }
                     },
                     onSetSleep: setSleepTimer,
-                    onEnded: { advance(by: 1) },
+                    onEnded: handlePlaybackEnded,
                     onPlayNext: { advance(by: 1) },
                     onPlayPrevious: { advance(by: -1) },
                     onSelectStream: selectStream
@@ -134,28 +137,40 @@ struct NativeMediaPlayerView: View {
                     .ignoresSafeArea()
                 embedCloseOverlay
             } else {
-                ContentUnavailableView(
-                    "Playback unavailable",
-                    systemImage: "exclamationmark.triangle",
-                    description: Text("No playable source was returned.")
+                AsterionEmptyState(
+                    symbol: "exclamationmark.triangle",
+                    title: "Playback unavailable",
+                    message: "No playable source came back for this title. Close the player and try another episode or source."
                 )
-                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 embedCloseOverlay
             }
 
             if let advanceError {
                 VStack {
                     Spacer()
-                    Text(advanceError)
-                        .font(.system(size: 15, weight: .medium))
-                        .multilineTextAlignment(.center)
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                        .background(.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                        .padding(.bottom, 120)
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Color.asterionWarning)
+                        Text(advanceError)
+                            .font(.asterionReading(14, weight: .medium))
+                            .multilineTextAlignment(.leading)
+                            .foregroundStyle(Color.asterionText)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 11)
+                    .background(PlayerSmokedCapsule())
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 120)
                 }
                 .allowsHitTesting(false)
+            }
+        }
+        .background {
+            WatchingHandoffAdvertiser(payload: handoffPayload) {
+                guard let seconds = player?.currentTime().seconds, seconds.isFinite else { return nil }
+                return max(0, seconds)
             }
         }
         .edgeSwipeToDismiss { closePlayer() }
@@ -168,22 +183,38 @@ struct NativeMediaPlayerView: View {
             tearDownCurrentItem(saveProgress: true)
             player?.pause()
             player = nil
+            WatchingLiveActivityManager.shared.end()
             PlaybackOrientationLock.endVideo()
         }
         .statusBarHidden()
     }
 
+    /// Loading: the artwork's tint glowing in the dark, a small spinner, and
+    /// one muted line.
     private var preparingOverlay: some View {
-        VStack(spacing: 12) {
-            ProgressView()
-                .controlSize(.large)
-                .tint(.white)
-            if showResolvingOverlay {
-                Text("Loading next episode…")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(.white)
+        ZStack {
+            if player != nil {
+                Color.black.opacity(0.6)
+            }
+            ArtworkToneReader(url: activeRequest.playback?.item.imageURL) { tone in
+                RadialGradient(
+                    colors: [tone.opacity(0.32), tone.opacity(0.08), .clear],
+                    center: .center,
+                    startRadius: 4,
+                    endRadius: 300
+                )
+            }
+            VStack(spacing: 14) {
+                ProgressView()
+                    .controlSize(.regular)
+                    .tint(Color.asterionText)
+                Text(showResolvingOverlay ? "Loading next episode…" : "Preparing video…")
+                    .font(.asterionReading(14, weight: .medium))
+                    .foregroundStyle(Color.asterionMuted)
             }
         }
+        .ignoresSafeArea()
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel(showResolvingOverlay ? "Loading next episode" : "Loading video")
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .allowsHitTesting(false)
@@ -205,9 +236,13 @@ struct NativeMediaPlayerView: View {
             HStack {
                 Button(action: closePlayer) {
                     Image(systemName: "xmark")
-                        .frame(width: 18, height: 18)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Color.asterionText)
+                        .frame(width: 40, height: 40)
+                        .background(PlayerSmokedCircle())
+                        .contentShape(Circle())
                 }
-                .buttonStyle(.glass)
+                .buttonStyle(.plain)
                 .accessibilityLabel("Close player")
                 Spacer()
                 if activeRequest.options.count > 1 {
@@ -233,10 +268,22 @@ struct NativeMediaPlayerView: View {
                 }
             }
         } label: {
-            Image(systemName: "slider.horizontal.3")
-                .frame(width: 18, height: 18)
+            HStack(spacing: 8) {
+                Image(systemName: "slider.horizontal.3")
+                    .font(.system(size: 13, weight: .semibold))
+                Text(activeRequest.selectedOption?.title ?? "Source")
+                    .font(.asterionMono(11.5, weight: .medium))
+                    .lineLimit(1)
+                    .frame(maxWidth: 170)
+                    .fixedSize()
+            }
+            .foregroundStyle(Color.asterionText)
+            .padding(.horizontal, 14)
+            .frame(height: 40)
+            .background(PlayerSmokedCapsule())
+            .contentShape(Capsule())
         }
-        .buttonStyle(.glass)
+        .buttonStyle(.plain)
         .accessibilityLabel(activeRequest.selectedOption?.title ?? "Playback source")
     }
 
@@ -270,6 +317,9 @@ struct NativeMediaPlayerView: View {
         activeRequest = activeRequest.selecting(option)
         if option.kind == .direct {
             preparePlayer(resumeOverride: resume)
+        } else {
+            // Embedded players report no position to drive the activity.
+            WatchingLiveActivityManager.shared.end()
         }
     }
 
@@ -302,13 +352,17 @@ struct NativeMediaPlayerView: View {
         beginPlaybackConfirmation(on: newPlayer)
         beginCaptionReporting(on: newPlayer)
 
+        var startPosition: Double = 0
         if let resumeOverride, resumeOverride.isFinite, resumeOverride > 1 {
             newPlayer.seek(to: CMTime(seconds: resumeOverride, preferredTimescale: 600))
+            startPosition = resumeOverride
         } else if let playback = activeRequest.playback,
                   let resumePosition = mediaAccountService.resumePosition(for: playback),
                   resumePosition > 5 {
             newPlayer.seek(to: CMTime(seconds: resumePosition, preferredTimescale: 600))
+            startPosition = resumePosition
         }
+        beginWatchingActivity(on: newPlayer, startPosition: startPosition)
 
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
         try? AVAudioSession.sharedInstance().setActive(true)
@@ -388,6 +442,9 @@ struct NativeMediaPlayerView: View {
         }
         playbackAdvanceObserver = nil
         lastObservedPosition = -Double.infinity
+        watchingRateCancellable?.cancel()
+        watchingRateCancellable = nil
+        watchingIsPlaying = nil
     }
 
     private func beginPlaybackConfirmation(on player: AVPlayer) {
@@ -439,6 +496,7 @@ struct NativeMediaPlayerView: View {
 
     private func reportProgress(started: Bool) async {
         guard let playback = activeRequest.playback, let sample = playbackSample else { return }
+        updateWatchingActivity()
         await mediaAccountService.record(
             playback,
             positionSeconds: sample.position,
@@ -544,6 +602,101 @@ struct NativeMediaPlayerView: View {
         }
     }
 
+    // MARK: Watching Live Activity and Handoff
+
+    /// Anime and movies only; football streams have no meaningful position.
+    private var watchingDescriptor: MediaPlaybackDescriptor? {
+        guard let playback = activeRequest.playback, playback.item.mediaType != .football else { return nil }
+        return playback
+    }
+
+    private func handlePlaybackEnded() {
+        if canAdvance(by: 1) {
+            advance(by: 1)
+        } else {
+            WatchingLiveActivityManager.shared.end()
+        }
+    }
+
+    private func beginWatchingActivity(on player: AVPlayer, startPosition: Double) {
+        guard let playback = watchingDescriptor else {
+            WatchingLiveActivityManager.shared.end()
+            return
+        }
+        watchingIsPlaying = true
+        let requestID = activeRequest.id
+        Task {
+            await WatchingLiveActivityManager.shared.start(
+                id: requestID,
+                title: playback.item.title,
+                mediaType: playback.item.mediaType.rawValue,
+                imageURL: playback.item.imageURL?.absoluteString,
+                unitLabel: Self.watchingUnitLabel(for: playback),
+                positionSeconds: startPosition,
+                durationSeconds: 0,
+                isPlaying: true
+            )
+        }
+        watchingRateCancellable = player.publisher(for: \.rate)
+            .map { $0 > 0 }
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { isPlaying in
+                guard watchingIsPlaying != isPlaying else { return }
+                watchingIsPlaying = isPlaying
+                updateWatchingActivity()
+            }
+    }
+
+    /// Called every progress tick (~15 s) and on play/pause.
+    private func updateWatchingActivity() {
+        guard watchingDescriptor != nil, let player else { return }
+        let position = player.currentTime().seconds
+        guard position.isFinite else { return }
+        let duration = player.currentItem?.duration.seconds ?? 0
+        WatchingLiveActivityManager.shared.update(
+            positionSeconds: max(0, position),
+            durationSeconds: duration.isFinite ? max(0, duration) : 0,
+            isPlaying: player.rate > 0
+        )
+    }
+
+    /// "S1 E3", "Episode 7" or "Film".
+    private static func watchingUnitLabel(for playback: MediaPlaybackDescriptor) -> String {
+        if isFilm(playback) { return "Film" }
+        if let season = playback.seasonNumber, let episode = playback.episodeNumber {
+            return "S\(season) E\(episode)"
+        }
+        if let episode = playback.episodeNumber {
+            return "Episode \(episode)"
+        }
+        return playback.unitTitle ?? "Now playing"
+    }
+
+    private static func isFilm(_ playback: MediaPlaybackDescriptor) -> Bool {
+        playback.item.mediaType == .movie
+            && (playback.unitID == playback.item.contentID
+                || (playback.seasonNumber == nil && playback.episodeNumber == nil))
+    }
+
+    /// Handoff contract: "cloud.cyberverse.asterion.watching".
+    private var handoffPayload: WatchingHandoffPayload? {
+        guard player != nil, let playback = watchingDescriptor else { return nil }
+        let mediaType: String
+        switch playback.item.mediaType {
+        case .anime: mediaType = "anime"
+        case .movie: mediaType = "movie"
+        case .football: return nil
+        }
+        return WatchingHandoffPayload(
+            mediaType: mediaType,
+            contentID: playback.item.contentID,
+            unitID: Self.isFilm(playback) ? "" : playback.unitID,
+            title: playback.item.title,
+            imageURL: playback.item.imageURL?.absoluteString
+        )
+    }
+
     private func setSleepTimer(minutes: Int?) {
         sleepTask?.cancel()
         sleepMinutes = minutes
@@ -562,6 +715,60 @@ struct NativeMediaPlayerView: View {
         item.value = title as NSString
         item.extendedLanguageTag = "und"
         return item
+    }
+}
+
+private struct WatchingHandoffPayload: Equatable {
+    let mediaType: String
+    let contentID: String
+    let unitID: String
+    let title: String
+    let imageURL: String?
+}
+
+/// Advertises what is playing for Handoff to the Mac. Lives in its own view
+/// so the five-second position refresh only re-renders this empty layer,
+/// not the player.
+private struct WatchingHandoffAdvertiser: View {
+    static let activityType = "cloud.cyberverse.asterion.watching"
+
+    let payload: WatchingHandoffPayload?
+    let currentPosition: () -> Double?
+
+    @State private var position: Double = 0
+
+    var body: some View {
+        Color.clear
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            .userActivity(Self.activityType, isActive: payload != nil) { activity in
+                guard let payload else { return }
+                activity.title = payload.title
+                activity.isEligibleForHandoff = true
+                activity.isEligibleForSearch = false
+                activity.isEligibleForPublicIndexing = false
+                var info: [String: Any] = [
+                    "mediaType": payload.mediaType,
+                    "contentId": payload.contentID,
+                    "unitId": payload.unitID,
+                    "positionSeconds": position,
+                    "title": payload.title,
+                ]
+                if let imageURL = payload.imageURL, !imageURL.isEmpty {
+                    info["imageURL"] = imageURL
+                }
+                activity.userInfo = info
+            }
+            .task(id: payload) {
+                position = currentPosition() ?? 0
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(5))
+                    guard !Task.isCancelled else { return }
+                    if let value = currentPosition(), abs(value - position) >= 1 {
+                        position = value
+                    }
+                }
+            }
     }
 }
 
@@ -781,7 +988,7 @@ private final class PlayerChromeCoordinator: NSObject, AVPlayerViewControllerDel
         var items: [UIMenuElement] = []
         if extras.canPlayNext {
             items.append(episodeAction(
-                title: extras.isResolvingNext ? "Loading next episode…" : "Next Episode",
+                title: extras.isResolvingNext ? "Loading next episode…" : "Next episode",
                 image: "forward.end.fill",
                 disabled: extras.isResolvingNext,
                 handler: { [weak self] in self?.onPlayNext() }
@@ -789,7 +996,7 @@ private final class PlayerChromeCoordinator: NSObject, AVPlayerViewControllerDel
         }
         if extras.canPlayPrevious {
             items.append(episodeAction(
-                title: "Previous Episode",
+                title: "Previous episode",
                 image: "backward.end.fill",
                 disabled: extras.isResolvingNext,
                 handler: { [weak self] in self?.onPlayPrevious() }
@@ -870,7 +1077,7 @@ private final class PlayerChromeCoordinator: NSObject, AVPlayerViewControllerDel
                 self?.onSetSleep(minutes)
             }
         }
-        return UIMenu(title: "Sleep Timer", image: UIImage(systemName: "moon.zzz"), children: [off] + durations)
+        return UIMenu(title: "Sleep timer", image: UIImage(systemName: "moon.zzz"), children: [off] + durations)
     }
 
     private var extrasAccessibilityLabel: String {
@@ -1011,33 +1218,82 @@ private struct PlaybackFailureView: View {
     let retry: () -> Void
 
     var body: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.title)
-            Text(message)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 320)
-            Button("Try Again", action: retry)
-            if options.count > 1 {
-                Menu("Choose another source") {
-                    ForEach(options) { option in
-                        Button {
-                            onSelect(option.id)
-                        } label: {
-                            if selectedOptionID == option.id {
-                                Label(option.title, systemImage: "checkmark")
-                            } else {
-                                Text(option.title)
+        VStack(spacing: 4) {
+            AsterionEmptyState(
+                symbol: "exclamationmark.triangle",
+                title: "This video didn't play",
+                message: message
+            )
+            .padding(.bottom, -28)
+
+            HStack(spacing: 10) {
+                Button(action: retry) {
+                    Text("Try again")
+                        .font(.asterionReading(14.5, weight: .semibold))
+                        .padding(.horizontal, 22)
+                        .padding(.vertical, 11)
+                }
+                .buttonStyle(AsterionOutlineButtonStyle())
+
+                if options.count > 1 {
+                    Menu {
+                        ForEach(options) { option in
+                            Button {
+                                onSelect(option.id)
+                            } label: {
+                                if selectedOptionID == option.id {
+                                    Label(option.title, systemImage: "checkmark")
+                                } else {
+                                    Text(option.title)
+                                }
                             }
                         }
+                    } label: {
+                        Text("Choose another source")
+                            .font(.asterionReading(14.5, weight: .semibold))
+                            .foregroundStyle(Color.asterionText)
+                            .padding(.horizontal, 22)
+                            .padding(.vertical, 11)
+                            .background(PlayerSmokedCapsule())
+                            .contentShape(Capsule())
                     }
+                    .buttonStyle(.plain)
                 }
             }
         }
-        .foregroundStyle(.white)
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.black.opacity(0.96))
+        .background {
+            ZStack {
+                Color.black.opacity(0.96)
+                RadialGradient(
+                    colors: [Color.asterionWarning.opacity(0.08), .clear],
+                    center: .center,
+                    startRadius: 4,
+                    endRadius: 320
+                )
+            }
+            .ignoresSafeArea()
+        }
+    }
+}
+
+/// Smoked glass behind player controls that float over video.
+private struct PlayerSmokedCircle: View {
+    var body: some View {
+        Circle()
+            .fill(.ultraThinMaterial)
+            .overlay(Circle().fill(Color.black.opacity(0.35)))
+            .overlay(Circle().strokeBorder(Color.white.opacity(0.16)))
+    }
+}
+
+private struct PlayerSmokedCapsule: View {
+    var body: some View {
+        Capsule()
+            .fill(.ultraThinMaterial)
+            .overlay(Capsule().fill(Color.black.opacity(0.35)))
+            .overlay(Capsule().strokeBorder(Color.white.opacity(0.16)))
     }
 }
 

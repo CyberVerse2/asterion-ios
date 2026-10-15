@@ -75,6 +75,8 @@ struct BrowseContentPicker: View {
     }
 }
 
+/// Catalog switcher pinned above a Browse page: the big title-card words sit
+/// just under the status bar, and the page scrolls beneath them.
 struct BrowseCatalogChrome<Content: View>: View {
     @Environment(\.browseSelection) private var browseSelection
     @ViewBuilder var content: Content
@@ -83,11 +85,17 @@ struct BrowseCatalogChrome<Content: View>: View {
         VStack(spacing: 0) {
             if let browseSelection {
                 BrowseContentPicker(selection: browseSelection)
+                    .padding(.top, 4)
+                    .background(Color.asterionBackground)
+                    .zIndex(1)
             }
             content
         }
+        .background { AsterionBackdrop() }
     }
 }
+
+// MARK: - Anime catalog
 
 struct AnimeCatalogView: View {
     private static let types = ["tv", "movie", "ova", "ona", "special", "music"]
@@ -100,6 +108,13 @@ struct AnimeCatalogView: View {
     @State private var query = ""
     @State private var isLoading = true
     @State private var error: String?
+
+    private var spotlight: AnimeTitle? {
+        guard section == .discover,
+              query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              titles.count > 1 else { return nil }
+        return titles.first
+    }
 
     var body: some View {
         NavigationStack {
@@ -114,11 +129,24 @@ struct AnimeCatalogView: View {
 
                     CatalogScrollView(
                         query: $query,
+                        noun: "anime",
+                        glowURL: spotlight?.imageURL,
                         isLoading: isLoading,
                         error: error,
                         isEmpty: titles.isEmpty,
                         retry: { await load() }
                     ) {
+                        if let spotlight {
+                            CatalogSpotlight(
+                                eyebrow: "Featured anime",
+                                title: spotlight.title,
+                                metadata: Self.metadata(for: spotlight),
+                                imageURL: spotlight.imageURL,
+                                actionTitle: "View anime",
+                                value: spotlight
+                            )
+                        }
+
                         if section == .genres, !genres.isEmpty, let selectedGenre {
                             CatalogFilterChips(
                                 items: genres,
@@ -136,6 +164,11 @@ struct AnimeCatalogView: View {
                                 title: Self.displayName,
                                 selection: $selectedType
                             )
+                        }
+
+                        if spotlight != nil {
+                            MediaSectionHeader(title: "Recently updated", count: "\(titles.count - 1)")
+                                .padding(.top, 8)
                         }
 
                         catalogPosterGrid
@@ -158,21 +191,30 @@ struct AnimeCatalogView: View {
         "\(section.rawValue)-\(query)-\(selectedGenre ?? "")-\(selectedType)"
     }
 
+    private var gridTitles: [AnimeTitle] {
+        spotlight == nil ? titles : Array(titles.dropFirst())
+    }
+
     private var catalogPosterGrid: some View {
-        LazyVGrid(columns: catalogColumns, spacing: 16) {
-            ForEach(titles) { title in
+        CatalogPosterGrid {
+            ForEach(gridTitles) { title in
                 NavigationLink(value: title) {
                     EntertainmentPosterCard(
                         title: title.title,
                         imageURL: title.imageURL,
-                        eyebrow: [title.type, title.episodeLabel]
-                            .compactMap { $0 }
-                            .joined(separator: " · ")
+                        subtitle: Self.metadata(for: title)
                     )
                 }
                 .buttonStyle(.plain)
             }
         }
+    }
+
+    private static func metadata(for title: AnimeTitle) -> String {
+        [title.type?.uppercased(), title.episodeLabel]
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+            .joined(separator: " · ")
     }
 
     private func load() async {
@@ -218,10 +260,12 @@ struct AnimeCatalogView: View {
         }
     }
 
-    private static func displayName(_ value: String) -> String {
+    nonisolated private static func displayName(_ value: String) -> String {
         value.replacingOccurrences(of: "-", with: " ").capitalized
     }
 }
+
+// MARK: - Movie catalog
 
 struct MovieCatalogView: View {
     @State private var section: MovieBrowseSection = .discover
@@ -231,6 +275,17 @@ struct MovieCatalogView: View {
     @State private var query = ""
     @State private var isLoading = true
     @State private var error: String?
+
+    private var spotlight: MovieTitle? {
+        guard section == .discover,
+              query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              titles.count > 1 else { return nil }
+        return titles.first
+    }
+
+    private var gridTitles: [MovieTitle] {
+        spotlight == nil ? titles : Array(titles.dropFirst())
+    }
 
     var body: some View {
         NavigationStack {
@@ -245,11 +300,32 @@ struct MovieCatalogView: View {
 
                     CatalogScrollView(
                         query: $query,
+                        noun: "titles",
+                        glowURL: spotlight?.imageURL,
                         isLoading: isLoading,
                         error: error,
                         isEmpty: titles.isEmpty,
                         retry: { await load() }
                     ) {
+                        if let spotlight {
+                            let isSeries = spotlight.type?.lowercased() == "tv"
+                            CatalogSpotlight(
+                                eyebrow: isSeries ? "Trending series" : "Trending film",
+                                title: spotlight.title,
+                                metadata: [
+                                    spotlight.year,
+                                    spotlight.runtime,
+                                    spotlight.imdbRating.map { "★ \($0)" },
+                                ]
+                                .compactMap { $0 }
+                                .filter { !$0.isEmpty }
+                                .joined(separator: " · "),
+                                imageURL: spotlight.imageURL,
+                                actionTitle: isSeries ? "View series" : "View film",
+                                value: spotlight
+                            )
+                        }
+
                         if section == .genres, !genres.isEmpty, let selectedGenre {
                             CatalogFilterChips(
                                 items: genres,
@@ -261,15 +337,18 @@ struct MovieCatalogView: View {
                             )
                         }
 
-                        LazyVGrid(columns: catalogColumns, spacing: 16) {
-                            ForEach(titles) { title in
+                        if spotlight != nil {
+                            MediaSectionHeader(title: "Trending now", count: "\(titles.count - 1)")
+                                .padding(.top, 8)
+                        }
+
+                        CatalogPosterGrid {
+                            ForEach(gridTitles) { title in
                                 NavigationLink(value: title) {
                                     EntertainmentPosterCard(
                                         title: title.title,
                                         imageURL: title.imageURL,
-                                        eyebrow: [title.year, title.imdbRating.map { "★ \($0)" }]
-                                            .compactMap { $0 }
-                                            .joined(separator: " · ")
+                                        subtitle: Self.metadata(for: title)
                                     )
                                 }
                                 .buttonStyle(.plain)
@@ -288,6 +367,13 @@ struct MovieCatalogView: View {
                 }
             }
         }
+    }
+
+    fileprivate static func metadata(for title: MovieTitle) -> String {
+        [title.year, title.imdbRating.map { "★ \($0)" }]
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+            .joined(separator: " · ")
     }
 
     private func load() async {
@@ -326,41 +412,74 @@ struct MovieCatalogView: View {
     }
 }
 
+// MARK: - Catalog scaffolding
+
+private enum CatalogPlaceholder {
+    case posters
+    case matches
+}
+
 private struct CatalogScrollView<Content: View>: View {
     @Binding var query: String
+    var noun: String = "titles"
+    var placeholder: CatalogPlaceholder = .posters
+    var glowURL: URL? = nil
     let isLoading: Bool
     let error: String?
     let isEmpty: Bool
     let retry: () async -> Void
     @ViewBuilder let content: Content
 
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    private var isSearching: Bool {
+        !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 SearchInputView(text: $query)
+                    .padding(.bottom, 4)
 
                 if isLoading && isEmpty {
-                    ProgressView()
-                        .tint(Color.asterionInk)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 60)
+                    CatalogSkeleton(style: placeholder)
                 } else if let error, isEmpty {
-                    CatalogErrorView(message: error, retry: retry)
+                    CatalogErrorView(title: "Couldn't load \(noun)", message: error, retry: retry)
                 } else if isEmpty {
-                    Text("No results")
-                        .font(.asterionSerif(18))
-                        .foregroundStyle(Color.asterionMuted)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 60)
+                    AsterionEmptyState(
+                        symbol: isSearching ? "magnifyingglass" : "square.grid.2x2",
+                        title: isSearching ? "No \(noun) match your search" : "Nothing here yet",
+                        message: isSearching
+                            ? "Try a different title or spelling."
+                            : "Pull down to refresh, or pick another section."
+                    )
                 } else {
                     content
                 }
             }
-            .frame(maxWidth: 1100, alignment: .leading)
-            .padding(.horizontal, 24)
-            .padding(.top, 14)
-            .padding(.bottom, 30)
+            .padding(.horizontal, AsterionLayout.pagePadding(horizontalSizeClass))
+            .padding(.top, 6)
+            .padding(.bottom, 36)
+            .frame(maxWidth: AsterionLayout.pageMaxWidth(horizontalSizeClass), alignment: .leading)
             .frame(maxWidth: .infinity)
+            .background(alignment: .top) {
+                if let glowURL {
+                    ArtworkGlow(url: glowURL, height: 560, intensity: 0.85)
+                        // Rise out of the section bar instead of starting at a hard edge.
+                        .mask {
+                            LinearGradient(
+                                stops: [
+                                    .init(color: .clear, location: 0),
+                                    .init(color: .black, location: 0.28),
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        }
+                        .transition(.opacity)
+                }
+            }
         }
         .background { AsterionBackdrop() }
         .scrollDismissesKeyboard(.interactively)
@@ -368,85 +487,471 @@ private struct CatalogScrollView<Content: View>: View {
     }
 }
 
+/// Two columns on a phone, adaptive on iPad.
+private struct CatalogPosterGrid<Content: View>: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        LazyVGrid(
+            columns: AsterionLayout.posterColumns(horizontalSizeClass),
+            alignment: .leading,
+            spacing: 22
+        ) {
+            content
+        }
+    }
+}
+
+/// Placeholders shaped like the content they stand in for.
+private struct CatalogSkeleton: View {
+    let style: CatalogPlaceholder
+
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    var body: some View {
+        switch style {
+        case .posters:
+            CatalogPosterGrid {
+                ForEach(0..<6, id: \.self) { _ in
+                    VStack(alignment: .leading, spacing: 9) {
+                        Color.clear
+                            .aspectRatio(2 / 3, contentMode: .fit)
+                            .overlay { AsterionSkeleton(cornerRadius: 10) }
+                        AsterionSkeleton(cornerRadius: 4)
+                            .frame(height: 12)
+                            .padding(.trailing, 28)
+                        AsterionSkeleton(cornerRadius: 4)
+                            .frame(width: 64, height: 10)
+                    }
+                }
+            }
+            .accessibilityElement()
+            .accessibilityLabel("Loading")
+        case .matches:
+            LazyVGrid(columns: FootballCatalogView.columns(horizontalSizeClass), spacing: 12) {
+                ForEach(0..<5, id: \.self) { _ in
+                    AsterionSkeleton(cornerRadius: 14)
+                        .frame(height: 138)
+                }
+            }
+            .accessibilityElement()
+            .accessibilityLabel("Loading")
+        }
+    }
+}
+
+/// What went wrong, and a way to try again.
 private struct CatalogErrorView: View {
+    var title: String = "Something went wrong"
     let message: String
     let retry: () async -> Void
 
+    @State private var isRetrying = false
+
     var body: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "wifi.exclamationmark")
-                .font(.system(size: 36, weight: .light))
-                .foregroundStyle(Color.asterionMuted)
-            Text(message)
-                .font(.asterionReading(16))
-                .foregroundStyle(Color.asterionMuted)
-                .multilineTextAlignment(.center)
-            Button("Try again") { Task { await retry() } }
-                .font(.asterionReading(15, weight: .semibold))
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
-                .buttonStyle(AsterionFilledButtonStyle())
+        VStack(spacing: 4) {
+            AsterionEmptyState(symbol: "wifi.exclamationmark", title: title, message: message)
+                .padding(.bottom, -24)
+            Button {
+                Task {
+                    isRetrying = true
+                    await retry()
+                    isRetrying = false
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    if isRetrying {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(Color.asterionText)
+                    }
+                    Text("Try again")
+                }
+                .font(.asterionReading(14.5, weight: .semibold))
+                .padding(.horizontal, 22)
+                .padding(.vertical, 11)
+            }
+            .buttonStyle(AsterionOutlineButtonStyle())
+            .disabled(isRetrying)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 52)
+        .padding(.vertical, 8)
     }
 }
 
-private struct EntertainmentPosterCard: View {
-    let title: String
-    let imageURL: URL?
+/// Featured title at the top of a Discover page: poster, title card, and one
+/// lit action, standing in the glow its artwork casts.
+private struct CatalogSpotlight<Value: Hashable>: View {
     let eyebrow: String
+    let title: String
+    let metadata: String
+    let imageURL: URL?
+    let actionTitle: String
+    let value: Value
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            AsyncImage(url: imageURL) { phase in
+        HStack(alignment: .bottom, spacing: 16) {
+            AsyncImage(url: imageURL, transaction: Transaction(animation: .easeOut(duration: 0.25))) { phase in
                 if let image = phase.image {
                     image.resizable().scaledToFill()
                 } else {
-                    Rectangle()
-                        .fill(Color.asterionCard)
-                        .overlay {
-                            Image(systemName: "photo")
-                                .foregroundStyle(Color.asterionMuted)
-                        }
+                    Color.asterionSurface
                 }
             }
-            .aspectRatio(2 / 3, contentMode: .fit)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-
-            Text(title)
-                .font(.asterionDisplay(17, weight: .medium))
-                .foregroundStyle(Color.asterionText)
-                .lineLimit(2)
-
-            if !eyebrow.isEmpty {
-                Text(eyebrow)
-                    .font(.asterionMono(9))
-                    .foregroundStyle(Color.asterionMuted)
-                    .lineLimit(1)
+            .frame(width: 118, height: 177)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.1))
             }
+            .shadow(color: .black.opacity(0.45), radius: 20, y: 10)
+            .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 8) {
+                AsterionEyebrow(text: eyebrow, color: .white.opacity(0.7))
+
+                Text(title)
+                    .font(.asterionTitle(23, weight: .heavy))
+                    .foregroundStyle(Color.asterionText)
+                    .lineLimit(3)
+                    .minimumScaleFactor(0.7)
+                    .accessibilityAddTraits(.isHeader)
+
+                if !metadata.isEmpty {
+                    Text(metadata)
+                        .font(.asterionReading(13, weight: .medium))
+                        .foregroundStyle(Color.asterionMuted)
+                        .lineLimit(1)
+                }
+
+                NavigationLink(value: value) {
+                    Label(actionTitle, systemImage: "play.fill")
+                        .font(.asterionReading(14, weight: .semibold))
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 11)
+                }
+                .buttonStyle(AsterionFilledButtonStyle())
+                .padding(.top, 4)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.top, 6)
+        .padding(.bottom, 4)
+    }
+}
+
+/// Poster with its title and subtitle set beneath the art, sized by its grid
+/// column (the flexible sibling of `HomePosterCaption`).
+private struct EntertainmentPosterCard: View {
+    let title: String
+    let imageURL: URL?
+    let subtitle: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Color.clear
+                .aspectRatio(2 / 3, contentMode: .fit)
+                .overlay {
+                    AsyncImage(url: imageURL, transaction: Transaction(animation: .easeOut(duration: 0.2))) { phase in
+                        if let image = phase.image {
+                            image.resizable().scaledToFill()
+                        } else {
+                            Color.asterionSurface
+                                .overlay {
+                                    Image(systemName: "photo")
+                                        .font(.system(size: 20, weight: .light))
+                                        .foregroundStyle(Color.asterionFaint)
+                                }
+                        }
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(Color.asterionBorder)
+                }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.asterionReading(13, weight: .semibold))
+                    .foregroundStyle(Color.asterionText)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+
+                if !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.asterionReading(11.5))
+                        .foregroundStyle(Color.asterionMuted)
+                        .lineLimit(1)
+                }
+            }
+            .padding(.horizontal, 2)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
     }
 }
+
+private struct CatalogFilterChips<Item: Hashable>: View {
+    let items: [Item]
+    let title: (Item) -> String
+    @Binding var selection: Item
+
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    var body: some View {
+        let inset = AsterionLayout.pagePadding(horizontalSizeClass)
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(items, id: \.self) { item in
+                    let selected = selection == item
+                    Button {
+                        if selection != item { Haptics.selection() }
+                        withAnimation(.snappy) { selection = item }
+                    } label: {
+                        Text(title(item))
+                            .font(.asterionReading(13, weight: .semibold))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                    }
+                    .buttonStyle(.plain)
+                    .asterionGlassPill(isSelected: selected)
+                    .accessibilityAddTraits(selected ? .isSelected : [])
+                }
+            }
+            .padding(.horizontal, inset)
+        }
+        .padding(.horizontal, -inset)
+        .padding(.bottom, 4)
+    }
+}
+
+// MARK: - Detail scaffolding
 
 private enum MediaDetailShelf: String, CaseIterable, Hashable {
     case episodes = "Episodes"
     case moreLikeThis = "More like this"
 }
 
+/// Shelf heading: title-card title with a mono count.
+private struct MediaSectionHeader: View {
+    let title: String
+    var count: String? = nil
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(title)
+                .font(.asterionTitle(17, weight: .bold))
+                .foregroundStyle(Color.asterionText)
+                .accessibilityAddTraits(.isHeader)
+            Spacer(minLength: 8)
+            if let count, !count.isEmpty {
+                Text(count)
+                    .font(.asterionMono(11.5, weight: .medium))
+                    .foregroundStyle(Color.asterionFaint)
+            }
+        }
+    }
+}
+
+/// Top of a detail page: poster beside an eyebrow, the expanded title, and
+/// one metadata line.
+private struct MediaDetailHeader<Poster: View>: View {
+    let eyebrow: String
+    let title: String
+    let metadata: String
+    @ViewBuilder var poster: () -> Poster
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: 18) {
+            poster()
+            VStack(alignment: .leading, spacing: 8) {
+                if !eyebrow.isEmpty {
+                    AsterionEyebrow(text: eyebrow, color: .white.opacity(0.7))
+                }
+
+                Text(title)
+                    .font(.asterionTitle(26, weight: .heavy))
+                    .foregroundStyle(Color.asterionText)
+                    .lineLimit(4)
+                    .minimumScaleFactor(0.65)
+                    .shadow(color: .black.opacity(0.35), radius: 14, y: 3)
+                    .accessibilityAddTraits(.isHeader)
+
+                if !metadata.isEmpty {
+                    Text(metadata)
+                        .font(.asterionReading(13, weight: .medium))
+                        .foregroundStyle(Color.asterionMuted)
+                        .lineLimit(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.top, 76)
+        .padding(.horizontal, 20)
+        .padding(.bottom, 20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// The page's one lit action. Shows a small spinner while a stream resolves.
+private struct MediaPlayButton: View {
+    let title: String
+    var systemImage: String = "play.fill"
+    var isBusy: Bool = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                if isBusy {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(Color.asterionOnInk)
+                } else {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 13, weight: .bold))
+                }
+                Text(isBusy ? "Finding stream…" : title)
+                    .lineLimit(1)
+            }
+            .font(.asterionReading(15, weight: .semibold))
+            .padding(.horizontal, 22)
+            .padding(.vertical, 13)
+            .fixedSize(horizontal: true, vertical: false)
+        }
+        .buttonStyle(AsterionFilledButtonStyle())
+    }
+}
+
+/// Resume progress under the actions.
+private struct MediaResumeLine: View {
+    let fraction: Double
+    let caption: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            AsterionLightLine(fraction: fraction, height: 3)
+                .frame(maxWidth: 280)
+            Text("\(caption) · \(Int((fraction * 100).rounded()))%")
+                .font(.asterionMono(11, weight: .medium))
+                .foregroundStyle(Color.asterionFaint)
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 14)
+    }
+}
+
+/// Inline failure under the actions, in the warning signal colour.
+private struct MediaDetailNotice: View {
+    let message: String
+    var isError: Bool = true
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(isError ? Color.asterionWarning : Color.asterionSuccess)
+            Text(message)
+                .font(.asterionReading(13.5))
+                .foregroundStyle(Color.asterionMuted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+/// Episode skeletons while a detail page loads.
+private struct MediaEpisodeSkeleton: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            AsterionSkeleton(cornerRadius: 999)
+                .frame(width: 190, height: 34)
+            LazyVGrid(columns: AsterionLayout.episodeColumns(horizontalSizeClass), spacing: 14) {
+                ForEach(0..<3, id: \.self) { _ in
+                    Color.clear
+                        .aspectRatio(16 / 9, contentMode: .fit)
+                        .overlay { AsterionSkeleton(cornerRadius: 14) }
+                }
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 12)
+        .accessibilityElement()
+        .accessibilityLabel("Loading episodes")
+    }
+}
+
+/// Watch state laid over an episode card: a white ring for the current
+/// episode, a light line for partial progress, a green check once watched.
+private struct EpisodeWatchState: ViewModifier {
+    let isCurrent: Bool
+    let fraction: Double?
+    let isWatched: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .overlay {
+                if isCurrent {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(Color.asterionInk, lineWidth: 1.5)
+                        .shadow(color: .white.opacity(0.3), radius: 8)
+                        .allowsHitTesting(false)
+                }
+            }
+            .overlay(alignment: .bottom) {
+                if let fraction, fraction > 0, !isWatched {
+                    AsterionLightLine(fraction: fraction, height: 3)
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 4)
+                        .allowsHitTesting(false)
+                }
+            }
+            .overlay(alignment: .topTrailing) {
+                if isWatched {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 10, weight: .heavy))
+                        .foregroundStyle(Color.asterionSuccess)
+                        .frame(width: 24, height: 24)
+                        .background(Circle().fill(Color.black.opacity(0.6)))
+                        .overlay(Circle().strokeBorder(Color.asterionSuccess.opacity(0.45)))
+                        .padding(10)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            }
+    }
+}
+
+private extension View {
+    func episodeWatchState(isCurrent: Bool, fraction: Double?, isWatched: Bool) -> some View {
+        modifier(EpisodeWatchState(isCurrent: isCurrent, fraction: fraction, isWatched: isWatched))
+    }
+}
+
 private func emptyShelfMessage(_ text: String) -> some View {
     Text(text)
-        .font(.asterionReading(15))
+        .font(.asterionReading(14))
         .foregroundStyle(Color.asterionMuted)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 24)
+        .padding(.horizontal, 20)
         .padding(.vertical, 16)
 }
 
+/// "More like this": a caption-poster grid inside a tab, or a horizontal
+/// shelf when it stands alone.
 private struct SimilarPosterGrid<Item: Identifiable, Destination: View>: View {
+    enum Layout {
+        case grid
+        case shelf
+    }
+
     let items: [Item]
+    var layout: Layout = .grid
     let title: (Item) -> String
     let imageURL: (Item) -> URL?
     let eyebrow: (Item) -> String
@@ -457,25 +962,53 @@ private struct SimilarPosterGrid<Item: Identifiable, Destination: View>: View {
         if items.isEmpty {
             emptyShelfMessage("Nothing similar yet")
         } else {
-            LazyVGrid(
-                columns: AsterionLayout.posterColumns(horizontalSizeClass),
-                spacing: 14
-            ) {
-                ForEach(items) { item in
-                    NavigationLink {
-                        destination(item)
-                    } label: {
-                        EntertainmentPosterCard(
-                            title: title(item),
-                            imageURL: imageURL(item),
-                            eyebrow: eyebrow(item)
-                        )
+            switch layout {
+            case .grid:
+                LazyVGrid(
+                    columns: AsterionLayout.posterColumns(horizontalSizeClass),
+                    alignment: .leading,
+                    spacing: 22
+                ) {
+                    ForEach(items) { item in
+                        NavigationLink {
+                            destination(item)
+                        } label: {
+                            EntertainmentPosterCard(
+                                title: title(item),
+                                imageURL: imageURL(item),
+                                subtitle: eyebrow(item)
+                            )
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 6)
+            case .shelf:
+                let size = AsterionLayout.shelfPosterSize(horizontalSizeClass)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(alignment: .top, spacing: 13) {
+                        ForEach(items) { item in
+                            NavigationLink {
+                                destination(item)
+                            } label: {
+                                HomePosterCaption(title: title(item), subtitle: eyebrow(item), width: size.width) {
+                                    AsyncImage(url: imageURL(item)) { phase in
+                                        if let image = phase.image {
+                                            image.resizable().scaledToFill()
+                                        } else {
+                                            Color.asterionSurface
+                                        }
+                                    }
+                                    .frame(width: size.width, height: size.height)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 20)
                 }
             }
-            .padding(.horizontal, 24)
-            .padding(.top, 6)
         }
     }
 }
@@ -526,37 +1059,12 @@ private func similarMovieTitles(to show: MovieShow) async -> [MovieTitle] {
         .map { $0 }
 }
 
-private let catalogColumns = [
-    GridItem(.adaptive(minimum: 142, maximum: 210), spacing: 16, alignment: .top),
-]
-
-private struct CatalogFilterChips<Item: Hashable>: View {
-    let items: [Item]
-    let title: (Item) -> String
-    @Binding var selection: Item
-
-    var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
-                ForEach(items, id: \.self) { item in
-                    let selected = selection == item
-                    Button {
-                        selection = item
-                    } label: {
-                        Text(title(item))
-                            .font(.asterionReading(14, weight: .medium))
-                            .foregroundStyle(selected ? Color.asterionOnInk : Color.asterionText)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 7)
-                            .background(selected ? Color.asterionInk : Color.asterionCard, in: Capsule())
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-        .padding(.bottom, 10)
-    }
+private func nonEmpty(_ value: String?) -> String? {
+    let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return trimmed.isEmpty ? nil : trimmed
 }
+
+// MARK: - Anime detail
 
 struct AnimeDetailView: View {
     let title: AnimeTitle
@@ -581,41 +1089,57 @@ struct AnimeDetailView: View {
     @State private var similarTitles: [AnimeTitle] = []
     private let episodePageSize = 50
 
-    private var stats: [AsterionDetailStat] {
-        [
-            show?.type.map { AsterionDetailStat(label: "Type", value: $0) },
-            show?.status.map { AsterionDetailStat(label: "Status", value: $0) },
-            show?.malScore.map { AsterionDetailStat(label: "Score", value: "★ \($0)") },
-            episodes.isEmpty ? nil : AsterionDetailStat(label: "Episodes", value: "\(episodes.count)"),
-        ].compactMap { $0 }
+    private var eyebrow: String {
+        (["Anime"] + [nonEmpty(show?.type ?? title.type)?.uppercased(), shortStatus].compactMap { $0 })
+            .joined(separator: " · ")
+    }
+
+    private var shortStatus: String? {
+        guard let status = nonEmpty(show?.status) else { return nil }
+        switch status.lowercased() {
+        case "currently airing", "airing", "ongoing": return "Airing"
+        case "finished airing", "completed", "finished": return "Finished"
+        case "not yet aired", "upcoming": return "Upcoming"
+        default: return status
+        }
+    }
+
+    private var metadata: String {
+        let episodeCount = max(show?.episodesCount ?? 0, episodes.count)
+        let genres = (show?.genres ?? [])
+            .prefix(2)
+            .map { $0.replacingOccurrences(of: "-", with: " ").capitalized }
+            .joined(separator: ", ")
+        return [
+            show?.malScore.flatMap { nonEmpty($0) }.map { "★ \($0)" },
+            episodeCount > 0 ? "\(episodeCount) episodes" : nonEmpty(title.episodeLabel),
+            nonEmpty(show?.season) ?? nonEmpty(show?.dateAired),
+            nonEmpty(show?.studio),
+            genres.isEmpty ? nil : genres,
+        ]
+        .compactMap { $0 }
+        .joined(separator: " · ")
     }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                AsterionDetailHero(
+                MediaDetailHeader(
+                    eyebrow: eyebrow,
                     title: show?.title ?? title.title,
-                    subtitle: [show?.type, title.episodeLabel].compactMap { $0 }.joined(separator: " · ")
+                    metadata: metadata
                 ) {
                     AsterionDetailPoster(url: show?.imageURL ?? title.imageURL)
                 }
 
-                if !stats.isEmpty {
-                    AsterionDetailStatsRow(items: stats)
-                }
-
                 HStack(spacing: 10) {
                     if let episode = nextAnimeEpisode {
-                        Button {
+                        MediaPlayButton(
+                            title: animePlayTitle(for: episode),
+                            isBusy: playbackEpisodeID == episode.id
+                        ) {
                             Task { await play(episode) }
-                        } label: {
-                            AsterionPrimaryActionLabel(
-                                title: playbackEpisodeID == episode.id
-                                    ? "Finding stream…"
-                                    : animePlayTitle(for: episode)
-                            )
                         }
-                        .buttonStyle(.plain)
                         .disabled(playbackEpisodeID != nil)
                     }
 
@@ -632,25 +1156,29 @@ struct AnimeDetailView: View {
                     }
                     Spacer(minLength: 0)
                 }
-                .padding(.horizontal, 24)
-                .padding(.bottom, 8)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 14)
+
+                if let episode = nextAnimeEpisode,
+                   let progress = animeProgress(for: episode),
+                   !progress.completed, progress.percentage > 0 {
+                    MediaResumeLine(fraction: progress.percentage / 100, caption: "Episode \(episode.number)")
+                }
 
                 if let playbackError {
-                    Text(playbackError)
-                        .font(.asterionSerif(15))
-                        .foregroundStyle(Color.asterionMuted)
-                        .padding(.horizontal, 24)
-                        .padding(.bottom, 8)
+                    MediaDetailNotice(message: playbackError)
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 12)
                 }
 
                 if let summary = show?.description, !summary.isEmpty {
-                    AsterionSynopsisBlock(text: summary, genres: show?.genres ?? [], expanded: $synopsisExpanded)
+                    AsterionSynopsisBlock(text: summary, expanded: $synopsisExpanded)
                 }
 
                 if isLoading {
-                    ProgressView().tint(Color.asterionInk).frame(maxWidth: .infinity).padding(.vertical, 28)
+                    MediaEpisodeSkeleton()
                 } else if let error {
-                    CatalogErrorView(message: error) { await load() }
+                    CatalogErrorView(title: "Couldn't load this anime", message: error) { await load() }
                 } else {
                     detailShelfSection
                 }
@@ -708,7 +1236,7 @@ struct AnimeDetailView: View {
                     title: { $0.title },
                     imageURL: { $0.imageURL },
                     eyebrow: {
-                        [$0.type, $0.episodeLabel].compactMap { $0 }.joined(separator: " · ")
+                        [$0.type?.uppercased(), $0.episodeLabel].compactMap { $0 }.joined(separator: " · ")
                     }
                 ) { title in
                     AnimeDetailView(title: title)
@@ -719,8 +1247,24 @@ struct AnimeDetailView: View {
         .padding(.bottom, 8)
     }
 
+    private var watchedCount: Int {
+        episodes.filter { animeProgress(for: $0)?.completed == true }.count
+    }
+
     private var episodeSection: some View {
         VStack(alignment: .leading, spacing: 12) {
+            Text(
+                [
+                    "\(episodes.count) \(episodes.count == 1 ? "episode" : "episodes")",
+                    watchedCount > 0 ? "\(watchedCount) watched" : nil,
+                ]
+                .compactMap { $0 }
+                .joined(separator: " · ")
+            )
+            .font(.asterionMono(11.5, weight: .medium))
+            .foregroundStyle(Color.asterionFaint)
+            .padding(.horizontal, 20)
+
             if episodePages.count > 1 {
                 AsterionFilterPills(
                     titles: episodePages.map { page in
@@ -733,6 +1277,7 @@ struct AnimeDetailView: View {
 
             AsterionEpisodeShelf(title: nil, items: visibleEpisodes) { episode in
                 let requestID = "anime-\(episode.animeID)-\(episode.number)"
+                let progress = animeProgress(for: episode)
                 AsterionEpisodeCard(
                     number: episode.number,
                     title: "Episode \(episode.number)",
@@ -743,6 +1288,11 @@ struct AnimeDetailView: View {
                     isDownloaded: offlineVideoDownloadService.isDownloaded(id: requestID),
                     onPlay: { Task { await play(episode) } },
                     onDownload: { Task { await download(episode) } }
+                )
+                .episodeWatchState(
+                    isCurrent: nextAnimeEpisode?.id == episode.id,
+                    fraction: progress.map { $0.percentage / 100 },
+                    isWatched: progress?.completed == true
                 )
             }
         }
@@ -760,17 +1310,19 @@ struct AnimeDetailView: View {
         item.mediaType == .anime && item.contentId == title.slug && item.episodeNumber == episode.number
     }
 
+    private func animeProgress(for episode: AnimeEpisode) -> MediaPlaybackProgress? {
+        mediaAccountService.snapshot.progress.first { matchesAnimeProgress(episode, $0) }
+    }
+
     private func animePlayTitle(for episode: AnimeEpisode) -> String {
         if MediaContinuePolicy.isInProgress(episode, progress: mediaAccountService.snapshot.progress, matches: matchesAnimeProgress) {
-            return "Continue Episode \(episode.number)"
+            return "Resume episode \(episode.number)"
         }
-        return "Play Episode \(episode.number)"
+        return "Watch episode \(episode.number)"
     }
 
     private func animeEpisodeStatus(_ episode: AnimeEpisode) -> String {
-        let progress = mediaAccountService.snapshot.progress.first {
-            $0.mediaType == .anime && $0.contentId == title.slug && $0.episodeNumber == episode.number
-        }
+        let progress = animeProgress(for: episode)
         if progress?.completed == true { return "Watched" }
         if let progress, progress.percentage > 0 {
             return "Continue · \(Int(progress.percentage.rounded()))%"
@@ -891,6 +1443,8 @@ struct AnimeDetailView: View {
     }
 }
 
+// MARK: - Movie detail
+
 struct MovieDetailView: View {
     let title: MovieTitle
 
@@ -919,23 +1473,28 @@ struct MovieDetailView: View {
         isSeries ? MediaDetailShelf.allCases : [.moreLikeThis]
     }
 
-    private var stats: [AsterionDetailStat] {
-        var items: [AsterionDetailStat] = []
-        if let year = show?.releaseYear ?? title.year {
-            items.append(AsterionDetailStat(label: "Year", value: year))
-        }
-        if let runtime = show?.duration ?? title.runtime {
-            items.append(AsterionDetailStat(label: "Runtime", value: runtime))
-        }
-        if let rating = show?.imdbRating ?? title.imdbRating {
-            items.append(AsterionDetailStat(label: "IMDb", value: "★ \(rating)"))
-        }
-        if isSeries, !episodes.isEmpty {
-            items.append(AsterionDetailStat(label: "Episodes", value: "\(episodes.count)"))
+    private var eyebrow: String {
+        let kind: String? = if show != nil {
+            isSeries ? "Series" : "Film"
         } else {
-            items.append(AsterionDetailStat(label: "Kind", value: isSeries ? "Series" : "Movie"))
+            title.type.map { $0.lowercased() == "tv" ? "Series" : "Film" }
         }
-        return items
+        return [kind, nonEmpty(show?.releaseYear ?? title.year)]
+            .compactMap { $0 }
+            .joined(separator: " · ")
+    }
+
+    private var metadata: String {
+        let genres = (show?.genres ?? []).prefix(2).joined(separator: ", ")
+        return [
+            (show?.imdbRating ?? title.imdbRating).flatMap { nonEmpty($0) }.map { "★ \($0)" },
+            isSeries && seasons.count > 0 ? "\(seasons.count) \(seasons.count == 1 ? "season" : "seasons")" : nil,
+            isSeries && !episodes.isEmpty ? "\(episodes.count) episodes" : nil,
+            isSeries ? nil : nonEmpty(show?.duration ?? title.runtime),
+            genres.isEmpty ? nil : genres,
+        ]
+        .compactMap { $0 }
+        .joined(separator: " · ")
     }
 
     private var seasons: [Int] {
@@ -953,17 +1512,12 @@ struct MovieDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                AsterionDetailHero(
+                MediaDetailHeader(
+                    eyebrow: eyebrow,
                     title: show?.title ?? title.title,
-                    subtitle: [show?.releaseYear ?? title.year, isSeries ? "Series" : "Movie"]
-                        .compactMap { $0 }
-                        .joined(separator: " · ")
+                    metadata: metadata
                 ) {
                     AsterionDetailPoster(url: show?.imageURL ?? title.imageURL)
-                }
-
-                if !stats.isEmpty {
-                    AsterionDetailStatsRow(items: stats)
                 }
 
                 HStack(spacing: 10) {
@@ -981,26 +1535,32 @@ struct MovieDetailView: View {
                     }
                     Spacer(minLength: 0)
                 }
-                .padding(.horizontal, 24)
-                .padding(.top, 12)
-                .padding(.bottom, 8)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 14)
+
+                if isSeries, let episode = nextMovieEpisode,
+                   let progress = movieProgress(for: episode),
+                   !progress.completed, progress.percentage > 0 {
+                    MediaResumeLine(
+                        fraction: progress.percentage / 100,
+                        caption: "S\(episode.season) E\(episode.number)"
+                    )
+                }
 
                 if let playbackError {
-                    Text(playbackError)
-                        .font(.asterionSerif(15))
-                        .foregroundStyle(Color.asterionMuted)
-                        .padding(.horizontal, 24)
-                        .padding(.bottom, 8)
+                    MediaDetailNotice(message: playbackError)
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 12)
                 }
 
                 if let summary = show?.description, !summary.isEmpty {
-                    AsterionSynopsisBlock(text: summary, genres: show?.genres ?? [], expanded: $synopsisExpanded)
+                    AsterionSynopsisBlock(text: summary, expanded: $synopsisExpanded)
                 }
 
                 if isLoading {
-                    ProgressView().tint(Color.asterionInk).frame(maxWidth: .infinity).padding(.vertical, 28)
+                    MediaEpisodeSkeleton()
                 } else if let error {
-                    CatalogErrorView(message: error) { await load() }
+                    CatalogErrorView(title: "Couldn't load this title", message: error) { await load() }
                 } else {
                     movieDetailShelf
                 }
@@ -1031,13 +1591,13 @@ struct MovieDetailView: View {
             let unitTitle = episode.title.isEmpty ? "Episode \(episode.number)" : episode.title
             playControl(
                 slug: episode.id,
-                label: playbackID == episode.id ? "Finding stream…" : moviePlayTitle(for: episode),
+                label: moviePlayTitle(for: episode),
                 playbackLabel: unitTitle
             )
         } else if !isSeries {
             playControl(
                 slug: title.slug,
-                label: playbackID == title.slug ? "Finding stream…" : "Play Movie",
+                label: "Watch movie",
                 playbackLabel: title.title
             )
         }
@@ -1045,12 +1605,21 @@ struct MovieDetailView: View {
 
     private var movieDetailShelf: some View {
         VStack(alignment: .leading, spacing: 12) {
-            AsterionIndexTabs(
-                items: movieShelves,
-                title: { $0.rawValue },
-                rank: .section,
-                selection: $detailShelf
-            )
+            if movieShelves.count > 1 {
+                AsterionIndexTabs(
+                    items: movieShelves,
+                    title: { $0.rawValue },
+                    rank: .section,
+                    selection: $detailShelf
+                )
+            } else {
+                MediaSectionHeader(
+                    title: MediaDetailShelf.moreLikeThis.rawValue,
+                    count: similarTitles.isEmpty ? nil : "\(similarTitles.count)"
+                )
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
+            }
 
             switch detailShelf {
             case .episodes:
@@ -1062,13 +1631,10 @@ struct MovieDetailView: View {
             case .moreLikeThis:
                 SimilarPosterGrid(
                     items: similarTitles,
+                    layout: movieShelves.count > 1 ? .grid : .shelf,
                     title: { $0.title },
                     imageURL: { $0.imageURL },
-                    eyebrow: {
-                        [$0.year, $0.imdbRating.map { "★ \($0)" }]
-                            .compactMap { $0 }
-                            .joined(separator: " · ")
-                    }
+                    eyebrow: { MovieCatalogView.metadata(for: $0) }
                 ) { title in
                     MovieDetailView(title: title)
                 }
@@ -1080,6 +1646,14 @@ struct MovieDetailView: View {
 
     private var episodeLists: some View {
         VStack(alignment: .leading, spacing: 12) {
+            Text(
+                "\(episodesForActiveSeason.count) \(episodesForActiveSeason.count == 1 ? "episode" : "episodes")"
+                    + (seasons.count > 1 ? " · season \(activeSeason)" : "")
+            )
+            .font(.asterionMono(11.5, weight: .medium))
+            .foregroundStyle(Color.asterionFaint)
+            .padding(.horizontal, 20)
+
             if seasons.count > 1 {
                 AsterionFilterPills(
                     titles: seasons.map { "Season \($0)" },
@@ -1090,6 +1664,7 @@ struct MovieDetailView: View {
 
             AsterionEpisodeShelf(title: nil, items: episodesForActiveSeason) { episode in
                 let requestID = "movie-\(episode.id)"
+                let progress = movieProgress(for: episode)
                 AsterionEpisodeCard(
                     number: episode.number,
                     title: episode.title.isEmpty ? "Episode \(episode.number)" : episode.title,
@@ -1100,6 +1675,11 @@ struct MovieDetailView: View {
                     isDownloaded: offlineVideoDownloadService.isDownloaded(id: requestID),
                     onPlay: { Task { await play(slug: episode.id, label: episode.title) } },
                     onDownload: { Task { await download(episode) } }
+                )
+                .episodeWatchState(
+                    isCurrent: nextMovieEpisode?.id == episode.id,
+                    fraction: progress.map { $0.percentage / 100 },
+                    isWatched: progress?.completed == true
                 )
             }
         }
@@ -1117,18 +1697,20 @@ struct MovieDetailView: View {
         item.mediaType == .movie && item.contentId == title.slug && item.unitId == episode.id
     }
 
+    private func movieProgress(for episode: MovieEpisode) -> MediaPlaybackProgress? {
+        mediaAccountService.snapshot.progress.first { matchesMovieProgress(episode, $0) }
+    }
+
     private func moviePlayTitle(for episode: MovieEpisode) -> String {
         let unit = "S\(episode.season) E\(episode.number)"
         if MediaContinuePolicy.isInProgress(episode, progress: mediaAccountService.snapshot.progress, matches: matchesMovieProgress) {
-            return "Continue \(unit)"
+            return "Resume \(unit)"
         }
-        return "Play \(unit)"
+        return "Watch \(unit)"
     }
 
     private func movieEpisodeStatus(_ episode: MovieEpisode) -> String {
-        let progress = mediaAccountService.snapshot.progress.first {
-            $0.mediaType == .movie && $0.contentId == title.slug && $0.unitId == episode.id
-        }
+        let progress = movieProgress(for: episode)
         if progress?.completed == true { return "Watched" }
         if let progress, progress.percentage > 0 {
             return "Continue · \(Int(progress.percentage.rounded()))%"
@@ -1138,12 +1720,9 @@ struct MovieDetailView: View {
     }
 
     private func playControl(slug: String, label: String, playbackLabel: String) -> some View {
-        Button {
+        MediaPlayButton(title: label, isBusy: playbackID == slug) {
             Task { await play(slug: slug, label: playbackLabel) }
-        } label: {
-            AsterionPrimaryActionLabel(title: label)
         }
-        .buttonStyle(.plain)
         .disabled(playbackID != nil)
     }
 
@@ -1295,6 +1874,62 @@ struct MovieDetailView: View {
     }
 }
 
+// MARK: - Football
+
+private extension FootballMatch {
+    /// The feed often labels fixtures only with the sport itself.
+    var hasGenericCategory: Bool {
+        ["football", "soccer", ""].contains(
+            category.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        )
+    }
+
+    var homeName: String {
+        teams?.home?.name ?? displayTitle.components(separatedBy: " vs ").first ?? title
+    }
+
+    var awayName: String {
+        teams?.away?.name
+            ?? displayTitle.components(separatedBy: " vs ").dropFirst().first
+            ?? ""
+    }
+
+    /// "in 14 minutes", "Tomorrow", … rather than repeating the sport.
+    var relativeKickoff: String {
+        kickoff.formatted(.relative(presentation: .named))
+    }
+}
+
+/// Club crest, or its initials in a smoked disc when the feed has none.
+private struct TeamCrest: View {
+    let name: String
+    let url: URL?
+    var size: CGFloat = 42
+
+    var body: some View {
+        AsyncImage(url: url) { phase in
+            if let image = phase.image {
+                image.resizable().scaledToFit()
+            } else {
+                Text(Self.initials(for: name))
+                    .font(.system(size: size * 0.29, weight: .bold).width(.expanded))
+                    .foregroundStyle(Color.asterionText.opacity(0.82))
+                    .minimumScaleFactor(0.6)
+                    .frame(width: size * 0.92, height: size * 0.92)
+                    .background(Circle().fill(Color.white.opacity(0.08)))
+                    .overlay(Circle().strokeBorder(Color.white.opacity(0.16)))
+            }
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
+    }
+
+    static func initials(for name: String) -> String {
+        let words = name.split(separator: " ").filter { !$0.isEmpty }
+        let letters = words.count > 1 ? words.prefix(2).compactMap(\.first) : Array((words.first ?? "").prefix(3))
+        return String(letters).uppercased()
+    }
+}
 
 struct FootballCatalogView: View {
     @State private var section: FootballCatalogSection = .live
@@ -1302,6 +1937,15 @@ struct FootballCatalogView: View {
     @State private var query = ""
     @State private var isLoading = true
     @State private var error: String?
+
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    fileprivate static func columns(_ sizeClass: UserInterfaceSizeClass?) -> [GridItem] {
+        if AsterionLayout.isWide(sizeClass) {
+            return [GridItem(.adaptive(minimum: 320, maximum: 460), spacing: 14, alignment: .top)]
+        }
+        return [GridItem(.flexible(minimum: 0))]
+    }
 
     private var filteredMatches: [FootballMatch] {
         let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1325,12 +1969,14 @@ struct FootballCatalogView: View {
 
                     CatalogScrollView(
                         query: $query,
+                        noun: "matches",
+                        placeholder: .matches,
                         isLoading: isLoading,
                         error: error,
                         isEmpty: filteredMatches.isEmpty,
                         retry: { await load() }
                     ) {
-                        LazyVStack(spacing: 12) {
+                        LazyVGrid(columns: Self.columns(horizontalSizeClass), spacing: 12) {
                             ForEach(filteredMatches) { match in
                                 NavigationLink(value: match) {
                                     FootballMatchCard(match: match)
@@ -1365,152 +2011,425 @@ private struct FootballMatchCard: View {
     let match: FootballMatch
 
     var body: some View {
-        HStack(spacing: 14) {
-            teamBadge(match.teams?.home)
-
-            VStack(spacing: 5) {
+        VStack(spacing: 14) {
+            HStack(spacing: 10) {
                 if match.isLive {
-                    Text("Live")
-                        .font(.asterionReading(12, weight: .semibold))
-                        .foregroundStyle(.red)
+                    AsterionLiveBadge()
                 } else {
-                    Text(match.kickoff, format: .dateTime.weekday(.abbreviated).hour().minute())
-                        .font(.asterionReading(12, weight: .medium))
-                        .foregroundStyle(Color.asterionMuted)
+                    AsterionEyebrow(text: match.relativeKickoff)
                 }
-
-                Text(match.displayTitle)
-                    .font(.asterionSerif(17, weight: .semibold))
-                    .foregroundStyle(Color.asterionText)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
-
-                Text(match.category.capitalized)
-                    .font(.asterionMono(9))
-                    .foregroundStyle(Color.asterionMuted)
+                Spacer(minLength: 8)
+                if !match.hasGenericCategory {
+                    Text(match.category.capitalized)
+                        .font(.asterionReading(11.5, weight: .medium))
+                        .foregroundStyle(Color.asterionFaint)
+                        .lineLimit(1)
+                }
             }
-            .frame(maxWidth: .infinity)
 
-            teamBadge(match.teams?.away)
+            HStack(alignment: .center, spacing: 8) {
+                teamColumn(name: match.homeName, badgeURL: match.teams?.home?.badgeURL)
 
-            Image(systemName: "chevron.right")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(Color.asterionDim)
+                VStack(spacing: 3) {
+                    if match.isLive {
+                        Text("vs")
+                            .font(.asterionMono(12, weight: .semibold))
+                            .foregroundStyle(Color.asterionMuted)
+                    } else {
+                        Text(match.kickoff.formatted(date: .omitted, time: .shortened))
+                            .font(.asterionMono(16, weight: .semibold))
+                            .foregroundStyle(Color.asterionText)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                        Text(match.kickoff.formatted(.dateTime.weekday(.abbreviated).day()))
+                            .font(.asterionReading(10.5, weight: .medium))
+                            .foregroundStyle(Color.asterionMuted)
+                    }
+                }
+                .frame(width: 84)
+
+                teamColumn(name: match.awayName, badgeURL: match.teams?.away?.badgeURL)
+            }
         }
-        .padding(15)
-        .asterionGlassSurface(cornerRadius: 18, interactive: true)
+        .padding(16)
+        .frame(maxWidth: .infinity)
+        .asterionPanel(cornerRadius: 14)
+        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(
+            "\(match.displayTitle), "
+                + (match.isLive
+                    ? "live"
+                    : match.kickoff.formatted(date: .abbreviated, time: .shortened))
+        )
     }
 
-    private func teamBadge(_ team: FootballTeam?) -> some View {
-        AsyncImage(url: team?.badgeURL) { phase in
-            if let image = phase.image {
-                image.resizable().scaledToFit()
-            } else {
-                Image(systemName: "shield")
-                    .resizable()
-                    .scaledToFit()
-                    .foregroundStyle(Color.asterionMuted)
-                    .padding(8)
-            }
+    private func teamColumn(name: String, badgeURL: URL?) -> some View {
+        VStack(spacing: 8) {
+            TeamCrest(name: name, url: badgeURL, size: 42)
+            Text(name)
+                .font(.asterionReading(12.5, weight: .semibold))
+                .foregroundStyle(Color.asterionText)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.85)
         }
-        .frame(width: 42, height: 42)
-        .accessibilityLabel(team?.name ?? "Team")
+        .frame(maxWidth: .infinity)
     }
 }
 
 struct FootballDetailView: View {
     let match: FootballMatch
 
+    private enum MatchFollowTiming {
+        static let matchLength: TimeInterval = 2.5 * 60 * 60
+    }
+
+    @EnvironmentObject private var tabBarState: TabBarState
+    @Environment(\.dismiss) private var dismiss
     @State private var playback: PlaybackRequest?
     @State private var isLoadingPlayback = false
     @State private var message: String?
+    @State private var messageIsError = false
+    /// The last resolved stream list, kept so the panel can offer each source.
+    @State private var resolvedRequest: PlaybackRequest?
+    /// Whether this match has a kickoff Live Activity running.
+    @State private var isFollowing = false
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 24) {
-                if let posterURL = match.posterURL {
-                    AsyncImage(url: posterURL) { phase in
-                        if let image = phase.image {
-                            image.resizable().scaledToFill()
-                        } else {
-                            Rectangle().fill(Color.asterionCard)
-                        }
-                    }
-                    .frame(maxWidth: 760)
-                    .aspectRatio(16 / 9, contentMode: .fit)
-                    .clipShape(RoundedRectangle(cornerRadius: 24))
+            VStack(alignment: .leading, spacing: AsterionLayout.sectionSpacing) {
+                faceOff
+
+                VStack(alignment: .leading, spacing: 14) {
+                    MediaSectionHeader(title: "Streams", count: streamCount)
+                    streamPanel
                 }
 
-                VStack(spacing: 10) {
-                    Text(match.isLive ? "Live now" : match.kickoff.formatted(.dateTime.weekday(.wide).month(.wide).day().hour().minute()))
-                        .font(.asterionReading(14, weight: .medium))
-                        .foregroundStyle(match.isLive ? Color.red : Color.asterionMuted)
-
-                    Text(match.displayTitle)
-                        .font(.asterionDisplay(32, weight: .semibold))
-                        .foregroundStyle(Color.asterionText)
-                        .multilineTextAlignment(.center)
-
-                    Text(match.category.capitalized)
-                        .font(.asterionSerif(16))
-                        .foregroundStyle(Color.asterionMuted)
-                }
-
-
-                HStack(spacing: 10) {
-                    if match.isLive {
-                        Button {
-                            Task { await watch() }
-                        } label: {
-                            Label(isLoadingPlayback ? "Finding stream…" : "Watch live", systemImage: "play.fill")
-                                .font(.asterionReading(17, weight: .semibold))
-                                .padding(.horizontal, 22)
-                                .padding(.vertical, 13)
-                        }
-                        .buttonStyle(AsterionFilledButtonStyle())
-                        .disabled(isLoadingPlayback)
-                    } else {
-                        Button {
-                            Task { await scheduleReminder() }
-                        } label: {
-                            Label("Remind me", systemImage: "bell")
-                                .font(.asterionReading(17, weight: .semibold))
-                                .padding(.horizontal, 22)
-                                .padding(.vertical, 13)
-                        }
-                        .buttonStyle(AsterionFilledButtonStyle())
-                    }
-
-                    MediaSaveButton(item: mediaItem)
-                }
-
-                if let message {
-                    Text(message)
-                        .font(.asterionSerif(15))
-                        .foregroundStyle(Color.asterionMuted)
-                        .multilineTextAlignment(.center)
+                VStack(alignment: .leading, spacing: 14) {
+                    MediaSectionHeader(title: "Match details")
+                    detailsPanel
                 }
             }
-            .frame(maxWidth: 900)
-            .padding(24)
+            .padding(.horizontal, 20)
+            .padding(.top, 84)
+            .padding(.bottom, 48)
+            .frame(maxWidth: 760)
             .frame(maxWidth: .infinity)
+            .background(alignment: .top) {
+                AsterionCoverBleed(url: match.posterURL ?? match.teams?.home?.badgeURL)
+            }
         }
-        .background { AsterionBackdrop() }
-        .navigationTitle(match.displayTitle)
-        .navigationBarTitleDisplayMode(.inline)
+        .background(Color.asterionBackground)
+        .overlay(alignment: .top) {
+            AsterionDetailBar(onBack: { dismiss() }) { EmptyView() }
+        }
+        .toolbarVisibility(.hidden, for: .navigationBar)
+        .toolbarVisibility(.hidden, for: .tabBar)
+        .onAppear {
+            tabBarState.isVisible = false
+            refreshFollowState()
+        }
+        .onDisappear { tabBarState.isVisible = true }
+        .edgeSwipeToDismiss { dismiss() }
         .fullScreenCover(item: $playback, onDismiss: PlaybackOrientationLock.endVideo) { request in
             NativeMediaPlayerView(request: request)
         }
     }
 
+    // MARK: Face-off
+
+    private var faceOff: some View {
+        VStack(spacing: 24) {
+            AsterionEyebrow(
+                text: match.hasGenericCategory
+                    ? (match.isLive ? "In play" : "Upcoming match")
+                    : match.category,
+                color: .white.opacity(0.7)
+            )
+
+            HStack(alignment: .top, spacing: 8) {
+                team(name: match.homeName, badgeURL: match.teams?.home?.badgeURL)
+                centerStatus
+                    .padding(.top, 18)
+                team(name: match.awayName, badgeURL: match.teams?.away?.badgeURL)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(match.displayTitle)
+            .accessibilityAddTraits(.isHeader)
+
+            VStack(spacing: 12) {
+                HStack(spacing: 10) {
+                    if match.isLive {
+                        MediaPlayButton(title: "Watch live", isBusy: isLoadingPlayback) {
+                            Task { await watch() }
+                        }
+                        .disabled(isLoadingPlayback)
+                    } else {
+                        MediaPlayButton(title: "Remind me", systemImage: "bell.fill") {
+                            Task { await scheduleReminder() }
+                        }
+                    }
+
+                    MediaSaveButton(item: mediaItem)
+                }
+
+                if canFollow {
+                    followButton
+                }
+
+                if let message {
+                    MediaDetailNotice(message: message, isError: messageIsError)
+                        .multilineTextAlignment(.center)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func team(name: String, badgeURL: URL?) -> some View {
+        VStack(spacing: 14) {
+            TeamCrest(name: name, url: badgeURL, size: 72)
+                .shadow(color: .black.opacity(0.4), radius: 14, y: 8)
+                .background {
+                    Circle()
+                        .fill(
+                            RadialGradient(
+                                colors: [.white.opacity(0.1), .white.opacity(0)],
+                                center: .center,
+                                startRadius: 4,
+                                endRadius: 60
+                            )
+                        )
+                        .frame(width: 120, height: 120)
+                }
+            Text(name)
+                .font(.asterionTitle(17, weight: .bold))
+                .foregroundStyle(Color.asterionText)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.7)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder
+    private var centerStatus: some View {
+        VStack(spacing: 7) {
+            if match.isLive {
+                AsterionLiveBadge()
+                    .scaleEffect(1.2)
+                    .padding(.bottom, 4)
+                Text("vs")
+                    .font(.asterionMono(13, weight: .semibold))
+                    .foregroundStyle(Color.asterionMuted)
+            } else {
+                Text(match.kickoff.formatted(date: .omitted, time: .shortened))
+                    .font(.asterionMono(24, weight: .semibold))
+                    .foregroundStyle(Color.asterionText)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                Text(match.kickoff.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated)))
+                    .font(.asterionReading(12, weight: .medium))
+                    .foregroundStyle(Color.asterionMuted)
+                Text(match.relativeKickoff)
+                    .font(.asterionMono(10.5, weight: .medium))
+                    .foregroundStyle(Color.asterionFaint)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+        }
+        .frame(width: 100)
+    }
+
+    // MARK: Streams
+
+    private var streamCount: String? {
+        if let options = resolvedRequest?.options, !options.isEmpty {
+            return "\(options.count) \(options.count == 1 ? "stream" : "streams")"
+        }
+        guard !match.sources.isEmpty else { return nil }
+        return "\(match.sources.count) \(match.sources.count == 1 ? "source" : "sources")"
+    }
+
+    @ViewBuilder
+    private var streamPanel: some View {
+        if let request = resolvedRequest, !request.options.isEmpty {
+            VStack(spacing: 0) {
+                ForEach(Array(request.options.enumerated()), id: \.element.id) { index, option in
+                    Button {
+                        playback = request.selecting(option)
+                    } label: {
+                        streamRow(
+                            index: index,
+                            name: Self.streamName(option.title),
+                            tags: Self.streamTags(option.title),
+                            isSelected: option.id == request.selectedOption?.id,
+                            showsDivider: index < request.options.count - 1
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Watch on \(option.title)")
+                }
+            }
+            .asterionPanel(cornerRadius: 14)
+        } else if match.sources.isEmpty {
+            AsterionEmptyState(
+                symbol: "antenna.radiowaves.left.and.right",
+                title: "No streams listed",
+                message: "Providers usually appear shortly before kickoff. Check back closer to the match."
+            )
+            .asterionPanel(cornerRadius: 14)
+        } else {
+            VStack(alignment: .leading, spacing: 10) {
+                VStack(spacing: 0) {
+                    ForEach(Array(match.sources.enumerated()), id: \.offset) { index, source in
+                        Button {
+                            Task { await watch() }
+                        } label: {
+                            streamRow(
+                                index: index,
+                                name: source.source.capitalized,
+                                tags: [],
+                                isSelected: false,
+                                showsDivider: index < match.sources.count - 1
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!match.isLive || isLoadingPlayback)
+                        .accessibilityLabel("\(source.source.capitalized) stream")
+                    }
+                }
+                .asterionPanel(cornerRadius: 14)
+
+                Text(
+                    match.isLive
+                        ? "Quality and language show once a stream opens."
+                        : "Streams open at kickoff."
+                )
+                .font(.asterionReading(12))
+                .foregroundStyle(Color.asterionFaint)
+                .padding(.horizontal, 4)
+            }
+        }
+    }
+
+    private func streamRow(
+        index: Int,
+        name: String,
+        tags: [String],
+        isSelected: Bool,
+        showsDivider: Bool
+    ) -> some View {
+        HStack(spacing: 12) {
+            Text(String(format: "%02d", index + 1))
+                .font(.asterionMono(12, weight: .medium))
+                .foregroundStyle(isSelected ? Color.asterionText : Color.asterionFaint)
+                .frame(width: 26, alignment: .leading)
+
+            Text(name)
+                .font(.asterionReading(14.5, weight: .medium))
+                .foregroundStyle(Color.asterionText)
+                .lineLimit(1)
+
+            Spacer(minLength: 8)
+
+            ForEach(tags, id: \.self) { tag in
+                Text(tag)
+                    .font(.asterionMono(10.5, weight: .semibold))
+                    .foregroundStyle(tag == "HD" ? Color.asterionText : Color.asterionMuted)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(Color.white.opacity(tag == "HD" ? 0.12 : 0.06), in: Capsule())
+            }
+
+            Image(systemName: isSelected ? "checkmark" : "play.fill")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(isSelected ? Color.asterionInk : Color.asterionFaint)
+                .frame(width: 16)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .contentShape(Rectangle())
+        .overlay(alignment: .bottom) {
+            if showsDivider {
+                Rectangle()
+                    .fill(Color.asterionHairline)
+                    .frame(height: 1)
+                    .padding(.leading, 54)
+            }
+        }
+    }
+
+    /// Option titles read "Source · EN · HD".
+    private static func streamName(_ title: String) -> String {
+        title.components(separatedBy: " · ").first ?? title
+    }
+
+    private static func streamTags(_ title: String) -> [String] {
+        Array(title.components(separatedBy: " · ").dropFirst())
+    }
+
+    // MARK: Details
+
+    private var detailsPanel: some View {
+        VStack(spacing: 0) {
+            factRow(
+                label: "Kickoff",
+                value: match.kickoff.formatted(date: .abbreviated, time: .shortened),
+                showsDivider: true
+            )
+            if !match.hasGenericCategory {
+                factRow(label: "Competition", value: match.category.capitalized, showsDivider: true)
+            }
+            factRow(label: "Status", value: statusDescription, showsDivider: false)
+        }
+        .asterionPanel(cornerRadius: 14)
+    }
+
+    private var statusDescription: String {
+        if match.isLive { return "In play" }
+        return match.kickoff > Date() ? "Upcoming" : "Not live"
+    }
+
+    private func factRow(label: String, value: String, showsDivider: Bool) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(label)
+                .font(.asterionReading(13.5))
+                .foregroundStyle(Color.asterionMuted)
+            Spacer(minLength: 12)
+            Text(value)
+                .font(.asterionReading(13.5, weight: .medium))
+                .foregroundStyle(Color.asterionText)
+                .multilineTextAlignment(.trailing)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 13)
+        .overlay(alignment: .bottom) {
+            if showsDivider {
+                Rectangle()
+                    .fill(Color.asterionHairline)
+                    .frame(height: 1)
+                    .padding(.leading, 16)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    // MARK: Actions
+
     private func watch() async {
         isLoadingPlayback = true
         defer { isLoadingPlayback = false }
         do {
-            playback = try await EntertainmentAPI.shared.fetchFootballPlayback(match: match)
+            let request = try await EntertainmentAPI.shared.fetchFootballPlayback(match: match)
+            resolvedRequest = request
+            playback = request
             message = nil
         } catch {
             message = error.localizedDescription
+            messageIsError = true
         }
     }
 
@@ -1519,7 +2438,8 @@ struct FootballDetailView: View {
             let center = UNUserNotificationCenter.current()
             let granted = try await center.requestAuthorization(options: [.alert, .sound])
             guard granted else {
-                message = "Notifications are off. You can enable them in Settings."
+                message = "Notifications are off. You can turn them on in Settings."
+                messageIsError = true
                 return
             }
             let reminderDate = max(Date().addingTimeInterval(5), match.kickoff.addingTimeInterval(-15 * 60))
@@ -1542,8 +2462,85 @@ struct FootballDetailView: View {
                 )
             )
             message = "Reminder set for 15 minutes before kickoff."
+            messageIsError = false
         } catch {
             message = error.localizedDescription
+            messageIsError = true
+        }
+    }
+
+    // MARK: Follow in Dynamic Island
+
+    /// Upcoming or in-play matches; nothing to follow once it is over.
+    private var canFollow: Bool {
+        match.isLive || Date() < match.kickoff.addingTimeInterval(MatchFollowTiming.matchLength)
+    }
+
+    private var followButton: some View {
+        Button(action: toggleFollow) {
+            HStack(spacing: 8) {
+                Image(systemName: isFollowing ? "checkmark" : "dot.radiowaves.left.and.right")
+                    .font(.system(size: 12, weight: .bold))
+                    .contentTransition(.symbolEffect(.replace))
+                Text(isFollowing ? "Following in Dynamic Island" : "Follow in Dynamic Island")
+                    .lineLimit(1)
+            }
+            .font(.asterionReading(14, weight: .semibold))
+            .padding(.horizontal, 18)
+            .padding(.vertical, 11)
+            .fixedSize(horizontal: true, vertical: false)
+        }
+        .buttonStyle(AsterionOutlineButtonStyle())
+        .accessibilityLabel(isFollowing ? "Stop following in Dynamic Island" : "Follow in Dynamic Island")
+        .accessibilityHint("Shows a kickoff countdown on the Lock Screen and in the Dynamic Island.")
+    }
+
+    private func refreshFollowState() {
+        let manager = MatchLiveActivityManager.shared
+        isFollowing = manager.isFollowing(matchID: match.id)
+        if isFollowing, match.isLive {
+            manager.update(matchID: match.id, isLive: true)
+        }
+    }
+
+    private func toggleFollow() {
+        let manager = MatchLiveActivityManager.shared
+        if isFollowing {
+            manager.unfollow(matchID: match.id)
+            withAnimation(.easeOut(duration: 0.2)) { isFollowing = false }
+            message = nil
+            return
+        }
+
+        let result = manager.follow(
+            matchID: match.id,
+            home: match.homeName,
+            away: match.awayName,
+            competition: match.hasGenericCategory ? "" : match.category.capitalized,
+            kickoff: match.kickoff,
+            isLive: match.isLive,
+            homeBadgeURL: match.teams?.home?.badgeURL?.absoluteString,
+            awayBadgeURL: match.teams?.away?.badgeURL?.absoluteString
+        )
+        switch result {
+        case .following:
+            withAnimation(.easeOut(duration: 0.2)) { isFollowing = true }
+            message = match.isLive
+                ? "Following live on the Lock Screen and in the Dynamic Island."
+                : "Kickoff countdown is on the Lock Screen and in the Dynamic Island."
+            messageIsError = false
+        case .activitiesDisabled:
+            message = "Live Activities are off for Asterion. You can turn them on in Settings."
+            messageIsError = true
+        case let .tooEarly(opensAt):
+            message = "You can follow from \(opensAt.formatted(date: .abbreviated, time: .shortened)), eight hours before kickoff."
+            messageIsError = false
+        case .finished:
+            message = "This match has finished."
+            messageIsError = false
+        case .failed:
+            message = "Couldn’t start the Live Activity. Try again in a moment."
+            messageIsError = true
         }
     }
 
@@ -1576,6 +2573,7 @@ private struct MediaSaveButton: View {
                 isWorking = true
                 await mediaAccountService.toggleBookmark(item)
                 isWorking = false
+                if isSaved { Haptics.success() } else { Haptics.tap() }
             }
         }
         .disabled(isWorking)

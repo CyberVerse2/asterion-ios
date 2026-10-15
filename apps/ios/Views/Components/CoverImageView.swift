@@ -29,22 +29,24 @@ enum CoverSize {
     var cornerRadius: CGFloat {
         switch self {
         case .sm, .tile: return 6
-        case .md: return 12
-        case .desktopTile, .hero: return 10
-        case .lg:             return 12
+        case .md: return 8
+        case .desktopTile, .hero, .lg: return 10
         }
     }
 
-    var emojiSize: CGFloat {
+    /// Point size of the faint mark drawn on a placeholder cover.
+    var markSize: CGFloat {
         switch self {
-        case .sm:   return 20
-        case .md:   return 24
-        case .lg:   return 56
-        case .tile: return 22
-        case .desktopTile: return 34
-        case .hero: return 40
+        case .sm:   return 14
+        case .md:   return 20
+        case .lg:   return 40
+        case .tile: return 16
+        case .desktopTile: return 26
+        case .hero: return 30
         }
     }
+
+    fileprivate var castsShadow: Bool { self == .lg || self == .hero }
 }
 
 struct CoverImageView: View {
@@ -52,8 +54,9 @@ struct CoverImageView: View {
     let novel: Novel
     var size: CoverSize = .md
 
-    private var genreColor: Color { GenreStyle.color(for: novel.genres) }
-    private var genreEmoji: String { GenreStyle.emoji(for: novel.genres) }
+    private var shape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: size.cornerRadius, style: .continuous)
+    }
 
     var body: some View {
         Group {
@@ -63,43 +66,25 @@ struct CoverImageView: View {
                     case .success(let image):
                         image.resizable().aspectRatio(contentMode: .fill)
                     case .failure:
-                        fallbackView
+                        CoverPlaceholder(novel: novel, markSize: size.markSize)
                     default:
-                        fallbackView.overlay {
-                            ProgressView()
-                                .tint(genreColor)
-                                .scaleEffect(0.5)
-                        }
+                        Color.asterionSurface
                     }
                 }
             } else {
-                fallbackView
+                CoverPlaceholder(novel: novel, markSize: size.markSize)
             }
         }
         .frame(width: size.width, height: size.height)
         .clipped()
-        .clipShape(RoundedRectangle(cornerRadius: size.cornerRadius))
+        .clipShape(shape)
+        .overlay { shape.strokeBorder(Color.asterionBorder) }
         .shadow(
-            color: (size == .lg || size == .hero) ? genreColor.opacity(0.22) : .clear,
-            radius: size == .lg ? 30 : (size == .hero ? 18 : 0),
-            y: size == .lg ? 20 : (size == .hero ? 10 : 0)
+            color: .black.opacity(size.castsShadow ? 0.45 : 0),
+            radius: size == .lg ? 22 : (size == .hero ? 14 : 0),
+            y: size == .lg ? 12 : (size == .hero ? 8 : 0)
         )
         .enableInjection()
-    }
-
-    private var fallbackView: some View {
-        RoundedRectangle(cornerRadius: size.cornerRadius)
-            .fill(
-                LinearGradient(
-                    colors: [genreColor.opacity(0.3), genreColor.opacity(size == .lg ? 0.2 : 0.1)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            )
-            .overlay {
-                Text(genreEmoji)
-                    .font(.system(size: size.emojiSize))
-            }
     }
 }
 
@@ -113,24 +98,59 @@ struct NovelPosterArt: View {
                     switch phase {
                     case .success(let image):
                         image.resizable().aspectRatio(contentMode: .fill)
+                    case .failure:
+                        CoverPlaceholder(novel: novel, markSize: nil)
                     default:
-                        fallback
+                        Color.asterionSurface
                     }
                 }
             } else {
-                fallback
+                CoverPlaceholder(novel: novel, markSize: nil)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipped()
     }
+}
 
-    private var fallback: some View {
-        Color.asterionCard
-            .overlay {
-                Text(String(novel.title.prefix(1)))
-                    .font(.asterionDisplay(44, weight: .medium))
-                    .foregroundStyle(Color.asterionText)
+/// A cover without artwork: the dark surface with the title's initial set
+/// faintly in the title-card face, and a quiet genre mark beneath it.
+private struct CoverPlaceholder: View {
+    let novel: Novel
+    /// Fixed mark size for sized covers; `nil` scales with the frame.
+    let markSize: CGFloat?
+
+    private var initial: String {
+        let letter = novel.title.trimmingCharacters(in: .whitespacesAndNewlines).first
+        return letter.map { String($0).uppercased() } ?? ""
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            let side = min(geometry.size.width, geometry.size.height * 2 / 3)
+            let letterSize = markSize.map { $0 * 1.4 } ?? max(14, side * 0.34)
+            ZStack {
+                Color.asterionSurface
+                LinearGradient(
+                    colors: [Color.white.opacity(0.05), .clear],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                VStack(spacing: letterSize * 0.18) {
+                    if !initial.isEmpty {
+                        Text(initial)
+                            .font(.asterionTitle(letterSize, weight: .heavy))
+                            .foregroundStyle(Color.asterionFaint)
+                    }
+                    if side >= 60 {
+                        Image(systemName: GenreStyle.symbol(for: novel.genres))
+                            .font(.system(size: max(10, letterSize * 0.32), weight: .light))
+                            .foregroundStyle(Color.asterionFaint.opacity(0.7))
+                    }
+                }
             }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+        }
+        .accessibilityHidden(true)
     }
 }
