@@ -6,6 +6,8 @@ import ipaddress
 import os
 import re
 import socket
+import time
+from collections.abc import Iterator
 from datetime import datetime, timezone
 from urllib.parse import quote, urljoin, urlparse
 
@@ -27,9 +29,14 @@ UPSTREAM_HEADERS = {
     "Referer": "https://play.xpass.top/",
 }
 
-PLAYLIST_CONTENT_LIMIT = 1_048_576
+# Feature-length variant playlists with 4-second segments run past 1 MiB.
+PLAYLIST_CONTENT_LIMIT = 4_194_304
 PROBE_BYTE_LIMIT = 65_536
 REQUEST_TIMEOUT = (4, 8)
+# Proxied playlists are generated on demand upstream and regularly take 10-25s.
+PROXY_TIMEOUT = (5, 25)
+PROXY_ATTEMPTS = 2
+PROXY_RETRY_DELAY = 0.5
 PLAYLIST_CONTENT_TYPES = (
     "application/vnd.apple.mpegurl",
     "application/x-mpegurl",
@@ -74,7 +81,11 @@ def verify_direct_source(source: dict) -> dict | None:
     return verified
 
 
-def fetch_upstream(target: str, range_header: str | None = None) -> requests.Response:
+def fetch_upstream(
+    target: str,
+    range_header: str | None = None,
+    timeout: tuple[float, float] = REQUEST_TIMEOUT,
+) -> requests.Response:
     if not _is_safe_remote_url(target):
         raise ValueError("Unsafe upstream URL")
 
@@ -85,7 +96,7 @@ def fetch_upstream(target: str, range_header: str | None = None) -> requests.Res
         target,
         headers=headers,
         stream=True,
-        timeout=REQUEST_TIMEOUT,
+        timeout=timeout,
         allow_redirects=True,
     )
     redirect_urls = [item.url for item in response.history] + [response.url]
@@ -95,9 +106,44 @@ def fetch_upstream(target: str, range_header: str | None = None) -> requests.Res
     return response
 
 
+def fetch_for_proxy(target: str, range_header: str | None = None) -> requests.Response:
+    """Fetch for the media proxy, retrying timeouts and upstream 5xx once."""
+    last_error: requests.RequestException | None = None
+    for attempt in range(PROXY_ATTEMPTS):
+        if attempt:
+            time.sleep(PROXY_RETRY_DELAY)
+        try:
+            response = fetch_upstream(target, range_header, timeout=PROXY_TIMEOUT)
+        except requests.RequestException as error:
+            last_error = error
+            continue
+        if response.status_code < 500 or attempt == PROXY_ATTEMPTS - 1:
+            return response
+        response.close()
+    assert last_error is not None
+    raise last_error
+
+
 def is_playlist_response(target: str, content_type: str) -> bool:
     normalized_type = content_type.lower().split(";", 1)[0].strip()
-    return ".m3u8" in target.lower() or normalized_type in PLAYLIST_CONTENT_TYPES
+    return (
+        urlparse(target).path.lower().endswith(".m3u8")
+        or normalized_type in PLAYLIST_CONTENT_TYPES
+    )
+
+
+def looks_like_playlist(head: bytes) -> bool:
+    return head.lstrip(b"\xef\xbb\xbf \t\r\n").startswith(b"#EXTM3U")
+
+
+def read_playlist(head: bytes, chunks: Iterator[bytes]) -> bytes:
+    """Read the rest of a playlist, refusing to hand players a truncated one."""
+    data = bytearray(head)
+    for chunk in chunks:
+        data.extend(chunk)
+        if len(data) > PLAYLIST_CONTENT_LIMIT:
+            raise ValueError("Playlist exceeds the proxy size limit")
+    return bytes(data)
 
 
 def rewrite_playlist(body: str, source_url: str) -> str:

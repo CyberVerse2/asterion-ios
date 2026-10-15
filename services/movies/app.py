@@ -323,44 +323,88 @@ def api_genres():
     return merge_genres(database_genres, source_genres)
 
 
+def _proxy_error(status: int, message: str, upstream_status: str):
+    rv = flask.Response(message, status=status, content_type="text/plain; charset=utf-8")
+    rv.headers["X-Upstream-Status"] = upstream_status
+    rv.headers["Access-Control-Allow-Origin"] = "*"
+    rv.headers["Cache-Control"] = "no-store"
+    return rv
+
+
+def _upstream_failure(host: str, reason: str):
+    """Report an upstream failure as 502 so it is never mistaken for our own timeout."""
+    app.logger.warning("HLS upstream %s failed: %s", host, reason)
+    return _proxy_error(502, f"Upstream failure: {reason}", reason)
+
+
 @app.route("/proxy/hls")
 def proxy_hls():
     """Proxy verified media while preserving playlists and byte ranges."""
     target = flask.request.args.get("url", "")
     if not target:
         return "Invalid URL", 400
+    host = urlparse(target).hostname or "unknown"
 
     try:
-        resp = playback.fetch_upstream(
+        resp = playback.fetch_for_proxy(
             target,
             range_header=flask.request.headers.get("Range"),
         )
     except ValueError:
         return "Invalid URL", 400
-    except requests.RequestException as error:
-        app.logger.exception("HLS proxy fetch failed")
-        return f"Upstream error: {error}", 502
+    except requests.Timeout:
+        return _upstream_failure(host, "timeout")
+    except requests.RequestException:
+        return _upstream_failure(host, "unreachable")
+
+    if resp.status_code >= 400:
+        resp.close()
+        if resp.status_code >= 500:
+            return _upstream_failure(host, str(resp.status_code))
+        return _proxy_error(
+            resp.status_code,
+            f"Upstream returned {resp.status_code}",
+            str(resp.status_code),
+        )
 
     content_type = resp.headers.get("Content-Type", "application/octet-stream")
-    is_m3u8 = playback.is_playlist_response(resp.url, content_type)
+    # iter_content undoes Content-Encoding, so upstream length headers only
+    # describe the body we send when the upstream did not compress it.
+    is_encoded = bool(resp.headers.get("Content-Encoding"))
+    chunks = resp.iter_content(chunk_size=65536)
+    try:
+        head = next((chunk for chunk in chunks if chunk), b"")
+    except requests.RequestException:
+        resp.close()
+        return _upstream_failure(host, "interrupted")
 
-    if is_m3u8:
+    if playback.looks_like_playlist(head):
         try:
-            data = playback.read_limited(resp, playback.PLAYLIST_CONTENT_LIMIT)
-            body = data.decode(resp.encoding or "utf-8", errors="replace")
-            rewritten = playback.rewrite_playlist(body, resp.url)
+            body = playback.read_playlist(head, chunks)
+        except ValueError:
+            return _upstream_failure(host, "playlist-too-large")
+        except requests.RequestException:
+            return _upstream_failure(host, "interrupted")
         finally:
             resp.close()
-        rv = flask.Response(rewritten, status=resp.status_code, content_type=content_type)
+        rewritten = playback.rewrite_playlist(body.decode("utf-8", errors="replace"), resp.url)
+        rv = flask.Response(rewritten, status=200, content_type="application/vnd.apple.mpegurl")
         rv.headers["Access-Control-Allow-Origin"] = "*"
         rv.headers["Cache-Control"] = "no-store"
         return rv
 
+    if playback.is_playlist_response(resp.url, content_type):
+        resp.close()
+        return _upstream_failure(host, "invalid-playlist")
+
     def generate():
         try:
-            for chunk in resp.iter_content(chunk_size=65536):
+            yield head
+            for chunk in chunks:
                 if chunk:
                     yield chunk
+        except requests.RequestException:
+            app.logger.warning("HLS upstream %s failed: interrupted mid-stream", host)
         finally:
             resp.close()
 
@@ -371,7 +415,8 @@ def proxy_hls():
     )
     rv.headers["Access-Control-Allow-Origin"] = "*"
     rv.headers["Cache-Control"] = "public, max-age=3600"
-    for header in ("Accept-Ranges", "Content-Range", "Content-Length"):
+    forwarded = ("Accept-Ranges",) if is_encoded else ("Accept-Ranges", "Content-Range", "Content-Length")
+    for header in forwarded:
         if value := resp.headers.get(header):
             rv.headers[header] = value
     return rv

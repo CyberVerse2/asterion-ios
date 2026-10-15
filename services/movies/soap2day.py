@@ -2,16 +2,23 @@
 Soap2Day scraper — Python with requests + BeautifulSoup.
 """
 
+import base64
+import binascii
+import hashlib
 import json
 import os
 import re
+import threading
 import time as _time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Optional
-from urllib.parse import quote_plus, urljoin, urlparse
+from urllib.parse import parse_qs, quote_plus, urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
+from cryptography.exceptions import InvalidTag
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 # uk-soap2day.day is dead (TLS reject, then 404). curl_cffi in gunicorn
 # kills the origin on cache misses and Cloudflare returns 502.
@@ -63,8 +70,14 @@ HEADERS = {
 }
 
 # Known direct HLS provider endpoints
-XPASS_EMBED = "https://play.xpass.top/e/movie/{imdb_id}"
-XPASS_PLAYLIST_BASE = "https://play.xpass.top"
+XPASS_ORIGIN = "https://play.xpass.top"
+XPASS_EMBED = XPASS_ORIGIN + "/e/movie/{imdb_id}"
+# xpass serves its server list AES-GCM encrypted. The key is
+# SHA-256("spv3-data-response|<build>|<data path>|<token>"), where the build id
+# lives in a rotating, obfuscated player script.
+XPASS_KEY_PREFIX = "spv3-data-response"
+XPASS_BUILD_TTL = 1800
+XPASS_PLAYLIST_WORKERS = 8
 
 # TTL cache for listing pages (reduces load on discovery layer)
 _listing_cache: dict = {}
@@ -111,6 +124,7 @@ class StreamServer:
     label: str
     quality: str
     embed_url: str
+    is_hls: bool = False
 
 
 @dataclass
@@ -650,52 +664,161 @@ def _extract_tmdb_id(html: str) -> Optional[str]:
     return None
 
 
-def get_hls_sources(imdb_id: str) -> list[StreamServer]:
-    """Fetch direct HLS/m3u8 sources via xpass.top playlist API."""
-    if not imdb_id or not imdb_id.startswith("tt"):
+_OBFUSCATOR_ALPHABET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+/="
+_STANDARD_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
+_OBFUSCATOR_TABLE = str.maketrans(_OBFUSCATOR_ALPHABET, _STANDARD_ALPHABET)
+
+_xpass_build_cache: dict = {"value": None, "expires": 0.0}
+_xpass_build_lock = threading.Lock()
+
+
+def _decode_obfuscated_strings(script: str) -> list[str]:
+    """Decode the base64 string table javascript-obfuscator writes into scripts."""
+    decoded = []
+    for literal in re.findall(r"'([A-Za-z0-9+/=]{2,})'", script):
+        encoded = literal.translate(_OBFUSCATOR_TABLE).rstrip("=")
+        try:
+            text = base64.b64decode(encoded + "=" * (-len(encoded) % 4)).decode("utf-8")
+        except (binascii.Error, UnicodeDecodeError):
+            continue
+        if text.isprintable():
+            decoded.append(text)
+    return decoded
+
+
+def _xpass_get(url: str, referer: str) -> requests.Response:
+    resp = _session.get(url, headers={"Referer": referer}, timeout=12)
+    resp.raise_for_status()
+    return resp
+
+
+def _discover_xpass_build(embed_html: str, embed_url: str) -> Optional[str]:
+    loader = re.search(r'src="(/static/mainmini\.js[^"]*)"', embed_html)
+    if not loader:
+        return None
+    loader_script = _xpass_get(urljoin(XPASS_ORIGIN, loader.group(1)), embed_url).text
+    player_path = next(
+        (
+            text for text in _decode_obfuscated_strings(loader_script)
+            if re.fullmatch(r"/static/[A-Za-z0-9_-]+\.js(\?\S*)?", text)
+        ),
+        None,
+    )
+    if not player_path:
+        return None
+    player_script = _xpass_get(urljoin(XPASS_ORIGIN, player_path), embed_url).text
+    for text in [player_script, *_decode_obfuscated_strings(player_script)]:
+        match = re.search(r"spv3-build-\d+-[0-9a-f]+", text)
+        if match:
+            return match.group(0)
+    return None
+
+
+def _xpass_build(embed_html: str, embed_url: str, refresh: bool = False) -> Optional[str]:
+    with _xpass_build_lock:
+        if not refresh and _xpass_build_cache["value"] and _time.time() < _xpass_build_cache["expires"]:
+            return _xpass_build_cache["value"]
+    build = _discover_xpass_build(embed_html, embed_url)
+    if build:
+        with _xpass_build_lock:
+            _xpass_build_cache["value"] = build
+            _xpass_build_cache["expires"] = _time.time() + XPASS_BUILD_TTL
+    return build
+
+
+def _decrypt_xpass_payload(payload: str, build: str, data_path: str, token: str) -> list:
+    key = hashlib.sha256(f"{XPASS_KEY_PREFIX}|{build}|{data_path}|{token}".encode()).digest()
+    blob = base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4))
+    plaintext = AESGCM(key).decrypt(blob[:12], blob[12:], None)
+    backups = json.loads(plaintext)
+    return backups if isinstance(backups, list) else []
+
+
+def _xpass_backups(embed_html: str, embed_url: str) -> list[dict]:
+    """Return xpass's server list: [{"name": ..., "url": ".../playlist.json"}, ...]."""
+    inline = re.search(r"var\s+backups\s*=\s*(\[.*?\])\s*</script>", embed_html, re.S)
+    if inline:
+        try:
+            backups = json.loads(inline.group(1))
+        except ValueError:
+            backups = []
+        if backups:
+            return backups
+
+    data_url = re.search(r'dataUrl\s*=\s*"([^"]+)"', embed_html)
+    if not data_url:
+        # Pre-2026 embeds referenced playlist.json directly in the page.
+        return [
+            {"name": "HLS", "url": path}
+            for path in dict.fromkeys(re.findall(r'"([^"]*playlist\.json[^"]*)"', embed_html))
+        ]
+
+    parsed = urlparse(data_url.group(1))
+    token = parse_qs(parsed.query).get("token", [""])[0]
+    if not token:
+        return []
+    payload = _xpass_get(urljoin(XPASS_ORIGIN, data_url.group(1)), embed_url).text.strip()
+    for refresh in (False, True):
+        build = _xpass_build(embed_html, embed_url, refresh=refresh)
+        if not build:
+            return []
+        try:
+            return _decrypt_xpass_payload(payload, build, parsed.path, token)
+        except (InvalidTag, ValueError):
+            continue
+    return []
+
+
+def _xpass_playlist_files(backup: dict, embed_url: str) -> list[tuple[str, str]]:
+    path = backup.get("url") or ""
+    if "playlist.json" not in path:
         return []
     try:
-        embed_html = _get(XPASS_EMBED.format(imdb_id=imdb_id))
+        data = _xpass_get(urljoin(XPASS_ORIGIN, path), embed_url).json()
+    except (requests.RequestException, ValueError):
+        return []
+    files = []
+    for playlist in data.get("playlist", []):
+        for source in playlist.get("sources", []):
+            file_url = urljoin(XPASS_ORIGIN, source.get("file") or "")
+            if file_url.startswith("https://") and "/video/error" not in file_url:
+                files.append((file_url, source.get("label") or ""))
+    return files
+
+
+def get_hls_sources(imdb_id: str) -> list[StreamServer]:
+    """Fetch direct HLS/m3u8 sources from xpass.top's server list."""
+    if not imdb_id or not imdb_id.startswith("tt"):
+        return []
+    embed_url = XPASS_EMBED.format(imdb_id=imdb_id)
+    # Not _get: xpass pages carry Cloudflare's challenge-platform beacon, which
+    # _looks_blocked treats as a block, and failures must not rotate soap2day mirrors.
+    try:
+        embed_html = _xpass_get(embed_url, XPASS_ORIGIN + "/").text
+        backups = _xpass_backups(embed_html, embed_url)
     except Exception:
         return []
-
-    playlist_urls = re.findall(r'"([^"]*playlist\.json[^"]*)"', embed_html)
-    if not playlist_urls:
+    if not backups:
         return []
+
+    with ThreadPoolExecutor(max_workers=XPASS_PLAYLIST_WORKERS) as executor:
+        files_by_backup = list(executor.map(lambda b: _xpass_playlist_files(b, embed_url), backups))
 
     servers: list[StreamServer] = []
     seen = set()
-    server_idx = 100
-
-    # Also extract server names from the backups array
-    server_names = {}
-    for m in re.finditer(r'"name":"([^"]*)","url":"([^"]*playlist\.json[^"]*)"', embed_html):
-        server_names[m.group(2)] = m.group(1)
-
-    for path in playlist_urls:
-        full_url = path if path.startswith("http") else XPASS_PLAYLIST_BASE + path
-        name = server_names.get(path, "HLS")
-
-        try:
-            resp = _session.get(full_url, timeout=15)
-            resp.raise_for_status()
-            data = resp.json()
-        except Exception:
-            continue
-
-        for pl in data.get("playlist", []):
-            for src in pl.get("sources", []):
-                file_url = src.get("file", "")
-                if not file_url or "error" in file_url or file_url in seen:
-                    continue
-                seen.add(file_url)
-                servers.append(StreamServer(
-                    server_id=server_idx,
-                    label=f"{name}: {src.get('label', '')}",
-                    quality="HLS Direct",
-                    embed_url=file_url,
-                ))
-                server_idx += 1
+    for backup, files in zip(backups, files_by_backup):
+        name = backup.get("name") or "HLS"
+        for file_url, label in files:
+            if file_url in seen:
+                continue
+            seen.add(file_url)
+            servers.append(StreamServer(
+                server_id=100 + len(servers),
+                label=f"{name}: {label}",
+                quality="HLS Direct",
+                embed_url=file_url,
+                is_hls=True,
+            ))
     return servers
 
 

@@ -1,6 +1,42 @@
+import base64
+import hashlib
+import json
 import unittest
+from unittest.mock import patch
+
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 import soap2day
+
+
+BUILD = "spv3-build-1787821613-50e5fc97c9dce367"
+DATA_PATH = "/data/movie/27205"
+TOKEN = "djN8L2RhdGEvbW92aWUvMjcyMDV8.c77e54cd"
+
+
+def _obfuscate(text):
+    standard = base64.b64encode(text.encode()).decode().rstrip("=")
+    return standard.translate(str.maketrans(
+        soap2day._STANDARD_ALPHABET, soap2day._OBFUSCATOR_ALPHABET,
+    ))
+
+
+def _encrypt_backups(backups, build=BUILD):
+    key = hashlib.sha256(f"spv3-data-response|{build}|{DATA_PATH}|{TOKEN}".encode()).digest()
+    nonce = b"\x01" * 12
+    blob = nonce + AESGCM(key).encrypt(nonce, json.dumps(backups).encode(), None)
+    return base64.urlsafe_b64encode(blob).decode().rstrip("=")
+
+
+class FakeResponse:
+    def __init__(self, text):
+        self.text = text
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return json.loads(self.text)
 
 
 class ParseCardsTests(unittest.TestCase):
@@ -156,6 +192,80 @@ class MirrorRotationTests(unittest.TestCase):
         self.assertEqual(html, "ok:https://au-soap2day.day/movies-qfva3/")
         self.assertTrue(any("ww25.soap2day.day" in url for url in calls))
         self.assertTrue(any("au-soap2day.day" in url for url in calls))
+
+
+class XpassResolverTests(unittest.TestCase):
+    def setUp(self):
+        soap2day._xpass_build_cache.update(value=None, expires=0.0)
+        self.addCleanup(soap2day._xpass_build_cache.update, value=None, expires=0.0)
+
+    def test_decodes_the_obfuscator_string_table(self):
+        script = f"function a(){{const t=['{_obfuscate("/static/AbcXyz.js?t=1")}','{_obfuscate(BUILD)}'];}}"
+
+        self.assertEqual(
+            soap2day._decode_obfuscated_strings(script),
+            ["/static/AbcXyz.js?t=1", BUILD],
+        )
+
+    def test_decrypts_the_server_list(self):
+        backups = [{"name": "TIK 1", "url": "/mdata/a/1/playlist.json"}]
+
+        self.assertEqual(
+            soap2day._decrypt_xpass_payload(_encrypt_backups(backups), BUILD, DATA_PATH, TOKEN),
+            backups,
+        )
+
+    def test_resolves_sources_through_the_encrypted_server_list(self):
+        backups = [
+            {"name": "TIK 1", "url": "/mdata/a/1/playlist.json"},
+            {"name": "TAP 1", "url": "/mdata/b/0/playlist.json"},
+            {"name": "VRK 1", "url": "/vrk/movie/27205/playlist.json"},
+        ]
+        pages = {
+            "/e/movie/tt1375666": (
+                '<script src="/static/mainmini.js?v=1"></script>'
+                f'<script>var dataUrl="{DATA_PATH}?autostart=false&token={TOKEN}";</script>'
+                "<script>var backups=[]</script>"
+            ),
+            "/static/mainmini.js": f"var s=['{_obfuscate('/static/AbcXyz.js?t=1')}'];",
+            "/static/AbcXyz.js": f"var s=['{_obfuscate(BUILD)}'];",
+            DATA_PATH: _encrypt_backups(backups),
+            "/mdata/a/1/playlist.json": json.dumps({"playlist": [{"sources": [
+                {"file": "https://tik.example/master.m3u8", "label": "TIK 2"},
+            ]}]}),
+            "/mdata/b/0/playlist.json": json.dumps({"playlist": [{"sources": [
+                {"file": "/video/error", "label": "TAP 1"},
+            ]}]}),
+            "/vrk/movie/27205/playlist.json": json.dumps({"playlist": [{"sources": [
+                {"file": "https://proxy.example/m3u8-proxy?url=x", "label": "VRK 1"},
+            ]}]}),
+        }
+
+        def fake_get(url, headers=None, timeout=None):
+            return FakeResponse(pages[soap2day.urlparse(url).path])
+
+        with patch.object(soap2day._session, "get", side_effect=fake_get):
+            sources = soap2day.get_hls_sources("tt1375666")
+
+        self.assertEqual(
+            [(s.label, s.embed_url, s.is_hls) for s in sources],
+            [
+                ("TIK 1: TIK 2", "https://tik.example/master.m3u8", True),
+                ("VRK 1: VRK 1", "https://proxy.example/m3u8-proxy?url=x", True),
+            ],
+        )
+        self.assertEqual(soap2day._xpass_build_cache["value"], BUILD)
+
+    def test_rediscovers_the_build_when_the_cached_one_is_stale(self):
+        soap2day._xpass_build_cache.update(value="spv3-build-1-0", expires=float("inf"))
+        backups = [{"name": "TIK 1", "url": "/mdata/a/1/playlist.json"}]
+        embed_html = f'<script src="/static/mainmini.js"></script><script>var dataUrl="{DATA_PATH}?token={TOKEN}";</script>'
+
+        with patch.object(soap2day, "_xpass_get", return_value=FakeResponse(_encrypt_backups(backups))), \
+                patch.object(soap2day, "_discover_xpass_build", return_value=BUILD) as discover:
+            self.assertEqual(soap2day._xpass_backups(embed_html, "https://play.xpass.top/e/movie/tt1"), backups)
+
+        discover.assert_called_once()
 
 
 if __name__ == "__main__":

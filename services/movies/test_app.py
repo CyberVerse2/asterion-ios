@@ -1,8 +1,15 @@
+import gzip
+import io
 import unittest
 from unittest.mock import patch
 
+import requests
+from requests.structures import CaseInsensitiveDict
+from urllib3 import HTTPResponse
+
 import app
 import db
+import playback
 from genre_catalog import merge_genres
 
 
@@ -87,6 +94,151 @@ class DatabaseTitleTests(unittest.TestCase):
         self.assertEqual(title["year"], "2024")
         self.assertEqual(title["image_url"], "https://img.example/mayday.jpg")
         self.assertEqual(title["imdb_rating"], "8.2")
+
+
+def _upstream(status, body=b"", headers=None, url="https://cdn.example/media"):
+    """Build a streamed requests.Response the way fetch_upstream returns it."""
+    response = requests.Response()
+    response.status_code = status
+    response.headers = CaseInsensitiveDict(headers or {})
+    response.url = url
+    response.raw = HTTPResponse(
+        body=io.BytesIO(body),
+        headers=headers or {},
+        status=status,
+        preload_content=False,
+        decode_content=True,
+    )
+    return response
+
+
+class HLSProxyTests(unittest.TestCase):
+    def setUp(self):
+        self.client = app.app.test_client()
+        sleep = patch("playback.time.sleep")
+        sleep.start()
+        self.addCleanup(sleep.stop)
+
+    def get(self, target, **kwargs):
+        return self.client.get("/proxy/hls", query_string={"url": target}, **kwargs)
+
+    @patch("playback.fetch_upstream")
+    def test_upstream_gateway_timeout_becomes_a_labelled_502(self, fetch):
+        fetch.side_effect = lambda *a, **k: _upstream(504, b"error code: 504")
+
+        response = self.get("https://cdn.example/master.m3u8")
+
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.headers["X-Upstream-Status"], "504")
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
+        self.assertEqual(fetch.call_count, playback.PROXY_ATTEMPTS)
+
+    @patch("playback.fetch_upstream")
+    def test_retries_a_transient_upstream_failure(self, fetch):
+        fetch.side_effect = [
+            requests.ReadTimeout(),
+            _upstream(200, b"#EXTM3U\nseg-1.ts\n", url="https://cdn.example/a/index.m3u8"),
+        ]
+
+        response = self.get("https://cdn.example/a/index.m3u8")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(playback.proxy_url("https://cdn.example/a/seg-1.ts"), response.get_data(as_text=True))
+        self.assertEqual(fetch.call_args.kwargs["timeout"], playback.PROXY_TIMEOUT)
+
+    @patch("playback.fetch_upstream", side_effect=requests.ReadTimeout())
+    def test_reports_repeated_timeouts(self, _fetch):
+        response = self.get("https://cdn.example/master.m3u8")
+
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.headers["X-Upstream-Status"], "timeout")
+
+    @patch("playback.fetch_upstream")
+    def test_does_not_rewrite_upstream_error_bodies(self, fetch):
+        fetch.return_value = _upstream(403, b"<html>access denied: expired</html>")
+
+        response = self.get("https://cdn.example/master.m3u8")
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.get_data(as_text=True), "Upstream returned 403")
+        self.assertEqual(fetch.call_count, 1)
+
+    @patch("playback.fetch_upstream")
+    def test_rejects_html_served_as_a_playlist(self, fetch):
+        fetch.return_value = _upstream(
+            200, b"<!doctype html><p>gone</p>", url="https://cdn.example/master.m3u8",
+        )
+
+        response = self.get("https://cdn.example/master.m3u8")
+
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.headers["X-Upstream-Status"], "invalid-playlist")
+
+    @patch("playback.fetch_upstream")
+    def test_sniffs_compressed_playlists_without_an_m3u8_extension(self, fetch):
+        body = gzip.compress(b"#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI=\"/k\"\n/seg/1\n")
+        fetch.return_value = _upstream(
+            200,
+            body,
+            {"Content-Type": "text/plain", "Content-Encoding": "gzip", "Content-Length": str(len(body))},
+            url="https://mol.example/playlist/abc",
+        )
+
+        response = self.get("https://mol.example/playlist/abc")
+        text = response.get_data(as_text=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content_type, "application/vnd.apple.mpegurl")
+        self.assertIn(playback.proxy_url("https://mol.example/seg/1"), text)
+        self.assertIn(f'URI="{playback.proxy_url("https://mol.example/k")}"', text)
+
+    @patch("playback.fetch_upstream")
+    def test_drops_length_headers_for_decoded_bodies(self, fetch):
+        payload = b"\x47" * 5000
+        body = gzip.compress(payload)
+        fetch.return_value = _upstream(
+            200,
+            body,
+            {"Content-Type": "video/mp2t", "Content-Encoding": "gzip", "Content-Length": str(len(body))},
+        )
+
+        response = self.get("https://cdn.example/seg.ts")
+
+        self.assertEqual(response.get_data(), payload)
+        self.assertNotEqual(response.headers.get("Content-Length"), str(len(body)))
+
+    @patch("playback.fetch_upstream")
+    def test_streams_ranged_segments_with_their_headers(self, fetch):
+        payload = b"\x89PNG" + b"\x00" * 1020
+        fetch.return_value = _upstream(
+            206,
+            payload,
+            {
+                "Content-Type": "image/png",
+                "Content-Length": str(len(payload)),
+                "Content-Range": f"bytes 0-1023/{len(payload) * 4}",
+                "Accept-Ranges": "bytes",
+            },
+        )
+
+        response = self.get("https://cdn.example/seg-1", headers={"Range": "bytes=0-1023"})
+
+        self.assertEqual(response.status_code, 206)
+        self.assertEqual(response.get_data(), payload)
+        self.assertEqual(response.headers["Content-Length"], str(len(payload)))
+        self.assertEqual(response.headers["Content-Range"], f"bytes 0-1023/{len(payload) * 4}")
+        self.assertEqual(response.headers["Cache-Control"], "public, max-age=3600")
+        self.assertEqual(fetch.call_args.args[1], "bytes=0-1023")
+
+    @patch("playback.fetch_upstream")
+    def test_refuses_oversized_playlists_instead_of_truncating(self, fetch):
+        body = b"#EXTM3U\n" + b"seg.ts\n" * (playback.PLAYLIST_CONTENT_LIMIT // 7 + 1)
+        fetch.return_value = _upstream(200, body, url="https://cdn.example/index.m3u8")
+
+        response = self.get("https://cdn.example/index.m3u8")
+
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.headers["X-Upstream-Status"], "playlist-too-large")
 
 
 if __name__ == "__main__":
