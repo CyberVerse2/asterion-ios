@@ -11,9 +11,12 @@ from html import unescape
 from html.parser import HTMLParser
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
-from urllib.parse import quote_plus, quote, urlencode, urlparse
+from urllib.parse import quote_plus, quote, urlencode, urljoin, urlparse
 from dataclasses import dataclass, field
 from typing import Optional
+
+from cryptography.hazmat.primitives import padding
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 BASE = "https://animixplay.cz"
 HEADERS = {
@@ -27,6 +30,13 @@ AJAX_HEADERS = {
     "X-Requested-With": "XMLHttpRequest",
     "Referer": BASE + "/",
 }
+
+# MegaPlay players return sources as {"enc": ...}: AES-CBC over JSON, keyed by
+# two strings zero-padded to 32 and 16 bytes. The player's app.main.js carries
+# them as DOMAINS_ENC_KEY / DOMAINS_ENC_IV, so they are re-read on failure.
+PLAYER_ENC_KEY = "i?LMTAx0Q6,:}50U"
+PLAYER_ENC_IV = "W0;27ToaUpl_P%'c"
+_player_keys: dict[str, tuple[str, str]] = {}
 
 ALL_GENRES = [
     "action", "adventure", "boys-love", "cars", "comedy", "dementia",
@@ -583,12 +593,58 @@ def resolve_source(stream_url: str) -> Optional[str]:
     return resolved.get("source") if resolved else None
 
 
+def _zero_padded(value: str, size: int) -> bytes:
+    encoded = value.encode("utf-8")[:size]
+    return encoded + b"\0" * (size - len(encoded))
+
+
+def _decrypt_player_sources(enc: str, key: str, iv: str) -> dict:
+    blob = base64.urlsafe_b64decode(enc + "=" * (-len(enc) % 4))
+    decryptor = Cipher(
+        algorithms.AES(_zero_padded(key, 32)),
+        modes.CBC(_zero_padded(iv, 16)),
+    ).decryptor()
+    padded = decryptor.update(blob) + decryptor.finalize()
+    unpadder = padding.PKCS7(128).unpadder()
+    return json.loads(unpadder.update(padded) + unpadder.finalize())
+
+
+def _player_key(origin: str, player_html: str) -> Optional[tuple[str, str]]:
+    script = _re_first(r'<script[^>]+src="([^"]*/lib/app\.main\.js[^"]*)"', player_html)
+    if not script:
+        return None
+    source = _get(urljoin(origin + "/", script), {"Referer": origin + "/"})
+    key = _re_first(r'DOMAINS_ENC_KEY\s*=\s*"((?:[^"\\]|\\.)*)"', source)
+    iv = _re_first(r'DOMAINS_ENC_IV\s*=\s*"((?:[^"\\]|\\.)*)"', source)
+    return (key, iv) if key and iv else None
+
+
+def _player_source(data: dict, origin: str, player_html: str) -> Optional[str]:
+    sources = data.get("sources")
+    if isinstance(sources, dict) and sources.get("file"):
+        return sources["file"]
+    enc = data.get("enc")
+    if not enc:
+        return None
+
+    key, iv = _player_keys.get(origin, (PLAYER_ENC_KEY, PLAYER_ENC_IV))
+    try:
+        return _decrypt_player_sources(enc, key, iv).get("file")
+    except ValueError:
+        pass
+    discovered = _player_key(origin, player_html)
+    if not discovered:
+        return None
+    _player_keys[origin] = discovered
+    return _decrypt_player_sources(enc, *discovered).get("file")
+
+
 def resolve_source_full(stream_url: str) -> Optional[dict]:
     """Resolve full source info: M3U8 + subtitle tracks."""
     try:
         html = _get(stream_url, {"Referer": BASE + "/"})
         player_id = _re_first(r'data-id="(\d+)"', html)
-        ep_type = stream_url.rstrip("/").rsplit("/", 1)[-1] or "sub"
+        ep_type = urlparse(stream_url).path.rstrip("/").rsplit("/", 1)[-1] or "sub"
 
         if not player_id:
             return None
@@ -600,7 +656,7 @@ def resolve_source_full(stream_url: str) -> Optional[dict]:
             api_url = f"{origin}/stream/getSourcesNew?id={player_id}&type={ep_type}"
         data = _get_json(api_url, {"Referer": stream_url})
 
-        source = data.get("sources", {}).get("file")
+        source = _player_source(data, origin, html)
         tracks = data.get("tracks", [])
 
         return {"source": source, "tracks": tracks}
