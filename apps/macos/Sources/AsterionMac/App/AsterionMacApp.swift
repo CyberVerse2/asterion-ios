@@ -73,12 +73,16 @@ struct AsterionApp: App {
     @StateObject private var mediaDownloads = MediaDownloadManager()
 
     init() {
-        ClerkKeychainMigration.migrateLegacySessionIfNeeded()
+        let publishableKey = Self.clerkPublishableKey
+        let keychainService = ClerkKeychainMigration.service(forPublishableKey: publishableKey)
+        if keychainService == ClerkKeychainMigration.currentService {
+            ClerkKeychainMigration.migrateLegacySessionIfNeeded()
+        }
         let options = Clerk.Options(
-            keychainConfig: .init(service: ClerkKeychainMigration.currentService)
+            keychainConfig: .init(service: keychainService)
         )
         Clerk.configure(
-            publishableKey: Self.clerkPublishableKey,
+            publishableKey: publishableKey,
             options: options
         )
     }

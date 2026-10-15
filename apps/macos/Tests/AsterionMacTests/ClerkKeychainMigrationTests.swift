@@ -43,4 +43,9 @@ struct ClerkKeychainMigrationTests {
                 == Data("current-client".utf8)
         )
     }
+
+    @Test func productionKeysUseTheirOwnKeychainService() {
+        #expect(ClerkKeychainMigration.service(forPublishableKey: "pk_live_abc") == ClerkKeychainMigration.productionService)
+        #expect(ClerkKeychainMigration.service(forPublishableKey: "pk_test_abc") == ClerkKeychainMigration.currentService)
+    }
 }

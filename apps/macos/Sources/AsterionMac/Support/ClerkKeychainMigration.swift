@@ -4,6 +4,14 @@ import Security
 enum ClerkKeychainMigration {
     static let legacyService = "cloud.cyberverse.AsterionMac.clerk"
     static let currentService = "cloud.cyberverse.Asterion.clerk"
+    /// Production sign-ins keep their own items. Development builds are signed
+    /// with a different identity, so sharing their items made macOS ask for the
+    /// login keychain password once per item.
+    static let productionService = "cloud.cyberverse.Asterion.clerk.production"
+
+    static func service(forPublishableKey key: String) -> String {
+        key.hasPrefix("pk_live_") ? productionService : currentService
+    }
 
     private static let deviceTokenAccount = "clerkDeviceToken"
     private static let clerkAccounts = [
