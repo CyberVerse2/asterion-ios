@@ -238,6 +238,17 @@ final class MoviePlayerStore: ObservableObject {
         let failedOption = playbackOptions[index]
         failureMessagesByOptionID[failedOption.id] = message
         syncServerTracking()
+        // Try the next verified direct source before asking the viewer to
+        // pick a server; one bad host shouldn't stop the film.
+        if let next = playbackOptions.indices.first(where: {
+            $0 != index
+                && playbackOptions[$0].kind == .direct
+                && playbackOptions[$0].isAutomatic
+                && !failedServerIndices.contains($0)
+        }) {
+            beginServerAttempt(at: next)
+            return
+        }
         streamError = "\(failedOption.title) failed. Choose another server.\n\(message)"
     }
 

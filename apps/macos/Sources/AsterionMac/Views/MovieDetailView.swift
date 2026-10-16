@@ -9,7 +9,7 @@ struct MovieDetailView: View {
     @State private var selectedSeason: Int?
     @State private var showsFullSynopsis = false
     @State private var showsFullCast = false
-    @State private var scrollPosition: String?
+    @State private var scrollPosition = ScrollPosition(edge: .top)
     @State private var downloadError: String?
     @State private var downloadPlan: MovieDownloadPlan?
 
@@ -100,16 +100,17 @@ struct MovieDetailView: View {
             .id("detail-top")
         }
         .hidingScrollIndicators()
-        .scrollPosition(id: $scrollPosition, anchor: .top)
+        .scrollPosition($scrollPosition)
         .background(Color.asterionMediaCanvas)
         .task(id: show.id) {
             showsFullSynopsis = false
             showsFullCast = false
-            scrollPosition = nil
             downloadError = nil
             selectedSeason = preferredEpisode(for: show)?.season ?? availableSeasons.first
             await Task.yield()
-            scrollPosition = "detail-top"
+            // Scroll to the true top edge; an id anchor lined the page up
+            // under the toolbar instead, so it jumped once loaded.
+            scrollPosition.scrollTo(edge: .top)
         }
         .onChange(of: activeProgress(for: show)?.unitId) { _, unitID in
             guard let unitID,

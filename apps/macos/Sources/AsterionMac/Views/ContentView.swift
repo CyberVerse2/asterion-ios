@@ -202,7 +202,10 @@ struct ContentView: View {
         }
         .id(contentIdentity)
         .transition(.opacity.combined(with: .scale(scale: 0.992, anchor: .center)))
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        // Zero minimums: a page that wants more height than the window must
+        // scroll or clip. Without them a tall, non-scrolling page grew the
+        // split view past the window and blanked the sidebar.
+        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .top)
         .overlay(alignment: .top) {
             // Keeps the toolbar and section bar legible over artwork and
             // content scrolling beneath them.
@@ -554,3 +557,4 @@ private enum AppDetailSelection {
     case loading(String)
     case unavailable(title: String, message: String)
 }
+

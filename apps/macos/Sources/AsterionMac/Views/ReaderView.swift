@@ -146,6 +146,9 @@ struct ReaderView: View {
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: readerTheme)
         .navigationTitle(chapter?.title ?? "Reader")
         .toolbar { readerToolbar }
+        // The centre pill names the novel and chapter; the window title stays
+        // for the Window menu but would repeat it in the toolbar.
+        .toolbar(removing: .title)
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: 0) {
                 if case .offline = model.chapterListState(for: route.novelID),
@@ -249,7 +252,9 @@ struct ReaderView: View {
                             )
                         } else {
                             ScrollView {
-                                LazyVStack(alignment: .leading, spacing: lineSpacing) {
+                                // Paragraph gaps match the two-page spread, so they read as
+                                // breaks rather than another wrapped line.
+                                LazyVStack(alignment: .leading, spacing: lineSpacing + 14) {
                                     readerHeader(chapter)
                                         .padding(.bottom, 24)
 
@@ -340,18 +345,24 @@ struct ReaderView: View {
                         .font(.asterionDisplay(13, weight: .semibold))
                         .foregroundStyle(palette.text)
                     HStack(spacing: 5) {
-                        Text("Ch. \(chapter.chapterNumber)")
+                        Text(verbatim: "Ch. \(chapter.chapterNumber)")
                             .font(.asterionMono(10.5, weight: .medium))
                         Text("·")
-                        Text(chapter.displayTitle)
+                        Text(Self.toolbarChapterTitle(chapter.displayTitle))
                             .font(.system(size: 11))
                     }
                     .foregroundStyle(palette.muted)
                 }
                 .lineLimit(1)
-                .frame(maxWidth: 520)
+                .fixedSize()
+                .padding(.horizontal, 16)
+                .padding(.vertical, 4)
+                // The system capsule sized itself to the novel title and
+                // clipped the longer chapter line, so draw our own.
+                .glassEffect(.regular, in: .capsule)
                 .accessibilityElement(children: .combine)
             }
+            .sharedBackgroundVisibility(.hidden)
         }
 
         ToolbarItemGroup(placement: .primaryAction) {
@@ -389,7 +400,7 @@ struct ReaderView: View {
 
     private func readerHeader(_ chapter: Chapter) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Chapter \(chapter.chapterNumber)")
+            Text(verbatim: "Chapter \(chapter.chapterNumber)")
                 .font(.asterionMono(12, weight: .medium))
                 .tracking(0.6)
                 .foregroundStyle(palette.faint)
@@ -398,6 +409,13 @@ struct ReaderView: View {
                 .foregroundStyle(palette.text)
                 .textSelection(.enabled)
         }
+    }
+
+    /// Keeps the toolbar pill a sensible width for very long chapter titles.
+    static func toolbarChapterTitle(_ title: String) -> String {
+        let limit = 44
+        guard title.count > limit else { return title }
+        return String(title.prefix(limit - 1)).trimmingCharacters(in: .whitespaces) + "…"
     }
 
     private func singlePageParagraphs(_ paragraphs: [String]) -> some View {

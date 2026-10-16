@@ -140,7 +140,7 @@ struct ReaderChapterPicker: View {
             onSelect(item.index)
         } label: {
             ReaderChapterRowLabel(
-                number: item.chapter.chapterNumber.formatted(),
+                number: String(item.chapter.chapterNumber),
                 title: item.chapter.displayTitle,
                 isSelected: isSelected,
                 palette: palette

@@ -18,7 +18,7 @@ struct NovelDetailView: View {
     @State private var errorMessage: String?
     @State private var chapterSearchError: String?
     @State private var downloadRequestError: String?
-    @State private var scrollPosition: String?
+    @State private var scrollPosition = ScrollPosition(edge: .top)
     @State private var showsFullSynopsis = false
     @State private var selectedChapterRange = 0
     @State private var chapterSearch = ""
@@ -67,17 +67,18 @@ struct NovelDetailView: View {
             .id("detail-top")
         }
         .hidingScrollIndicators()
-        .scrollPosition(id: $scrollPosition, anchor: .top)
+        .scrollPosition($scrollPosition)
         .background(Color.asterionMediaCanvas)
         .safeAreaInset(edge: .bottom) { accountErrorBar }
         .task(id: novel.id) {
             showsFullSynopsis = false
             chapterSearch = ""
             selectedChapterRange = 0
-            scrollPosition = nil
             await load()
             await Task.yield()
-            scrollPosition = "detail-top"
+            // Scroll to the true top edge; an id anchor lined the page up
+            // under the toolbar instead, so it jumped once loaded.
+            scrollPosition.scrollTo(edge: .top)
         }
         .task(id: chapterSearch) {
             await searchChapters()
@@ -108,12 +109,22 @@ struct NovelDetailView: View {
 
             if let progress {
                 AsterionDetailProgress(
-                    fraction: progress.percentage / 100,
+                    fraction: novelFraction(progress),
                     caption: progressChapter.map { "Chapter \($0.chapterNumber) of \(totalChapterCount)" }
                 )
                 .animation(reduceMotion ? nil : AsterionMotion.reveal, value: progress.percentage)
             }
         }
+    }
+
+    /// How far through the whole novel the reader is. The saved percentage
+    /// is only the position inside the current chapter.
+    private func novelFraction(_ progress: ReadingProgress) -> Double {
+        let inChapter = min(1, max(0, progress.percentage / 100))
+        guard let number = progressChapter?.chapterNumber, totalChapterCount > 0 else {
+            return inChapter
+        }
+        return min(1, max(0, (Double(number - 1) + inChapter) / Double(totalChapterCount)))
     }
 
     private var eyebrow: String {
@@ -125,7 +136,10 @@ struct NovelDetailView: View {
     }
 
     private var novelMetadata: [String] {
-        let chapterCount = novel.totalChapters.flatMap { $0.isEmpty ? nil : $0 } ?? String(totalChapterCount)
+        // The loaded chapter list is authoritative; the catalog count can lag.
+        let chapterCount = totalChapterCount > 0
+            ? String(totalChapterCount)
+            : novel.totalChapters.flatMap { $0.isEmpty ? nil : $0 } ?? "—"
         let status = novel.status?.trimmingCharacters(in: .whitespacesAndNewlines).capitalized
         let otherGenres = (novel.genres ?? []).dropFirst().prefix(2).joined(separator: ", ")
         return [

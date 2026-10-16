@@ -6,7 +6,7 @@ struct AnimeDetailView: View {
     @EnvironmentObject private var mediaDownloads: MediaDownloadManager
     @ObservedObject var store: AnimeStore
 
-    @State private var scrollPosition: String?
+    @State private var scrollPosition = ScrollPosition(edge: .top)
     @State private var showsFullSynopsis = false
     @State private var downloadError: String?
     @State private var downloadPlan: AnimeDownloadPlan?
@@ -85,14 +85,15 @@ struct AnimeDetailView: View {
             .id("detail-top")
         }
         .hidingScrollIndicators()
-        .scrollPosition(id: $scrollPosition, anchor: .top)
+        .scrollPosition($scrollPosition)
         .background(Color.asterionMediaCanvas)
         .task(id: show.id) {
             showsFullSynopsis = false
             downloadError = nil
-            scrollPosition = nil
             await Task.yield()
-            scrollPosition = "detail-top"
+            // Scroll to the true top edge; an id anchor lined the page up
+            // under the toolbar instead, so it jumped once loaded.
+            scrollPosition.scrollTo(edge: .top)
         }
     }
 

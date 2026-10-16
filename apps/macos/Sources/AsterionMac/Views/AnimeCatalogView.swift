@@ -494,7 +494,7 @@ struct AnimeCatalogView: View {
                 Spacer(minLength: 12)
 
                 if let episode = entry.episodeNumber {
-                    Text("EP \(episode)")
+                    Text(verbatim: "EP \(episode)")
                         .font(.asterionMono(11, weight: .semibold))
                         .foregroundStyle(Color.asterionMuted)
                 }
