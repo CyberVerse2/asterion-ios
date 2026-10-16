@@ -81,6 +81,22 @@ struct MediaWatchTargetResolverTests {
         #expect(target == MediaWatchTarget(unitID: "episode-1", action: .rewatch))
     }
 
+    @Test func finishingTheFinaleCountsAsFinishedEvenWithSkippedEpisodes() throws {
+        // Started at episode 2, watched through the finale: finished, not "watch episode 1 next".
+        let target = try #require(
+            MediaWatchTargetResolver.resolve(
+                orderedUnitIDs: ["episode-1", "episode-2", "episode-3"],
+                progress: progress(unitID: "episode-3", percentage: 100, completed: true, at: 30),
+                history: [
+                    history(unitID: "episode-2", percentage: 100, completed: true, at: 20),
+                    history(unitID: "episode-3", percentage: 100, completed: true, at: 30),
+                ]
+            )
+        )
+
+        #expect(target == MediaWatchTarget(unitID: "episode-1", action: .rewatch))
+    }
+
     @Test func completedStandaloneMovieOffersARewatch() throws {
         let target = try #require(
             MediaWatchTargetResolver.resolve(

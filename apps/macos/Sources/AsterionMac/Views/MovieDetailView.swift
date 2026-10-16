@@ -654,7 +654,7 @@ struct MovieDetailView: View {
         case .start: "Watch S\(episode.season) E\(episode.number)"
         case .resume: "Resume S\(episode.season) E\(episode.number)"
         case .next: "Watch next · S\(episode.season) E\(episode.number)"
-        case .rewatch: "Watch S\(episode.season) E\(episode.number) again"
+        case .rewatch: "Finished · Watch again"
         }
     }
 

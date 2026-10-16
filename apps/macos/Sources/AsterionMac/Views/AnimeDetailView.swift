@@ -714,7 +714,7 @@ struct AnimeDetailView: View {
         case .next:
             return "Watch next · Episode \(episode.number)"
         case .rewatch:
-            return "Watch episode \(episode.number) again"
+            return "Finished · Watch again"
         }
     }
 

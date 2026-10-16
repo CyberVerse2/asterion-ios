@@ -75,10 +75,9 @@ enum MediaWatchTargetResolver {
             return MediaWatchTarget(unitID: nextUnitID, action: .next)
         }
 
-        if let unfinishedUnitID = unitIDs.first(where: { !completedUnitIDs.contains($0) }) {
-            return MediaWatchTarget(unitID: unfinishedUnitID, action: .next)
-        }
-
+        // Nothing left after the latest finished episode: the viewer has
+        // reached the end. Earlier episodes they skipped don't make the show
+        // "unfinished" again, so don't send them back to the start.
         return MediaWatchTarget(unitID: firstUnitID, action: .rewatch)
     }
 
