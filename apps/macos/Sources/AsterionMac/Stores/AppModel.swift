@@ -12,6 +12,11 @@ private struct MediaOutboxRejectedError: LocalizedError {
 @MainActor
 final class AppModel: ObservableObject {
     private static let offlineDownloadConcurrency = 24
+    /// Chapters fetched between writes to the offline library, so a stopped
+    /// or failed download keeps what it already fetched.
+    private static let offlineSaveBatchSize = 50
+    /// Pages of account reading history fetched per sync (50 rows each).
+    private static let readingHistoryPageCount = 4
     private static let deviceProgressOwnerID = "device"
 
     private enum AccountErrorSource: CaseIterable {
@@ -62,18 +67,41 @@ final class AppModel: ObservableObject {
     @Published private(set) var novels: [Novel] = [] {
         didSet {
             guard novels != oldValue else { return }
+            novelIndexByID = Dictionary(novels.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             novelDiscover = NovelCatalog.discover(novels, seed: NovelCatalog.weekSeed(for: .now))
             novelGenres = NovelCatalog.genreCounts(novels)
+            scheduleNovelSnapshotRefresh()
         }
     }
+    private var novelIndexByID: [String: Novel] = [:]
+    /// Saved copies of the novels someone has saved, is reading or has read,
+    /// used whenever the catalog doesn't have them.
+    @Published private(set) var novelSnapshotsByID: [String: NovelSnapshot] = [:]
     /// The novels Discover page, rebuilt whenever the catalog changes.
     private(set) var novelDiscover = NovelDiscoverLayout.empty
     /// Every catalog genre with its novel count, most common first.
     private(set) var novelGenres: [NovelGenreCount] = []
-    @Published private(set) var libraryNovelIDs: Set<String> = []
-    @Published private(set) var progressByNovelID: [String: ReadingProgress] = [:] {
-        didSet { scheduleReadingPositionRefresh() }
+    @Published private(set) var libraryNovelIDs: Set<String> = [] {
+        didSet {
+            guard libraryNovelIDs != oldValue else { return }
+            scheduleNovelSnapshotRefresh()
+        }
     }
+    @Published private(set) var progressByNovelID: [String: ReadingProgress] = [:] {
+        didSet {
+            scheduleReadingPositionRefresh()
+            if Set(progressByNovelID.keys) != Set(oldValue.keys) { scheduleNovelSnapshotRefresh() }
+        }
+    }
+    /// Every chapter read, newest first, for the current owner.
+    @Published private(set) var readingHistory: [ReadingHistoryEntry] = [] {
+        didSet {
+            guard Set(readingHistory.map(\.novelID)) != Set(oldValue.map(\.novelID)) else { return }
+            scheduleNovelSnapshotRefresh()
+        }
+    }
+    /// Chapters read across the account, from `/me/stats`.
+    @Published private(set) var accountChaptersRead: Int?
     /// Chapter numbers for saved progress, keyed by chapter ID. Progress only
     /// stores a chapter ID, so cards resolve the number here.
     @Published private(set) var progressChapterByID: [String: ProgressChapterMarker] = [:]
@@ -100,6 +128,8 @@ final class AppModel: ObservableObject {
     let api = APIClient()
     private let offlineLibrary = OfflineLibraryStore()
     private let readingProgressStore = ReadingProgressStore()
+    private let readingHistoryStore = ReadingHistoryStore()
+    private let novelSnapshotStore = NovelSnapshotStore()
     private let mediaActivityStore = MediaActivityStore()
     private let networkStatus = NetworkStatusMonitor()
     private lazy var progressUploadQueue = ReadingProgressUploadQueue(api: api)
@@ -109,6 +139,11 @@ final class AppModel: ObservableObject {
     private var chaptersByNovelID: [String: ChapterListCacheEntry] = [:]
     private var chapterListTaskByNovelID: [String: Task<[Chapter], Error>] = [:]
     private var chapterTaskByID: [String: Task<Chapter, Error>] = [:]
+    private var offlineDownloadTaskByNovelID: [String: Task<Void, Error>] = [:]
+    private var hasLoadedNovelSnapshots = false
+    private var novelSnapshotRefreshPending = false
+    private var novelSnapshotSaveTask: Task<Void, Never>?
+    private var historyChapterResolutionTask: Task<Void, Never>?
     private var remoteNovelIDs: Set<String> = []
     private var readingPositionTask: Task<Void, Never>?
     private var readingPositionRefreshPending = false
@@ -140,6 +175,8 @@ final class AppModel: ObservableObject {
         networkEventsTask?.cancel()
         accountSyncRetryTask?.cancel()
         mediaOutboxTask?.cancel()
+        novelSnapshotSaveTask?.cancel()
+        historyChapterResolutionTask?.cancel()
         networkStatus.cancel()
     }
 
@@ -179,6 +216,44 @@ final class AppModel: ObservableObject {
             history: mediaHistory.filter {
                 $0.mediaType == mediaType && $0.contentId == contentID
             }
+        )
+    }
+
+    /// The novels in the library, from the catalog or their saved snapshot.
+    var libraryNovels: [Novel] {
+        libraryNovelIDs.compactMap(novel(id:))
+    }
+
+    /// A History row for a chapter, with the novel's title and cover.
+    struct ReadingHistoryRow: Identifiable, Equatable {
+        let entry: ReadingHistoryEntry
+        let novelTitle: String
+        let coverURL: URL?
+
+        var id: String { entry.id }
+    }
+
+    /// Chapters read, newest first. Rows whose novel is unknown on this Mac
+    /// (a synced row while the catalog is unavailable) are left out.
+    var readingHistoryRows: [ReadingHistoryRow] {
+        readingHistory.compactMap { entry in
+            let novel = novel(id: entry.novelID)
+            guard let title = novel?.title ?? entry.novelTitle else { return nil }
+            return ReadingHistoryRow(
+                entry: entry,
+                novelTitle: title,
+                coverURL: (novel?.imageURL ?? entry.coverURL).flatMap(URL.init(string:))
+            )
+        }
+    }
+
+    /// Chapters read and novels finished, for the profile.
+    var readingStats: ReadingActivityStats {
+        ReadingHistory.stats(
+            entries: readingHistory,
+            novelsFinished: readingEntries.count(where: { $0.novelProgress.isFinished }),
+            accountChaptersRead: accountChaptersRead,
+            now: .now
         )
     }
 
@@ -264,6 +339,7 @@ final class AppModel: ObservableObject {
             }
         }
 
+        await loadNovelSnapshots()
         async let session: Void = restoreSession()
         await loadOfflineLibrary()
         async let catalog: Void = loadCatalog()
@@ -278,7 +354,11 @@ final class AppModel: ObservableObject {
                     continue
                 }
                 guard isOnline, let self else { continue }
+                // The catalog reloads too when it had failed or fell back
+                // to downloads while offline.
+                async let catalog: Void = self.loadCatalogIfNeeded()
                 await self.synchronizeSession(forceRemote: true)
+                _ = await catalog
             }
         }
     }
@@ -394,8 +474,10 @@ final class AppModel: ObservableObject {
             .id
     }
 
+    /// A novel from the catalog, or its saved snapshot when the catalog
+    /// hasn't loaded, failed, or no longer lists it.
     func novel(id: String) -> Novel? {
-        novels.first { $0.id == id }
+        novelIndexByID[id] ?? novelSnapshotsByID[id]?.novel
     }
 
     func chapters(for novelID: String) async throws -> [Chapter] {
@@ -458,11 +540,29 @@ final class AppModel: ObservableObject {
         offset: Int,
         search: String? = nil
     ) async throws -> ChapterPage {
-        let page = try await api.fetchChapterPage(
-            novelID: novelID,
-            offset: offset,
-            search: search
-        )
+        let page: ChapterPage
+        do {
+            page = try await api.fetchChapterPage(
+                novelID: novelID,
+                offset: offset,
+                search: search
+            )
+        } catch let remoteError {
+            // Offline, a downloaded novel pages through what is on this Mac.
+            guard search?.isEmpty != false,
+                  let offline = try? await offlineLibrary.chapters(for: novelID),
+                  !offline.isEmpty else { throw remoteError }
+            chapterListStateByNovelID[novelID] = .offline(remoteError: remoteError.localizedDescription)
+            let sorted = offline.sorted { $0.chapterNumber < $1.chapterNumber }
+            let lower = min(max(offset, 0), sorted.count)
+            let upper = min(lower + NovelChapterRange.pageSize, sorted.count)
+            return ChapterPage(
+                chapters: Array(sorted[lower..<upper]),
+                total: sorted.count,
+                limit: NovelChapterRange.pageSize,
+                offset: lower
+            )
+        }
         cacheChapterContent(page.chapters)
         chapterListStateByNovelID[novelID] = .remote
         if search?.isEmpty != false {
@@ -472,9 +572,15 @@ final class AppModel: ObservableObject {
     }
 
     func chapter(novelID: String, number: Int) async throws -> Chapter {
-        let chapter = try await api.fetchChapter(novelID: novelID, chapterNumber: number)
-        chapterByID[chapter.id] = chapter
-        return chapter
+        do {
+            let chapter = try await api.fetchChapter(novelID: novelID, chapterNumber: number)
+            chapterByID[chapter.id] = chapter
+            return chapter
+        } catch let remoteError {
+            guard let summary = try? await offlineLibrary.chapters(for: novelID)?
+                .first(where: { $0.chapterNumber == number }) else { throw remoteError }
+            return try await chapter(id: summary.id)
+        }
     }
 
     func prefetchChapter(id: String) {
@@ -518,11 +624,17 @@ final class AppModel: ObservableObject {
         return chapter
     }
 
-    func downloadForOffline(novel: Novel) async throws {
+    /// Downloads a novel's chapters for offline reading: every chapter, or
+    /// those numbered within `chapterRange`. Chapters already on this Mac
+    /// are skipped, so retrying or resuming only fetches what is missing,
+    /// and fetched chapters are saved in batches, so a stopped or failed
+    /// download keeps them. Cancelling is not an error.
+    func downloadForOffline(novel: Novel, chapterRange: ClosedRange<Int>? = nil) async throws {
         guard offlineDownloadByNovelID[novel.id]?.isDownloading != true else {
             throw OfflineDownloadError.alreadyInProgress(novelTitle: novel.title)
         }
 
+        let previous = offlineDownloadByNovelID[novel.id]
         offlineDownloadByNovelID[novel.id] = OfflineDownload(
             novelID: novel.id,
             novelTitle: novel.title,
@@ -530,37 +642,38 @@ final class AppModel: ObservableObject {
             totalChapters: 0,
             phase: .downloading,
             errorMessage: nil,
-            updatedAt: Date()
+            updatedAt: Date(),
+            requestedRange: chapterRange,
+            saved: previous?.saved ?? OfflineChapterSet(),
+            coversWholeNovel: previous?.coversWholeNovel ?? false
         )
 
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            try await self.performOfflineDownload(novel: novel, chapterRange: chapterRange)
+        }
+        offlineDownloadTaskByNovelID[novel.id] = task
+        defer { offlineDownloadTaskByNovelID.removeValue(forKey: novel.id) }
+
         do {
-            let chapterSummaries = try await api.fetchAllChapters(novelID: novel.id)
-            updateOfflineDownload(novelID: novel.id) { download in
-                download.totalChapters = chapterSummaries.count
-            }
-
-            let fullChapters = try await fetchChaptersForOfflineDownload(
-                chapterSummaries,
-                novelID: novel.id
-            )
-
-            let sortedChapters = fullChapters.sorted { $0.chapterNumber < $1.chapterNumber }
-            try await offlineLibrary.save(novel: novel, chapters: sortedChapters)
-            downloadedNovelIDs.insert(novel.id)
-            chaptersByNovelID[novel.id] = ChapterListCacheEntry(
-                chapters: sortedChapters,
-                expiresAt: Date().addingTimeInterval(300)
-            )
-            for chapter in sortedChapters {
-                chapterByID[chapter.id] = chapter
-            }
-            novels = mergedNovels(primary: novels, secondary: [novel])
+            try await task.value
             updateOfflineDownload(novelID: novel.id) { download in
                 download.phase = .completed
                 download.completedChapters = download.totalChapters
                 download.errorMessage = nil
             }
         } catch {
+            if task.isCancelled || error is CancellationError {
+                if offlineDownloadByNovelID[novel.id]?.hasSavedChapters == true {
+                    updateOfflineDownload(novelID: novel.id) { download in
+                        download.phase = .cancelled
+                        download.errorMessage = nil
+                    }
+                } else {
+                    offlineDownloadByNovelID.removeValue(forKey: novel.id)
+                }
+                return
+            }
             updateOfflineDownload(novelID: novel.id) { download in
                 download.phase = .failed
                 download.errorMessage = error.localizedDescription
@@ -569,10 +682,104 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Stops a novel download in progress. Chapters already fetched stay.
+    func cancelOfflineDownload(novelID: String) {
+        offlineDownloadTaskByNovelID[novelID]?.cancel()
+    }
+
+    private func performOfflineDownload(novel: Novel, chapterRange: ClosedRange<Int>?) async throws {
+        let summaries = try await api.fetchAllChapters(novelID: novel.id)
+        try Task.checkCancellation()
+        let saved = offlineDownloadByNovelID[novel.id]?.saved ?? OfflineChapterSet()
+        let covered = NovelDownloadRange.chapters(summaries, in: chapterRange)
+        guard !covered.isEmpty else { throw OfflineDownloadError.emptyRange }
+        let missing = NovelDownloadRange.chaptersToFetch(from: summaries, in: chapterRange, excluding: saved)
+        updateOfflineDownload(novelID: novel.id) { download in
+            download.totalChapters = covered.count
+            download.completedChapters = covered.count - missing.count
+        }
+
+        try await fetchAndStoreChapters(missing, novel: novel)
+
+        let savedIDs = offlineDownloadByNovelID[novel.id]?.saved.ids ?? []
+        let coversWholeNovel = summaries.allSatisfy { savedIDs.contains($0.id) }
+        try await offlineLibrary.add(novel: novel, chapters: [], coversWholeNovel: coversWholeNovel)
+        updateOfflineDownload(novelID: novel.id) { $0.coversWholeNovel = coversWholeNovel }
+    }
+
+    /// Fetches chapter bodies concurrently, writing them to the offline
+    /// library every `offlineSaveBatchSize` chapters and once more when the
+    /// download ends, however it ends.
+    private func fetchAndStoreChapters(_ summaries: [Chapter], novel: Novel) async throws {
+        guard !summaries.isEmpty else { return }
+        let api = api
+        let workerCount = min(Self.offlineDownloadConcurrency, summaries.count)
+        var iterator = summaries.makeIterator()
+        var pending: [Chapter] = []
+        var failure: Error?
+
+        await withTaskGroup(of: Result<Chapter, Error>.self) { group in
+            for _ in 0..<workerCount {
+                guard let summary = iterator.next() else { break }
+                group.addTask { await Self.fullChapter(summary, api: api) }
+            }
+
+            while let result = await group.next() {
+                switch result {
+                case .success(let chapter):
+                    pending.append(chapter)
+                    updateOfflineDownload(novelID: novel.id) { $0.completedChapters += 1 }
+                    if pending.count >= Self.offlineSaveBatchSize {
+                        do {
+                            try await storeOfflineChapters(pending, novel: novel)
+                            pending.removeAll()
+                        } catch {
+                            failure = failure ?? error
+                            group.cancelAll()
+                        }
+                    }
+                case .failure(let error):
+                    failure = failure ?? error
+                    group.cancelAll()
+                }
+
+                if failure == nil, !Task.isCancelled, let summary = iterator.next() {
+                    group.addTask { await Self.fullChapter(summary, api: api) }
+                }
+            }
+        }
+
+        if !pending.isEmpty {
+            try await storeOfflineChapters(pending, novel: novel)
+        }
+        try Task.checkCancellation()
+        if let failure { throw failure }
+    }
+
+    nonisolated private static func fullChapter(_ summary: Chapter, api: APIClient) async -> Result<Chapter, Error> {
+        if summary.content?.isEmpty == false { return .success(summary) }
+        do {
+            return .success(try await api.fetchChapter(id: summary.id))
+        } catch {
+            return .failure(error)
+        }
+    }
+
+    private func storeOfflineChapters(_ chapters: [Chapter], novel: Novel) async throws {
+        try await offlineLibrary.add(novel: novel, chapters: chapters)
+        downloadedNovelIDs.insert(novel.id)
+        updateOfflineDownload(novelID: novel.id) { $0.saved.insert(chapters) }
+        if !novelIndexByID.keys.contains(novel.id) {
+            novels = mergedNovels(primary: novels, secondary: [novel])
+        }
+    }
+
     func offlineDownload(for novelID: String) -> OfflineDownload? {
         offlineDownloadByNovelID[novelID]
     }
 
+    /// Removes a novel's downloaded chapters, or forgets a failed or stopped
+    /// download that saved none.
     func removeOfflineDownload(novelID: String) async throws {
         guard offlineDownloadByNovelID[novelID]?.isDownloading != true else {
             throw OfflineDownloadError.alreadyInProgress(
@@ -595,43 +802,6 @@ final class AppModel: ObservableObject {
         chaptersByNovelID.removeValue(forKey: novelID)
         chapterListTaskByNovelID[novelID]?.cancel()
         chapterListTaskByNovelID.removeValue(forKey: novelID)
-    }
-
-    private func fetchChaptersForOfflineDownload(
-        _ summaries: [Chapter],
-        novelID: String
-    ) async throws -> [Chapter] {
-        let api = api
-        let workerCount = min(Self.offlineDownloadConcurrency, summaries.count)
-        var iterator = summaries.makeIterator()
-        var completed: [Chapter] = []
-        completed.reserveCapacity(summaries.count)
-
-        return try await withThrowingTaskGroup(of: Chapter.self) { group in
-            for _ in 0..<workerCount {
-                guard let summary = iterator.next() else { break }
-                group.addTask {
-                    if summary.content?.isEmpty == false { return summary }
-                    return try await api.fetchChapter(id: summary.id)
-                }
-            }
-
-            while let chapter = try await group.next() {
-                completed.append(chapter)
-                updateOfflineDownload(novelID: novelID) { download in
-                    download.completedChapters = completed.count
-                }
-
-                if let summary = iterator.next() {
-                    group.addTask {
-                        if summary.content?.isEmpty == false { return summary }
-                        return try await api.fetchChapter(id: summary.id)
-                    }
-                }
-            }
-
-            return completed
-        }
     }
 
     func toggleLibrary(novelID: String) async {
@@ -896,6 +1066,7 @@ final class AppModel: ObservableObject {
             try await readingProgressStore.save(pending)
             guard progressSaveGenerationByKey[saveKey] == generation else { return }
             progressByNovelID[novelID] = pending.readingProgress
+            await recordReadingVisit(ownerID: ownerID, progress: pending.readingProgress)
         } catch {
             setAccountError(
                 .progressSave,
@@ -1024,6 +1195,7 @@ final class AppModel: ObservableObject {
             mediaProgressByKey = [:]
             mediaHistory = []
             mediaStats = .empty
+            accountChaptersRead = nil
             updatingMediaBookmarkKeys = []
             mediaBookmarkError = nil
             await api.setToken(nil)
@@ -1059,6 +1231,7 @@ final class AppModel: ObservableObject {
             mediaProgressByKey = [:]
             mediaHistory = []
             mediaStats = .empty
+            accountChaptersRead = nil
             updatingMediaBookmarkKeys = []
             mediaBookmarkError = nil
         }
@@ -1123,6 +1296,7 @@ final class AppModel: ObservableObject {
         async let progressSync: Void = synchronizeProgressForSession(ownerID: clerkUser.id)
         async let librarySync: Void = synchronizeLibraryForSession()
         async let mediaSync: Void = synchronizeMediaAccountForSession(ownerID: clerkUser.id)
+        async let historySync: Void = synchronizeReadingHistoryForSession(ownerID: clerkUser.id)
         if (!accountIsUnchanged || accountErrors[.profileSync] != nil), !didBootstrapAccount {
             _ = await synchronizeProfileForSession(
                 ownerID: clerkUser.id,
@@ -1131,7 +1305,7 @@ final class AppModel: ObservableObject {
                 avatarURL: clerkUser.imageUrl
             )
         }
-        _ = await (progressSync, librarySync, mediaSync)
+        _ = await (progressSync, librarySync, mediaSync, historySync)
     }
 
     private var progressOwnerID: String {
@@ -1177,6 +1351,124 @@ final class AppModel: ObservableObject {
         progressByNovelID = Dictionary(
             uniqueKeysWithValues: local.map { ($0.novelID, $0.readingProgress) }
         )
+        readingHistory = (try? await readingHistoryStore.entries(ownerID: ownerID)) ?? []
+        scheduleHistoryChapterResolution(ownerID: ownerID)
+    }
+
+    // MARK: Reading history
+
+    /// Adds the chapter behind a progress save to History. One entry per
+    /// chapter: reading it again moves it to the top.
+    private func recordReadingVisit(ownerID: String, progress: ReadingProgress) async {
+        let chapter = chapterByID[progress.chapterId]
+        let marker = progressChapterByID[progress.chapterId]
+        let novel = novel(id: progress.novelId)
+        let visit = ReadingHistory.Visit(
+            novelID: progress.novelId,
+            chapterID: progress.chapterId,
+            chapterNumber: chapter?.chapterNumber ?? marker?.number,
+            chapterTitle: chapter?.displayTitle ?? marker?.title,
+            novelTitle: novel?.title,
+            coverURL: novel?.imageURL,
+            percentage: NovelProgress(progress: progress, chapterNumber: nil, totalChapters: nil)
+                .chapterPercentage,
+            readAt: progress.updatedAt ?? Date()
+        )
+        guard let entries = try? await readingHistoryStore.record(ownerID: ownerID, visit: visit),
+              progressOwnerID == ownerID else { return }
+        readingHistory = entries
+    }
+
+    /// Folds the account's recent reading history into this Mac's and
+    /// refreshes the account's chapter count. The API records history on its
+    /// own from every progress save, so there is nothing to upload.
+    private func synchronizeReadingHistoryForSession(ownerID: String) async {
+        var rows: [RemoteReadingHistoryRow] = []
+        for page in 0..<Self.readingHistoryPageCount {
+            guard let pageRows = try? await api.fetchReadingHistory(limit: 50, offset: page * 50) else { break }
+            rows.append(contentsOf: pageRows)
+            if pageRows.count < 50 { break }
+        }
+        let stats = try? await api.fetchReadingStats()
+        guard signedInUser?.id == ownerID else { return }
+        if let stats { accountChaptersRead = stats.chaptersRead }
+        guard !rows.isEmpty,
+              let entries = try? await readingHistoryStore.merge(ownerID: ownerID, remote: rows),
+              signedInUser?.id == ownerID else { return }
+        readingHistory = entries
+        scheduleHistoryChapterResolution(ownerID: ownerID)
+    }
+
+    /// Synced rows only name the chapter; look up the number and title of
+    /// the most recent ones so History can show "Ch. 12".
+    private func scheduleHistoryChapterResolution(ownerID: String) {
+        let missing = Array(
+            readingHistory.lazy.filter { $0.chapterNumber == nil }.map(\.chapterID).prefix(60)
+        )
+        guard !missing.isEmpty, historyChapterResolutionTask == nil else { return }
+        historyChapterResolutionTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.historyChapterResolutionTask = nil }
+            let api = api
+            let offlineLibrary = offlineLibrary
+            let cached = chapterByID
+            let chapters = await ConcurrentBatch.run(missing, maximumConcurrentTasks: 4) { id -> Chapter? in
+                if let chapter = cached[id] { return chapter }
+                if let offline = try? await offlineLibrary.chapter(id: id) { return offline }
+                return try? await api.fetchChapter(id: id)
+            }
+            var markers: [String: (number: Int, title: String)] = [:]
+            for chapter in chapters.compactMap({ $0 }) {
+                markers[chapter.id] = (chapter.chapterNumber, chapter.displayTitle)
+            }
+            guard !markers.isEmpty,
+                  let entries = try? await readingHistoryStore.resolveChapters(ownerID: ownerID, markers),
+                  progressOwnerID == ownerID else { return }
+            readingHistory = entries
+        }
+    }
+
+    // MARK: Novel snapshots
+
+    private func loadNovelSnapshots() async {
+        let saved = (try? await novelSnapshotStore.load()) ?? [:]
+        novelSnapshotsByID = saved
+        hasLoadedNovelSnapshots = true
+        refreshNovelSnapshots()
+    }
+
+    /// Coalesces snapshot refreshes from bursts of catalog, library and
+    /// progress changes into one pass on the next turn of the main actor.
+    private func scheduleNovelSnapshotRefresh() {
+        guard hasLoadedNovelSnapshots, !novelSnapshotRefreshPending else { return }
+        novelSnapshotRefreshPending = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            novelSnapshotRefreshPending = false
+            refreshNovelSnapshots()
+        }
+    }
+
+    private func refreshNovelSnapshots() {
+        let neededIDs = libraryNovelIDs
+            .union(progressByNovelID.keys)
+            .union(readingHistory.map(\.novelID))
+        let index = novelIndexByID
+        let updated = NovelSnapshots.updated(
+            novelSnapshotsByID,
+            neededIDs: neededIDs,
+            catalog: { index[$0] },
+            now: Date()
+        )
+        guard NovelSnapshots.needsWrite(updated, over: novelSnapshotsByID) else { return }
+        novelSnapshotsByID = updated
+        novelSnapshotSaveTask?.cancel()
+        let store = novelSnapshotStore
+        novelSnapshotSaveTask = Task {
+            try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled else { return }
+            try? await store.save(updated)
+        }
     }
 
     private func synchronizeProgressForSession(ownerID: String) async {
@@ -1586,6 +1878,7 @@ final class AppModel: ObservableObject {
             let offlineNovels = downloadedItems.map(\.novel)
             novels = mergedNovels(primary: novels, secondary: offlineNovels)
             for item in downloadedItems {
+                let summaries = (try? await offlineLibrary.chapters(for: item.novel.id)) ?? []
                 offlineDownloadByNovelID[item.novel.id] = OfflineDownload(
                     novelID: item.novel.id,
                     novelTitle: item.novel.title,
@@ -1593,7 +1886,9 @@ final class AppModel: ObservableObject {
                     totalChapters: item.chapterCount,
                     phase: .completed,
                     errorMessage: nil,
-                    updatedAt: item.downloadedAt
+                    updatedAt: item.downloadedAt,
+                    saved: OfflineChapterSet(summaries),
+                    coversWholeNovel: item.coversWholeNovel
                 )
             }
         } catch {

@@ -27,6 +27,7 @@ struct UnifiedActivityView: View {
     let selectReading: (AppModel.ContinueReadingEntry) -> Void
     let selectProgress: (MediaPlaybackProgress) -> Void
     let selectHistory: (MediaHistoryEntry) -> Void
+    var selectNovel: ((Novel) -> Void)? = nil
 
     @State private var filter: ActivityFilter = .all
 
@@ -35,11 +36,21 @@ struct UnifiedActivityView: View {
     }
 
     private var items: [UnifiedActivityItem] {
-        // Finished novels leave Continue, as finished shows do, but stay in History.
-        let readingEntries = mode == .continueActivity
-            ? model.continueReadingEntries
-            : model.readingEntries
-        let reading = readingEntries.map(UnifiedActivityItem.reading)
+        // Finished novels leave Continue, as finished shows do. History lists
+        // every chapter read, like episodes; a novel read before chapters
+        // were recorded keeps its single reading row.
+        let reading: [UnifiedActivityItem]
+        switch mode {
+        case .continueActivity:
+            reading = model.continueReadingEntries.map(UnifiedActivityItem.reading)
+        case .history:
+            let chapters = model.readingHistoryRows
+            let novelsWithChapters = Set(chapters.map(\.entry.novelID))
+            reading = chapters.map(UnifiedActivityItem.chapter)
+                + model.readingEntries
+                    .filter { !novelsWithChapters.contains($0.novel.id) }
+                    .map(UnifiedActivityItem.reading)
+        }
         let media: [UnifiedActivityItem] = switch mode {
         case .continueActivity:
             model.continueWatching.map(UnifiedActivityItem.progress)
@@ -221,6 +232,8 @@ struct UnifiedActivityView: View {
     private func select(_ item: UnifiedActivityItem) {
         switch item {
         case .reading(let entry): selectReading(entry)
+        case .chapter(let row):
+            if let novel = model.novel(id: row.entry.novelID) { selectNovel?(novel) }
         case .progress(let progress): selectProgress(progress)
         case .history(let history): selectHistory(history)
         }
@@ -241,6 +254,8 @@ struct UnifiedActivityView: View {
                     chapterID: entry.progress.chapterId
                 )
             )
+        case .chapter(let row):
+            openWindow(value: ReaderRoute(novelID: row.entry.novelID, chapterID: row.entry.chapterID))
         case .progress(let progress):
             open(progress: progress)
         case .history(let history):
@@ -357,12 +372,14 @@ private struct ActivityDayGroup: Identifiable {
 
 private enum UnifiedActivityItem: Identifiable {
     case reading(AppModel.ContinueReadingEntry)
+    case chapter(AppModel.ReadingHistoryRow)
     case progress(MediaPlaybackProgress)
     case history(MediaHistoryEntry)
 
     var id: String {
         switch self {
         case .reading(let entry): "reading:\(entry.id)"
+        case .chapter(let row): "chapter:\(row.id)"
         case .progress(let progress): "progress:\(progress.id)"
         case .history(let history): "history:\(history.id)"
         }
@@ -371,6 +388,7 @@ private enum UnifiedActivityItem: Identifiable {
     var title: String {
         switch self {
         case .reading(let entry): entry.novel.title
+        case .chapter(let row): row.novelTitle
         case .progress(let progress): progress.title
         case .history(let history): history.title
         }
@@ -378,7 +396,7 @@ private enum UnifiedActivityItem: Identifiable {
 
     var category: ActivityFilter {
         switch self {
-        case .reading: .novels
+        case .reading, .chapter: .novels
         case .progress(let progress): ActivityFilter(progress.mediaType)
         case .history(let history): ActivityFilter(history.mediaType)
         }
@@ -389,6 +407,8 @@ private enum UnifiedActivityItem: Identifiable {
         switch self {
         case .reading(let entry):
             return ActivityDetail.reading(entry.novelProgress)
+        case .chapter(let row):
+            return ActivityDetail.chapter(row.entry)
         case .progress(let progress):
             return ActivityDetail.playback(
                 title: progress.title,
@@ -416,7 +436,7 @@ private enum UnifiedActivityItem: Identifiable {
 
     var canResume: Bool {
         switch self {
-        case .reading:
+        case .reading, .chapter:
             true
         case .progress(let progress):
             progress.mediaType != .football
@@ -427,7 +447,7 @@ private enum UnifiedActivityItem: Identifiable {
 
     var kind: String {
         switch self {
-        case .reading: "Novel"
+        case .reading, .chapter: "Novel"
         case .progress(let progress): progress.mediaType.title
         case .history(let history): history.mediaType.title
         }
@@ -435,7 +455,7 @@ private enum UnifiedActivityItem: Identifiable {
 
     var fallbackSystemImage: String {
         switch self {
-        case .reading: "book.closed"
+        case .reading, .chapter: "book.closed"
         case .progress(let progress): progress.mediaType.systemImage
         case .history(let history): history.mediaType.systemImage
         }
@@ -444,6 +464,7 @@ private enum UnifiedActivityItem: Identifiable {
     var imageURL: URL? {
         switch self {
         case .reading(let entry): entry.novel.imageURL.flatMap(URL.init(string:))
+        case .chapter(let row): row.coverURL
         case .progress(let progress): progress.imageURL
         case .history(let history): history.imageURL
         }
@@ -454,6 +475,7 @@ private enum UnifiedActivityItem: Identifiable {
     var fraction: Double? {
         switch self {
         case .reading(let entry): entry.novelProgress.fraction
+        case .chapter(let row): row.entry.percentage.map { min(1, max(0, $0 / 100)) }
         case .progress(let progress): min(1, max(0, progress.percentage / 100))
         case .history(let history): min(1, max(0, history.percentage / 100))
         }
@@ -462,6 +484,7 @@ private enum UnifiedActivityItem: Identifiable {
     var actionTitle: String {
         switch self {
         case .reading(let entry): entry.novelProgress.isFinished ? "Read again" : "Continue"
+        case .chapter: "Read"
         case .progress, .history: "Resume"
         }
     }
@@ -469,6 +492,7 @@ private enum UnifiedActivityItem: Identifiable {
     var actionSystemImage: String {
         switch self {
         case .reading(let entry): entry.novelProgress.isFinished ? "arrow.counterclockwise" : "book.fill"
+        case .chapter: "book.fill"
         case .progress, .history: "play.fill"
         }
     }
@@ -476,6 +500,7 @@ private enum UnifiedActivityItem: Identifiable {
     var updatedAt: Date {
         switch self {
         case .reading(let entry): entry.progress.updatedAt ?? .distantPast
+        case .chapter(let row): row.entry.lastReadAt
         case .progress(let progress): progress.updatedAt
         case .history(let history): history.lastViewedAt
         }
@@ -497,6 +522,19 @@ enum ActivityDetail {
         if progress.isFinished { return label + " · Finished" }
         guard let percent = progress.displayPercentage else { return label }
         return label + " · " + String(percent) + "%"
+    }
+
+    /// "Ch. 12 · The Duel · 80%", "Ch. 12 · The Duel · Read" once the
+    /// chapter's end was reached, or "Chapter" until its number is known.
+    static func chapter(_ entry: ReadingHistoryEntry) -> String {
+        let label = entry.chapterNumber.map { "Ch. " + String($0) } ?? "Chapter"
+        let title = entry.chapterTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let position: String? = entry.percentage.map { percentage in
+            percentage >= NovelProgress.finishedChapterPercentage ? "Read" : String(Int(percentage)) + "%"
+        }
+        return [label, title?.isEmpty == false ? title : nil, position]
+            .compactMap { $0 }
+            .joined(separator: " · ")
     }
 
     static func playback(

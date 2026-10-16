@@ -20,6 +20,9 @@ actor OfflineLibraryStore {
         let novel: Novel
         let chapterCount: Int
         let downloadedAt: Date
+        /// Whether the saved chapters were the whole novel when last
+        /// downloaded. Downloads from before range downloads always were.
+        let coversWholeNovel: Bool
     }
 
     private struct LibraryIndex: Codable, Sendable {
@@ -35,6 +38,9 @@ actor OfflineLibraryStore {
         let storageKey: String
         let chapterCount: Int
         let downloadedAt: Date
+        /// Absent in records written before range downloads, which always
+        /// held the whole novel.
+        var coversWholeNovel: Bool?
     }
 
     private struct ChapterLocation: Codable, Sendable {
@@ -82,7 +88,8 @@ actor OfflineLibraryStore {
                 DownloadedNovel(
                     novel: $0.novel,
                     chapterCount: $0.chapterCount,
-                    downloadedAt: $0.downloadedAt
+                    downloadedAt: $0.downloadedAt,
+                    coversWholeNovel: $0.coversWholeNovel ?? true
                 )
             }
     }
@@ -142,7 +149,8 @@ actor OfflineLibraryStore {
             novel: novel,
             storageKey: novelStorageKey,
             chapterCount: chapters.count,
-            downloadedAt: downloadedAt
+            downloadedAt: downloadedAt,
+            coversWholeNovel: true
         )
 
         let stagingDirectory = directory.appendingPathComponent(
@@ -215,6 +223,76 @@ actor OfflineLibraryStore {
             }
             throw error
         }
+    }
+
+    /// Adds chapters to a novel's download without rewriting the chapters
+    /// already saved, creating the download when there is none. Chapter
+    /// files are written before the index, so an interrupted add leaves only
+    /// unreferenced files that the next add overwrites.
+    func add(novel: Novel, chapters: [Chapter], coversWholeNovel: Bool? = nil) throws {
+        var updatedIndex = try loadIndex()
+        let existing = updatedIndex.novels[novel.id]
+        guard existing != nil || !chapters.isEmpty else { return }
+
+        let chapterIDs = chapters.map(\.id)
+        guard Set(chapterIDs).count == chapterIDs.count else {
+            let duplicate = Dictionary(grouping: chapterIDs, by: { $0 })
+                .first(where: { $0.value.count > 1 })?.key ?? "unknown"
+            throw OfflineLibraryStoreError.duplicateChapterIdentifier(duplicate)
+        }
+        for chapter in chapters {
+            if let location = updatedIndex.chapters[chapter.id], location.novelID != novel.id {
+                throw OfflineLibraryStoreError.duplicateChapterIdentifier(chapter.id)
+            }
+        }
+
+        let novelStorageKey = existing?.storageKey ?? Self.storageKey(for: novel.id)
+        let chapterDirectory = novelDirectory(storageKey: novelStorageKey)
+            .appendingPathComponent("chapters", isDirectory: true)
+        try FileManager.default.createDirectory(at: chapterDirectory, withIntermediateDirectories: true)
+
+        for chapter in chapters {
+            let chapterStorageKey = Self.storageKey(for: chapter.id)
+            try encoder.encode(chapter).write(
+                to: chapterDirectory.appendingPathComponent(chapterStorageKey, conformingTo: .json),
+                options: [.atomic]
+            )
+            updatedIndex.chapters[chapter.id] = ChapterLocation(
+                novelID: novel.id,
+                novelStorageKey: novelStorageKey,
+                chapterStorageKey: chapterStorageKey
+            )
+        }
+
+        var summariesByID: [String: Chapter] = [:]
+        if existing != nil,
+           let data = try? Data(contentsOf: chapterListURL(novelStorageKey: novelStorageKey)),
+           let saved = try? decoder.decode([Chapter].self, from: data) {
+            for summary in saved { summariesByID[summary.id] = summary }
+        }
+        for chapter in chapters {
+            summariesByID[chapter.id] = Chapter(
+                id: chapter.id,
+                chapterNumber: chapter.chapterNumber,
+                title: chapter.title,
+                content: nil,
+                url: chapter.url
+            )
+        }
+        let summaries = summariesByID.values.sorted { $0.chapterNumber < $1.chapterNumber }
+        try encoder.encode(summaries).write(
+            to: chapterListURL(novelStorageKey: novelStorageKey),
+            options: [.atomic]
+        )
+
+        updatedIndex.novels[novel.id] = NovelRecord(
+            novel: novel,
+            storageKey: novelStorageKey,
+            chapterCount: summaries.count,
+            downloadedAt: chapters.isEmpty ? existing?.downloadedAt ?? Date() : Date(),
+            coversWholeNovel: coversWholeNovel ?? existing.map { $0.coversWholeNovel ?? true } ?? false
+        )
+        try writeIndex(updatedIndex)
     }
 
     func remove(novelID: String) throws {

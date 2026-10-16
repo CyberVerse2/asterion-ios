@@ -17,6 +17,40 @@ struct CatalogRequestTests {
         #expect(novels.map(\.id) == ["novel-1", "novel-2"])
     }
 
+    @Test func novelCatalogServesTheLastGoodPageWhenTheServiceFails() async throws {
+        let data = try Self.novelPage(ids: ["novel-1", "novel-2"], total: 2)
+        let clock = ManualClock()
+        let cache = HTTPResponseCache(now: { clock.now })
+        CatalogURLProtocol.install { request in
+            (Self.successResponse(for: request), data)
+        }
+        defer { CatalogURLProtocol.reset() }
+
+        let client = APIClient(session: Self.stubbedSession(), responseCache: cache, retryDelays: [])
+        #expect(try await client.fetchAllNovels().map(\.id) == ["novel-1", "novel-2"])
+
+        clock.advance(by: 60 * 60)
+        CatalogURLProtocol.install { request in
+            (Self.response(for: request, statusCode: 503), Data())
+        }
+        #expect(try await client.fetchAllNovels().map(\.id) == ["novel-1", "novel-2"])
+
+        CatalogURLProtocol.install { _ in throw URLError(.notConnectedToInternet) }
+        #expect(try await client.fetchAllNovels().map(\.id) == ["novel-1", "novel-2"])
+    }
+
+    @Test func novelCatalogFailsWithoutAGoodCopyToFallBackOn() async throws {
+        CatalogURLProtocol.install { request in
+            (Self.response(for: request, statusCode: 503), Data())
+        }
+        defer { CatalogURLProtocol.reset() }
+
+        let client = APIClient(session: Self.stubbedSession(), retryDelays: [])
+        await #expect(throws: APIError.self) {
+            _ = try await client.fetchAllNovels()
+        }
+    }
+
     @Test func apiClientStopsWhenAFullNovelPageRepeats() async throws {
         let ids = (0..<100).map { "novel-\($0)" }
         let data = try Self.novelPage(ids: ids, total: 200)
@@ -738,6 +772,23 @@ private final class CatalogRequestCounter: @unchecked Sendable {
             count += 1
             return count
         }
+    }
+}
+
+private final class ManualClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var current = Date(timeIntervalSince1970: 1_800_000_000)
+
+    var now: Date {
+        lock.lock()
+        defer { lock.unlock() }
+        return current
+    }
+
+    func advance(by interval: TimeInterval) {
+        lock.lock()
+        current = current.addingTimeInterval(interval)
+        lock.unlock()
     }
 }
 

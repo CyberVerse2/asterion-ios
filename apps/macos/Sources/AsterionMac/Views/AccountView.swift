@@ -132,6 +132,7 @@ struct AccountSummaryView: View {
     }
 
     private var profileStats: some View {
+        let reading = model.readingStats
         let stats: [ProfileStat] = [
             ProfileStat(
                 value: model.libraryNovelIDs.count,
@@ -141,19 +142,30 @@ struct AccountSummaryView: View {
             ProfileStat(value: model.mediaStats.savedMovies, label: "Films saved"),
             ProfileStat(value: model.mediaStats.savedMatches, label: "Matches saved"),
             ProfileStat(
-                value: model.mediaStats.animeEpisodesCompleted + model.mediaStats.movieUnitsCompleted,
+                value: reading.chaptersRead,
+                label: reading.chaptersRead == 1 ? "Chapter read" : "Chapters read"
+            ),
+            // Novels count once their last chapter is read, like a finished episode.
+            ProfileStat(
+                value: model.mediaStats.animeEpisodesCompleted
+                    + model.mediaStats.movieUnitsCompleted
+                    + reading.novelsFinished,
                 label: "Finished"
             ),
-            ProfileStat(value: model.mediaStats.activityLast30Days, label: "Last 30 days"),
+            ProfileStat(
+                value: model.mediaStats.activityLast30Days + reading.chaptersLast30Days,
+                label: "Last 30 days"
+            ),
         ]
+        let firstRow = (stats.count + 1) / 2
 
         return AccountSection(title: "Your Asterion", subtitle: "Everything you have saved, read, and watched.") {
             ViewThatFits(in: .horizontal) {
                 ProfileStatRow(stats: stats)
                 VStack(spacing: 0) {
-                    ProfileStatRow(stats: Array(stats.prefix(3)))
+                    ProfileStatRow(stats: Array(stats.prefix(firstRow)))
                     Rectangle().fill(Color.asterionHairline).frame(height: 1)
-                    ProfileStatRow(stats: Array(stats.suffix(3)))
+                    ProfileStatRow(stats: Array(stats.dropFirst(firstRow)))
                 }
             }
             .asterionPanel(cornerRadius: 16)
@@ -614,6 +626,7 @@ struct AccountView: View {
                 AccountStatusRow(label: "Reading progress", value: "\(model.continueReadingEntries.count) active")
                 AccountStatusRow(label: "Media bookmarks", value: "\(model.mediaBookmarks.count) saved")
                 AccountStatusRow(label: "Watch progress", value: "\(model.continueWatching.count) active")
+                AccountStatusRow(label: "Reading history", value: "\(model.readingHistory.count) chapters")
                 AccountStatusRow(label: "Watch history", value: "\(model.mediaStats.historyEntries) entries")
                 Text("Asterion saves bookmarks, reading position, watch progress, and history on this Mac first, then sends them to your account when sync is available.")
                     .font(.system(size: 12))

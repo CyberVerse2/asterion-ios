@@ -22,8 +22,9 @@ struct UnifiedBookmarksView: View {
     }
 
     private var novels: [Novel] {
-        model.novels
-            .filter { model.libraryNovelIDs.contains($0.id) }
+        // Library novels come from their saved snapshot when the catalog
+        // hasn't loaded, so a failed catalog never empties Bookmarks.
+        model.libraryNovels
             .filter { novel in
                 normalizedQuery.isEmpty
                     || novel.title.localizedCaseInsensitiveContains(normalizedQuery)

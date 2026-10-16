@@ -22,13 +22,15 @@ struct NovelDetailView: View {
     @State private var showsFullSynopsis = false
     @State private var selectedChapterRange = 0
     @State private var chapterSearch = ""
+    @State private var showsDownloadPlanner = false
 
     private var isInLibrary: Bool {
         model.libraryNovelIDs.contains(novel.id)
     }
 
-    private var isDownloaded: Bool {
-        model.downloadedNovelIDs.contains(novel.id)
+    /// Chapters of this novel on this Mac.
+    private var savedChapters: OfflineChapterSet {
+        offlineDownload?.saved ?? OfflineChapterSet()
     }
 
     private var isDownloading: Bool {
@@ -88,6 +90,20 @@ struct NovelDetailView: View {
         }
         .task(id: chapterSearch) {
             await searchChapters()
+        }
+        .sheet(isPresented: $showsDownloadPlanner) {
+            NovelDownloadPlannerView(
+                novelTitle: novel.title,
+                totalChapters: totalChapterCount,
+                currentChapter: isFinished ? nil : progressChapter?.chapterNumber,
+                saved: savedChapters,
+                onDownload: { range in
+                    Task { await startDownload(range: range) }
+                },
+                onRemove: savedChapters.isEmpty && offlineDownload == nil ? nil : {
+                    Task { await removeDownload() }
+                }
+            )
         }
     }
 
@@ -197,9 +213,14 @@ struct NovelDetailView: View {
         .animation(reduceMotion ? nil : AsterionMotion.hover, value: isInLibrary)
     }
 
+    /// Opens the chapter download planner, or stops the download running.
     private var downloadAction: some View {
         Button {
-            Task { await updateOfflineDownload() }
+            if isDownloading {
+                model.cancelOfflineDownload(novelID: novel.id)
+            } else {
+                showsDownloadPlanner = true
+            }
         } label: {
             Image(systemName: downloadButtonIcon)
                 .contentTransition(.symbolEffect(.replace))
@@ -207,8 +228,8 @@ struct NovelDetailView: View {
         .buttonStyle(.asterionSecondary)
         .help(downloadButtonTitle)
         .accessibilityLabel(downloadButtonTitle)
-        .disabled(isDownloading || (!isDownloaded && totalChapterCount == 0))
-        .animation(reduceMotion ? nil : AsterionMotion.hover, value: isDownloaded)
+        .disabled(!isDownloading && totalChapterCount == 0 && savedChapters.isEmpty)
+        .animation(reduceMotion ? nil : AsterionMotion.hover, value: downloadButtonIcon)
     }
 
     @ViewBuilder
@@ -269,6 +290,15 @@ struct NovelDetailView: View {
             .accessibilityLabel("Downloading for offline reading")
         } else if let message = offlineDownload?.errorMessage ?? downloadRequestError {
             AsterionDetailNotice(message: message)
+        } else if let download = offlineDownload, download.isPartial {
+            Label {
+                Text(verbatim: download.saved.summary + " downloaded"
+                    + (download.phase == .cancelled ? " · stopped" : ""))
+            } icon: {
+                Image(systemName: "arrow.down.circle")
+            }
+            .font(.system(size: 12))
+            .foregroundStyle(Color.asterionMuted)
         }
     }
 
@@ -376,12 +406,34 @@ struct NovelDetailView: View {
             .accessibilityLabel("Next \(NovelChapterRange.pageSize) chapters")
 
             Button {
-                Task { await selectChapterRange(max(chapterPageCount - 1, 0)) }
+                Task {
+                    await selectChapterRange(max(chapterPageCount - 1, 0))
+                    // Chapters run oldest first, so the newest is at the end.
+                    if let latest = chapters.max(by: { $0.chapterNumber < $1.chapterNumber }) {
+                        scrollToChapter(latest.id, anchor: .bottom)
+                    }
+                }
             } label: {
-                Label("Latest", systemImage: "arrow.up.to.line")
+                Label("Latest", systemImage: "arrow.down.to.line")
             }
             .buttonStyle(.asterionSecondary)
-            .disabled(selectedChapterRange == chapterPageCount - 1 && chapterSearch.isEmpty)
+            .help("Jump to the newest chapters")
+
+            if let progressChapter, !isFinished {
+                Button {
+                    Task { await showReadingChapter(progressChapter) }
+                } label: {
+                    Label {
+                        Text(verbatim: "Ch. " + String(progressChapter.chapterNumber))
+                            .font(.asterionMono(12.5, weight: .semibold))
+                    } icon: {
+                        Image(systemName: "bookmark.fill")
+                    }
+                }
+                .buttonStyle(.asterionSecondary)
+                .help("Show the chapter you're reading")
+                .accessibilityLabel(Text(verbatim: "Show chapter " + String(progressChapter.chapterNumber) + ", the chapter you're reading"))
+            }
 
             Spacer(minLength: 12)
 
@@ -400,7 +452,7 @@ struct NovelDetailView: View {
         NovelChapterRow(
             chapter: chapter,
             isCurrent: progress?.chapterId == chapter.id,
-            isDownloaded: isDownloaded
+            isDownloaded: savedChapters.contains(chapter.id)
         ) {
             open(chapter)
         }
@@ -413,7 +465,8 @@ struct NovelDetailView: View {
     private var displayedChapters: [Chapter] {
         let query = chapterSearch.trimmingCharacters(in: .whitespacesAndNewlines)
         let matches = query.isEmpty ? chapters : chapterSearchResults
-        return matches.sorted { $0.chapterNumber > $1.chapterNumber }
+        // Reading order: oldest first; "Latest" jumps to the newest.
+        return matches.sorted { $0.chapterNumber < $1.chapterNumber }
     }
 
     private func openExactChapterMatch() {
@@ -473,18 +526,19 @@ struct NovelDetailView: View {
     }
 
     private var downloadButtonTitle: String {
-        if isDownloaded { return "Remove Download" }
         if let download = offlineDownload, download.isDownloading {
-            guard download.totalChapters > 0 else { return "Preparing…" }
-            return "Downloading \(Int(download.progress * 100))%"
+            guard download.totalChapters > 0 else { return "Stop download" }
+            return "Stop download (\(Int(download.progress * 100))%)"
         }
-        if offlineDownload?.phase == .failed { return "Retry Download" }
-        return "Download"
+        if offlineDownload?.phase == .failed { return "Retry or choose chapters to download" }
+        if offlineDownload?.coversWholeNovel == true { return "Downloaded · Manage download" }
+        return "Download chapters…"
     }
 
     private var downloadButtonIcon: String {
-        if isDownloaded { return "trash" }
+        if isDownloading { return "xmark" }
         if offlineDownload?.phase == .failed { return "arrow.clockwise.circle" }
+        if offlineDownload?.coversWholeNovel == true { return "checkmark.circle" }
         return "arrow.down.to.line"
     }
 
@@ -533,17 +587,42 @@ struct NovelDetailView: View {
         }
     }
 
-    private func updateOfflineDownload() async {
+    private func startDownload(range: ClosedRange<Int>?) async {
         downloadRequestError = nil
         do {
-            if isDownloaded {
-                try await model.removeOfflineDownload(novelID: novel.id)
-                await load()
-            } else {
-                try await model.downloadForOffline(novel: novel)
-            }
+            try await model.downloadForOffline(novel: novel, chapterRange: range)
         } catch {
             downloadRequestError = error.localizedDescription
+        }
+    }
+
+    private func removeDownload() async {
+        downloadRequestError = nil
+        do {
+            try await model.removeOfflineDownload(novelID: novel.id)
+            await load()
+        } catch {
+            downloadRequestError = error.localizedDescription
+        }
+    }
+
+    /// Brings the chapter being read into view, switching to its range.
+    private func showReadingChapter(_ chapter: Chapter) async {
+        let range = max((chapter.chapterNumber - 1) / NovelChapterRange.pageSize, 0)
+        if range != selectedChapterRange || !chapterSearch.isEmpty {
+            await selectChapterRange(min(range, max(chapterPageCount - 1, 0)))
+        }
+        let target = chapters.first { $0.id == chapter.id }
+            ?? chapters.first { $0.chapterNumber == chapter.chapterNumber }
+        if let target { scrollToChapter(target.id, anchor: .center) }
+    }
+
+    private func scrollToChapter(_ id: String, anchor: UnitPoint) {
+        Task {
+            await Task.yield()
+            withAnimation(reduceMotion ? nil : AsterionMotion.reveal) {
+                scrollPosition.scrollTo(id: id, anchor: anchor)
+            }
         }
     }
 

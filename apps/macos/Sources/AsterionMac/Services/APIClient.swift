@@ -87,12 +87,26 @@ actor APIClient {
         }
     }
 
-    private let baseURL = URL(string: "https://asterion-api.cyberverse.cloud")!
+    private static let catalogCacheNamespace = "novels"
+    private static let catalogCacheLifetime: TimeInterval = 10 * 60
+    private static let retryableStatusCodes: Set<Int> = [429, 500, 502, 503, 504]
+
+    private let baseURL: URL
     private let session: URLSession
+    private let responseCache: HTTPResponseCache
+    private let retryDelays: [Duration]
     private var token: String?
 
-    init(session: URLSession = .shared) {
+    init(
+        baseURL: URL = URL(string: "https://asterion-api.cyberverse.cloud")!,
+        session: URLSession = .shared,
+        responseCache: HTTPResponseCache = HTTPResponseCache(),
+        retryDelays: [Duration] = [.milliseconds(400), .milliseconds(1_200)]
+    ) {
+        self.baseURL = baseURL
         self.session = session
+        self.responseCache = responseCache
+        self.retryDelays = retryDelays
     }
 
     func setToken(_ token: String?) {
@@ -114,7 +128,7 @@ actor APIClient {
                 query.append(URLQueryItem(name: "search", value: search))
             }
 
-            let page: Page<Novel> = try await request(path: "/novels", query: query)
+            let page: Page<Novel> = try await cachedCatalogRequest(path: "/novels", query: query)
             let newNovels = page.data
                 .deduplicatedByID()
                 .filter { seenIDs.insert($0.id).inserted }
@@ -288,6 +302,24 @@ actor APIClient {
         return envelope.data
     }
 
+    /// The account's most recent reading history, newest first. The API
+    /// writes a row on every progress save, so pages repeat chapters.
+    func fetchReadingHistory(limit: Int = 50, offset: Int = 0) async throws -> [RemoteReadingHistoryRow] {
+        let envelope: DataEnvelope<[RemoteReadingHistoryRow]> = try await request(
+            path: "/me/history",
+            query: [
+                URLQueryItem(name: "limit", value: String(limit)),
+                URLQueryItem(name: "offset", value: String(offset)),
+            ]
+        )
+        return envelope.data
+    }
+
+    func fetchReadingStats() async throws -> RemoteReadingStats {
+        let envelope: DataEnvelope<RemoteReadingStats> = try await request(path: "/me/stats")
+        return envelope.data
+    }
+
     func fetchMediaAccount() async throws -> MediaAccountSnapshot {
         let envelope: DataEnvelope<MediaAccountSnapshot> = try await request(path: "/me/media")
         return envelope.data
@@ -403,6 +435,59 @@ actor APIClient {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter.string(from: date)
+    }
+
+    /// A public catalog GET through the shared response cache, retried on
+    /// transient failures like the anime and film catalogs. When the service
+    /// still fails, the last good copy of the page is served instead.
+    private func cachedCatalogRequest<Response: Decodable & Sendable>(
+        path: String,
+        query: [URLQueryItem]
+    ) async throws -> Response {
+        var components = URLComponents(url: baseURL.appending(path: path), resolvingAgainstBaseURL: false)!
+        components.queryItems = query.isEmpty ? nil : query
+        guard let url = components.url else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        var response: CachedHTTPResponse?
+        var lastError: Error?
+        for attempt in 0...retryDelays.count {
+            do {
+                let candidate = try await responseCache.response(
+                    for: request,
+                    session: session,
+                    namespace: Self.catalogCacheNamespace,
+                    lifetime: Self.catalogCacheLifetime
+                )
+                if Self.retryableStatusCodes.contains(candidate.statusCode), attempt < retryDelays.count {
+                    try await Task.sleep(for: retryDelays[attempt])
+                    continue
+                }
+                response = candidate
+                break
+            } catch let error as URLError where ![.badURL, .unsupportedURL, .cancelled].contains(error.code) {
+                lastError = error
+                guard attempt < retryDelays.count else { break }
+                try await Task.sleep(for: retryDelays[attempt])
+            }
+        }
+
+        if response.map({ !(200..<300 ~= $0.statusCode) }) ?? true,
+           let stale = await responseCache.staleResponse(for: request, namespace: Self.catalogCacheNamespace),
+           200..<300 ~= stale.statusCode {
+            return try Self.decoder.decode(Response.self, from: stale.data)
+        }
+        guard let response else { throw lastError ?? APIError.invalidResponse }
+        guard 200..<300 ~= response.statusCode else {
+            let envelope = try? JSONDecoder().decode(ErrorEnvelope.self, from: response.data)
+            let message = envelope?.message
+                ?? envelope?.error
+                ?? String(data: response.data, encoding: .utf8)
+                ?? ""
+            throw APIError.http(statusCode: response.statusCode, message: message)
+        }
+        return try Self.decoder.decode(Response.self, from: response.data)
     }
 
     private func request<Response: Decodable & Sendable>(

@@ -105,12 +105,44 @@ struct ReaderView: View {
     @State private var showsChapterPicker = false
     @State private var handoffLine = 0
     @State private var handoffThrottle = AsterionHandoffThrottle()
+    @State private var keepsWindowOnTop = false
 
     private var readerTheme: ReaderTheme {
         ReaderTheme(rawValue: readerThemeRawValue) ?? .ink
     }
 
     private var palette: ReaderPalette { readerTheme.palette }
+
+    private static let fontSizeRange = 14.0...30.0
+
+    private var canGoToPreviousChapter: Bool { chapter != nil && currentIndex > 0 }
+    private var canGoToNextChapter: Bool { chapter != nil && currentIndex < chapters.count - 1 }
+
+    /// What the Reader menu can do in this window.
+    private var commandActions: ReaderCommandActions {
+        ReaderCommandActions(
+            canGoToPreviousChapter: canGoToPreviousChapter,
+            canGoToNextChapter: canGoToNextChapter,
+            canEnlargeText: fontSize < Self.fontSizeRange.upperBound,
+            canShrinkText: fontSize > Self.fontSizeRange.lowerBound,
+            showsChapters: showsChapterPicker,
+            keepsWindowOnTop: keepsWindowOnTop,
+            previousChapter: { navigate(by: -1) },
+            nextChapter: { navigate(by: 1) },
+            enlargeText: enlargeText,
+            shrinkText: shrinkText,
+            toggleChapters: { showsChapterPicker.toggle() },
+            toggleKeepOnTop: { keepsWindowOnTop.toggle() }
+        )
+    }
+
+    private func enlargeText() {
+        fontSize = min(Self.fontSizeRange.upperBound, fontSize + 1)
+    }
+
+    private func shrinkText() {
+        fontSize = max(Self.fontSizeRange.lowerBound, fontSize - 1)
+    }
 
     var body: some View {
         Group {
@@ -142,6 +174,8 @@ struct ReaderView: View {
         }
         .frame(minWidth: 560, minHeight: 560)
         .background(palette.background)
+        .mediaWindowPinning(isPinned: keepsWindowOnTop)
+        .focusedSceneValue(\.asterionReader, commandActions)
         .preferredColorScheme(readerTheme.preferredColorScheme)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: readerTheme)
         .navigationTitle(chapter?.title ?? "Reader")
@@ -316,16 +350,18 @@ struct ReaderView: View {
             } label: {
                 Label("Previous chapter", systemImage: "chevron.left")
             }
-            .disabled(currentIndex <= 0)
-            .help("Previous chapter")
+            .keyboardShortcut(.leftArrow, modifiers: .command)
+            .disabled(!canGoToPreviousChapter)
+            .help("Previous chapter (⌘←)")
 
             Button {
                 navigate(by: 1)
             } label: {
                 Label("Next chapter", systemImage: "chevron.right")
             }
-            .disabled(currentIndex >= chapters.count - 1)
-            .help("Next chapter")
+            .keyboardShortcut(.rightArrow, modifiers: .command)
+            .disabled(!canGoToNextChapter)
+            .help("Next chapter (⌘→)")
 
             Button {
                 showsChapterPicker.toggle()
@@ -366,24 +402,33 @@ struct ReaderView: View {
         }
 
         ToolbarItemGroup(placement: .primaryAction) {
-            Button {
-                fontSize = max(14, fontSize - 1)
-            } label: {
+            Button(action: shrinkText) {
                 Label("Smaller text", systemImage: "textformat.size.smaller")
             }
-            .help("Smaller text")
+            .keyboardShortcut("-", modifiers: .command)
+            .disabled(fontSize <= Self.fontSizeRange.lowerBound)
+            .help("Smaller text (⌘−)")
 
-            Button {
-                fontSize = min(30, fontSize + 1)
-            } label: {
+            Button(action: enlargeText) {
                 Label("Larger text", systemImage: "textformat.size.larger")
             }
-            .help("Larger text")
+            .keyboardShortcut("+", modifiers: .command)
+            .disabled(fontSize >= Self.fontSizeRange.upperBound)
+            .help("Larger text (⌘+)")
         }
 
         ToolbarSpacer(.fixed)
 
         ToolbarItemGroup(placement: .primaryAction) {
+            Toggle(isOn: $keepsWindowOnTop) {
+                Label(
+                    keepsWindowOnTop ? "Stop keeping window on top" : "Keep window on top",
+                    systemImage: keepsWindowOnTop ? "pin.fill" : "pin"
+                )
+            }
+            .toggleStyle(.button)
+            .help(keepsWindowOnTop ? "Stop keeping window on top" : "Keep window on top")
+
             ReaderThemeMenu(
                 theme: readerTheme,
                 onSelect: { readerThemeRawValue = $0.rawValue }
@@ -464,7 +509,6 @@ struct ReaderView: View {
                     }
                 }
                 .disabled(currentIndex >= chapters.count - 1)
-                .keyboardShortcut(.rightArrow, modifiers: [.command])
                 .accessibilityLabel("Next chapter")
             }
             .buttonStyle(ReaderCapsuleButtonStyle(palette: palette))
@@ -1347,5 +1391,64 @@ private struct PlainTextDocument: FileDocument {
 
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
         FileWrapper(regularFileWithContents: Data(text.utf8))
+    }
+}
+
+/// The reader window's commands, published to the Reader menu while its
+/// window is key.
+struct ReaderCommandActions {
+    var canGoToPreviousChapter: Bool
+    var canGoToNextChapter: Bool
+    var canEnlargeText: Bool
+    var canShrinkText: Bool
+    var showsChapters: Bool
+    var keepsWindowOnTop: Bool
+    var previousChapter: () -> Void
+    var nextChapter: () -> Void
+    var enlargeText: () -> Void
+    var shrinkText: () -> Void
+    var toggleChapters: () -> Void
+    var toggleKeepOnTop: () -> Void
+}
+
+extension FocusedValues {
+    @Entry var asterionReader: ReaderCommandActions?
+}
+
+/// The Reader menu: chapter turns, text size and window pinning, with the
+/// same shortcuts as the reader's toolbar. Disabled outside a reader window.
+struct AsterionReaderCommands: Commands {
+    @FocusedValue(\.asterionReader) private var reader
+
+    var body: some Commands {
+        CommandMenu("Reader") {
+            Button("Previous Chapter") { reader?.previousChapter() }
+                .keyboardShortcut(.leftArrow, modifiers: .command)
+                .disabled(reader?.canGoToPreviousChapter != true)
+            Button("Next Chapter") { reader?.nextChapter() }
+                .keyboardShortcut(.rightArrow, modifiers: .command)
+                .disabled(reader?.canGoToNextChapter != true)
+
+            Divider()
+
+            Button("Larger Text") { reader?.enlargeText() }
+                .keyboardShortcut("+", modifiers: .command)
+                .disabled(reader?.canEnlargeText != true)
+            Button("Smaller Text") { reader?.shrinkText() }
+                .keyboardShortcut("-", modifiers: .command)
+                .disabled(reader?.canShrinkText != true)
+
+            Divider()
+
+            Button(reader?.showsChapters == true ? "Hide Chapters" : "Show Chapters") {
+                reader?.toggleChapters()
+            }
+            .keyboardShortcut("l", modifiers: [.command, .shift])
+            .disabled(reader == nil)
+            Button(reader?.keepsWindowOnTop == true ? "Stop Keeping Window on Top" : "Keep Window on Top") {
+                reader?.toggleKeepOnTop()
+            }
+            .disabled(reader == nil)
+        }
     }
 }

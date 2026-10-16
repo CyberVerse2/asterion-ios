@@ -349,7 +349,8 @@ struct ContentView: View {
                 query: searchText,
                 selectReading: { selectNovelDetail($0.novel) },
                 selectProgress: selectProgressDetail,
-                selectHistory: selectHistoryDetail
+                selectHistory: selectHistoryDetail,
+                selectNovel: selectNovelDetail
             )
 
         case .account:

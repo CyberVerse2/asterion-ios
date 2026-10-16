@@ -110,6 +110,7 @@ struct AsterionApp: App {
         .windowResizability(.contentMinSize)
         .commands {
             AsterionNavigationCommands()
+            AsterionReaderCommands()
         }
 
         WindowGroup("Reader", for: ReaderRoute.self) { $route in
@@ -119,7 +120,9 @@ struct AsterionApp: App {
             }
         }
         .defaultSize(width: 840, height: 900)
+        .windowResizability(.contentMinSize)
         .handlesExternalEvents(matching: [])
+        .asterionMediaWindowPlacement(.reader)
 
         WindowGroup("Anime Player", for: AnimePlayerRoute.self) { $route in
             if let route {
@@ -133,7 +136,7 @@ struct AsterionApp: App {
         .windowResizability(.contentMinSize)
         .restorationBehavior(.disabled)
         .handlesExternalEvents(matching: [])
-        .asterionMediaWindowPlacement()
+        .asterionMediaWindowPlacement(.player)
 
         WindowGroup("Asterion Player", for: MoviePlayerRoute.self) { $route in
             if let route {
@@ -147,7 +150,7 @@ struct AsterionApp: App {
         .windowResizability(.contentMinSize)
         .restorationBehavior(.disabled)
         .handlesExternalEvents(matching: [])
-        .asterionMediaWindowPlacement()
+        .asterionMediaWindowPlacement(.player)
 
         WindowGroup("Asterion Live", for: FootballPlayerRoute.self) { $route in
             if let route {
@@ -159,7 +162,7 @@ struct AsterionApp: App {
         .windowResizability(.contentMinSize)
         .restorationBehavior(.disabled)
         .handlesExternalEvents(matching: [])
-        .asterionMediaWindowPlacement()
+        .asterionMediaWindowPlacement(.player)
 
         Window("Sign In to Asterion", id: "authentication") {
             AsterionAuthenticationView()
@@ -179,26 +182,42 @@ struct AsterionApp: App {
 }
 
 private extension Scene {
-    func asterionMediaWindowPlacement() -> some Scene {
+    /// Opens player and reader windows centred and fitted to the display,
+    /// and lets Zoom fill most of it.
+    func asterionMediaWindowPlacement(_ placement: AsterionMediaWindowPlacement) -> some Scene {
         defaultWindowPlacement { content, context in
-            AsterionMediaWindowPlacement.defaultPlacement(
+            placement.defaultPlacement(
                 contentSize: content.sizeThatFits(.unspecified),
                 visibleSize: context.defaultDisplay.visibleRect.size
             )
         }
         .windowIdealPlacement { _, context in
-            AsterionMediaWindowPlacement.idealPlacement(
+            placement.idealPlacement(
                 visibleSize: context.defaultDisplay.visibleRect.size
             )
         }
     }
 }
 
-private enum AsterionMediaWindowPlacement {
-    private static let preferredSize = CGSize(width: 1_080, height: 700)
-    private static let aspectRatio = preferredSize.width / preferredSize.height
+private struct AsterionMediaWindowPlacement {
+    /// Video windows keep 1080×700's shape, zoomed or not.
+    static let player = AsterionMediaWindowPlacement(
+        preferredSize: CGSize(width: 1_080, height: 700),
+        keepsAspectRatioWhenZoomed: true
+    )
+    /// The reader opens as a tall page; zoomed, it fills the display so the
+    /// two-page spread can take over.
+    static let reader = AsterionMediaWindowPlacement(
+        preferredSize: CGSize(width: 840, height: 900),
+        keepsAspectRatioWhenZoomed: false
+    )
 
-    static func defaultPlacement(contentSize: CGSize, visibleSize: CGSize) -> WindowPlacement {
+    let preferredSize: CGSize
+    let keepsAspectRatioWhenZoomed: Bool
+
+    private var aspectRatio: CGFloat { preferredSize.width / preferredSize.height }
+
+    func defaultPlacement(contentSize: CGSize, visibleSize: CGSize) -> WindowPlacement {
         let measuredWidth = contentSize.width.isFinite && contentSize.width > 0
             ? contentSize.width
             : preferredSize.width
@@ -212,7 +231,16 @@ private enum AsterionMediaWindowPlacement {
         return WindowPlacement(.center, size: size)
     }
 
-    static func idealPlacement(visibleSize: CGSize) -> WindowPlacement {
+    func idealPlacement(visibleSize: CGSize) -> WindowPlacement {
+        guard keepsAspectRatioWhenZoomed else {
+            return WindowPlacement(
+                .center,
+                size: CGSize(
+                    width: max(1, visibleSize.width * 0.94),
+                    height: max(1, visibleSize.height * 0.90)
+                )
+            )
+        }
         let size = fittedSize(
             requestedWidth: .greatestFiniteMagnitude,
             visibleSize: visibleSize,
@@ -222,7 +250,7 @@ private enum AsterionMediaWindowPlacement {
         return WindowPlacement(.center, size: size)
     }
 
-    private static func fittedSize(
+    private func fittedSize(
         requestedWidth: CGFloat,
         visibleSize: CGSize,
         widthFraction: CGFloat,

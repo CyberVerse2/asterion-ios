@@ -21,12 +21,12 @@ struct DownloadCenterView: View {
     }
 
     private var completedCount: Int {
-        model.offlineDownloads.count(where: { $0.phase == .completed })
+        model.offlineDownloads.count(where: { !$0.isDownloading && $0.hasSavedChapters })
             + mediaDownloads.completedCount
     }
 
     private var failedCount: Int {
-        model.offlineDownloads.count(where: { $0.phase == .failed })
+        model.offlineDownloads.count(where: { $0.phase == .failed && !$0.hasSavedChapters })
             + mediaDownloads.downloads.count(where: { $0.phase == .failed })
     }
 
@@ -664,40 +664,51 @@ private struct DownloadRow: View {
             progress: download.phase == .downloading && download.totalChapters > 0 ? download.progress : nil,
             actionError: actionError
         ) {
-            if download.phase == .downloading, download.totalChapters == 0 {
-                ProgressView()
-                    .controlSize(.small)
-                    .tint(Color.asterionText)
-            } else if download.phase == .failed,
-                      let novel = model.novel(id: download.novelID) {
-                Button {
-                    Task { await retry(novel: novel) }
-                } label: {
-                    if metrics.isCompact {
-                        Image(systemName: "arrow.clockwise")
-                            .accessibilityLabel("Retry")
-                    } else {
-                        Text("Retry")
-                    }
+            switch download.phase {
+            case .downloading:
+                if download.totalChapters == 0 {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(Color.asterionText)
                 }
-                .buttonStyle(.asterionSecondary)
-                .help("Retry download")
-            } else if download.phase == .completed {
-                Button {
-                    Task { await openDownload() }
-                } label: {
-                    if isOpening {
-                        ProgressView().controlSize(.small)
-                    } else if metrics.isCompact {
-                        Image(systemName: "book.fill")
-                            .accessibilityLabel("Read")
-                    } else {
-                        Label("Read", systemImage: "book.fill")
-                    }
+                DownloadIconButton(systemImage: "xmark", accessibilityLabel: "Cancel download") {
+                    model.cancelOfflineDownload(novelID: download.novelID)
                 }
-                .buttonStyle(.asterionSecondary)
-                .help("Read downloaded novel")
+                .help(download.hasSavedChapters || download.completedChapters > 0
+                    ? "Stop downloading. Chapters already downloaded stay."
+                    : "Cancel download")
+            case .failed, .cancelled:
+                if let novel = model.novel(id: download.novelID) {
+                    Button {
+                        Task { await retry(novel: novel) }
+                    } label: {
+                        if metrics.isCompact {
+                            Image(systemName: "arrow.clockwise")
+                                .accessibilityLabel(resumeTitle)
+                        } else {
+                            Text(resumeTitle)
+                        }
+                    }
+                    .buttonStyle(.asterionSecondary)
+                    .help(download.phase == .failed ? "Retry download" : "Download the remaining chapters")
+                    .disabled(isRemoving)
+                }
+
+                if download.hasSavedChapters {
+                    readButton
+                }
+
+                DownloadIconButton(
+                    systemImage: "trash",
+                    accessibilityLabel: removeTitle,
+                    isWorking: isRemoving
+                ) {
+                    Task { await removeDownload() }
+                }
+                .help(removeTitle)
                 .disabled(isRemoving || isOpening)
+            case .completed:
+                readButton
 
                 DownloadIconButton(systemImage: "trash", accessibilityLabel: "Remove downloaded copy", isWorking: isRemoving) {
                     Task { await removeDownload() }
@@ -708,25 +719,58 @@ private struct DownloadRow: View {
         }
     }
 
+    private var readButton: some View {
+        Button {
+            Task { await openDownload() }
+        } label: {
+            if isOpening {
+                ProgressView().controlSize(.small)
+            } else if metrics.isCompact {
+                Image(systemName: "book.fill")
+                    .accessibilityLabel("Read")
+            } else {
+                Label("Read", systemImage: "book.fill")
+            }
+        }
+        .buttonStyle(.asterionSecondary)
+        .help("Read downloaded chapters")
+        .disabled(isRemoving || isOpening)
+    }
+
+    private var resumeTitle: String {
+        download.phase == .failed ? "Retry" : "Resume"
+    }
+
+    private var removeTitle: String {
+        download.hasSavedChapters ? "Remove downloaded chapters" : "Remove failed download"
+    }
+
     private var statusText: String {
         switch download.phase {
         case .downloading:
             if download.totalChapters == 0 { return "Preparing chapters…" }
-            return "\(download.completedChapters) of \(download.totalChapters) chapters"
+            let progress = String(download.completedChapters) + " of " + String(download.totalChapters) + " chapters"
+            guard let range = download.requestedRange else { return progress }
+            return progress + " · " + String(range.lowerBound) + "–" + String(range.upperBound)
         case .completed:
-            if download.totalChapters > 0 {
-                return download.totalChapters == 1 ? "1 chapter" : "\(download.totalChapters) chapters"
+            guard download.hasSavedChapters else { return "Available offline" }
+            if download.coversWholeNovel {
+                return download.saved.count == 1 ? "1 chapter" : String(download.saved.count) + " chapters"
             }
-            return "Available offline"
+            return download.saved.summary
         case .failed:
-            return download.errorMessage ?? "Download failed"
+            let message = download.errorMessage ?? "Download failed"
+            guard download.hasSavedChapters else { return message }
+            return message + " · " + download.saved.summary + " saved"
+        case .cancelled:
+            return "Stopped · " + download.saved.summary + " saved"
         }
     }
 
     private func retry(novel: Novel) async {
         actionError = nil
         do {
-            try await model.downloadForOffline(novel: novel)
+            try await model.downloadForOffline(novel: novel, chapterRange: download.requestedRange)
         } catch {
             actionError = error.localizedDescription
         }
@@ -755,7 +799,8 @@ private struct DownloadRow: View {
             let progress = try await progressRequest
             guard let chapter = progress.flatMap({ saved in
                 sortedChapters.first { $0.id == saved.chapterId }
-            }) ?? sortedChapters.first else {
+            }) ?? sortedChapters.first(where: { download.saved.contains($0.id) })
+                ?? sortedChapters.first else {
                 actionError = "This downloaded novel does not contain any chapters."
                 return
             }
