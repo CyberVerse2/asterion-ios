@@ -58,13 +58,12 @@ struct UnifiedBookmarksView: View {
 
         Group {
             if novels.isEmpty, media.isEmpty {
-                VStack(alignment: .leading, spacing: 0) {
+                AsterionEmptyPage {
                     header(novels: novels, media: media, showsFilter: false)
                     emptyState
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             } else if visibleNovels.isEmpty, visibleMedia.isEmpty {
-                VStack(alignment: .leading, spacing: 0) {
+                AsterionEmptyPage {
                     header(novels: novels, media: media, showsFilter: true)
                     AsterionEmptyState(
                         systemImage: "bookmark",
@@ -75,7 +74,6 @@ struct UnifiedBookmarksView: View {
                             .buttonStyle(.asterionSecondary)
                     }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {

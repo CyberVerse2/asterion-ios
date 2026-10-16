@@ -67,11 +67,10 @@ struct UnifiedActivityView: View {
 
         Group {
             if visibleItems.isEmpty {
-                VStack(alignment: .leading, spacing: 0) {
+                AsterionEmptyPage {
                     header(allItems)
                     emptyState(hasAnyItems: !allItems.isEmpty)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {

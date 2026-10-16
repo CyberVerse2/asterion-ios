@@ -66,7 +66,7 @@ struct DownloadCenterView: View {
     private var libraryBody: some View {
         Group {
             if isEmpty {
-                VStack(alignment: .leading, spacing: 0) {
+                AsterionEmptyPage {
                     AsterionPageHeader("Downloads", subtitle: downloadSummary)
                     emptyState
                 }

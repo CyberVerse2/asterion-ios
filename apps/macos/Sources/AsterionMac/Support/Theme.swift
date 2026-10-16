@@ -161,6 +161,25 @@ struct AsterionPageHeader<Accessory: View>: View {
     }
 }
 
+/// A page that has nothing to list yet: header plus an empty state, filling
+/// the column. It sits in a scroll view sized to the column so it can never
+/// ask the window for more height; a plain stack here made macOS push the
+/// whole window content, sidebar included, up past the top edge.
+struct AsterionEmptyPage<Content: View>: View {
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        GeometryReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0, content: content)
+                    .frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)
+            }
+            .scrollDisabled(true)
+            .hidingScrollIndicators()
+        }
+    }
+}
+
 /// Centered empty or error state.
 struct AsterionEmptyState<Actions: View>: View {
     let systemImage: String
