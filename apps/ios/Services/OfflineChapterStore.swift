@@ -1,4 +1,5 @@
 import AsterionKit
+import Combine
 import Foundation
 import Network
 import UIKit
@@ -434,13 +435,85 @@ final class OfflineChapterStore {
         manifests[folder.path]!.remove(Set(stale.map(\.id)))
         markManifestChanged(folder)
         // The manifest may hold an old container path; the filename is what is stable.
-        let staleFiles = stale.map { folder.appendingPathComponent($0.fileURL.lastPathComponent) }
-        await Task.detached(priority: .utility) {
-            for url in staleFiles {
-                try? FileManager.default.removeItem(at: url)
-            }
-        }.value
+        _ = await Self.deleteFiles(stale.map { folder.appendingPathComponent($0.fileURL.lastPathComponent) })
         return stale.count
+    }
+
+    // MARK: Removing downloads
+
+    /// Deletes a downloaded novel: every chapter file in its folder and the manifest.
+    func removeDownloadedNovel(_ collection: DownloadedNovelCollection) async {
+        let folder = downloadFolder(for: collection)
+        manifests[folder.path] = nil
+        dirtyManifestFolders.remove(folder.path)
+        // A load that raced this must not bring the manifest back.
+        manifestGeneration += 1
+        // A write in flight would put the folder's manifest back; let it land first.
+        await manifestWrite?.value
+        await Task.detached(priority: .userInitiated) {
+            try? FileManager.default.removeItem(at: folder)
+        }.value
+        cachedCollections?.removeAll { $0.folderURL.lastPathComponent == folder.lastPathComponent }
+    }
+
+    /// Deletes some chapters of a downloaded novel and returns what is left,
+    /// or nil when that was the last of them (the folder goes too).
+    func removeDownloadedChapters(
+        _ files: [DownloadedChapterFile],
+        from collection: DownloadedNovelCollection
+    ) async -> DownloadedNovelCollection? {
+        let ids = Set(files.map(\.id))
+        let remaining = collection.chapters.filter { !ids.contains($0.id) }
+        guard !remaining.isEmpty else {
+            await removeDownloadedNovel(collection)
+            return nil
+        }
+        let folder = downloadFolder(for: collection)
+        if await loadManifest(folder: folder, novel: collection.novel) {
+            manifests[folder.path]!.remove(ids)
+            markManifestChanged(folder)
+        }
+        let removedBytes = await Self.deleteFiles(files.map { folder.appendingPathComponent($0.fileURL.lastPathComponent) })
+        let updated = DownloadedNovelCollection(
+            novel: collection.novel,
+            folderURL: collection.folderURL,
+            chapters: remaining,
+            byteCount: max(0, collection.byteCount - removedBytes)
+        )
+        if let index = cachedCollections?.firstIndex(where: { $0.id == collection.id }) {
+            cachedCollections?[index] = updated
+        }
+        return updated
+    }
+
+    /// How many chapter files a novel has in its download folder.
+    func downloadedChapterCount(novelTitle: String) async -> Int {
+        let folder = novelFolderURL(novelTitle: novelTitle)
+        return await Task.detached(priority: .utility) {
+            ((try? FileManager.default.contentsOfDirectory(
+                at: folder, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
+            )) ?? []).filter { $0.pathExtension.lowercased() == "txt" }.count
+        }.value
+    }
+
+    /// The folder a scanned collection lives in. The scan may report another
+    /// spelling of the container path; the folder name is the stable part.
+    private func downloadFolder(for collection: DownloadedNovelCollection) -> URL {
+        documentsDirectory
+            .appendingPathComponent("Asterion Downloads", isDirectory: true)
+            .appendingPathComponent(collection.folderURL.lastPathComponent, isDirectory: true)
+    }
+
+    /// Deletes files off the main thread and returns the bytes freed.
+    private nonisolated static func deleteFiles(_ urls: [URL]) async -> Int64 {
+        await Task.detached(priority: .utility) {
+            var freed: Int64 = 0
+            for url in urls {
+                let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+                if (try? FileManager.default.removeItem(at: url)) != nil { freed += Int64(size) }
+            }
+            return freed
+        }.value
     }
 
     func isChapterDownloaded(
@@ -487,6 +560,155 @@ final class OfflineChapterStore {
     }
 }
 
+// MARK: - Whole-novel downloads
+
+/// Downloads every chapter of a novel into its Asterion Downloads folder.
+/// The work belongs to no page, so leaving the novel doesn't stop it, and
+/// Downloads lists it with its progress and a cancel button.
+@MainActor
+final class NovelDownloadManager: ObservableObject {
+    static let shared = NovelDownloadManager()
+
+    struct Snapshot: Identifiable {
+        enum Phase: Equatable {
+            case preparing
+            case downloading
+            case finished
+            case failed(String)
+            case cancelled
+        }
+
+        let novel: Novel
+        var completed: Int
+        var total: Int
+        var phase: Phase
+        let startedAt: Date
+
+        var id: String { novel.id }
+        var isActive: Bool { phase == .preparing || phase == .downloading }
+        var fraction: Double { total > 0 ? min(1, Double(completed) / Double(total)) : 0 }
+        var errorMessage: String? {
+            if case .failed(let message) = phase { return message }
+            return nil
+        }
+    }
+
+    @Published private(set) var snapshots: [String: Snapshot] = [:]
+    private var tasks: [String: Task<Void, Never>] = [:]
+
+    /// Downloads still running, oldest first.
+    var activeDownloads: [Snapshot] {
+        snapshots.values.filter(\.isActive).sorted { $0.startedAt < $1.startedAt }
+    }
+
+    func snapshot(for novelID: String) -> Snapshot? { snapshots[novelID] }
+
+    func isDownloading(_ novelID: String) -> Bool { snapshots[novelID]?.isActive == true }
+
+    /// Starts downloading every chapter. `knownChapters` stands in when the
+    /// full list can't be fetched but the page already has some.
+    func start(novel: Novel, apiClient: APIClient, knownChapters: [Chapter]) {
+        guard !isDownloading(novel.id) else { return }
+        snapshots[novel.id] = Snapshot(novel: novel, completed: 0, total: 0, phase: .preparing, startedAt: Date())
+        tasks[novel.id] = Task { [weak self] in
+            await self?.run(novel: novel, apiClient: apiClient, knownChapters: knownChapters)
+            self?.tasks[novel.id] = nil
+        }
+    }
+
+    /// Stops the download; chapters already saved stay available offline.
+    func cancel(novelID: String) {
+        tasks[novelID]?.cancel()
+    }
+
+    /// Stops the download and waits until it has stopped writing.
+    func cancelAndWait(novelID: String) async {
+        guard let task = tasks[novelID] else { return }
+        task.cancel()
+        await task.value
+    }
+
+    private func run(novel: Novel, apiClient: APIClient, knownChapters: [Chapter]) async {
+        let store = OfflineChapterStore.shared
+        var completed = 0
+        var total = 0
+        do {
+            var list = try await apiClient.fetchAllChapters(novelId: novel.id)
+            if list.isEmpty {
+                list = knownChapters
+            } else {
+                await store.saveChapterList(novelId: novel.id, chapters: list, mergeWithExisting: true)
+            }
+            try Task.checkCancellation()
+            guard !list.isEmpty else {
+                set(novel.id, completed: 0, total: 1, phase: .failed("No chapters available to download."))
+                Haptics.error()
+                return
+            }
+            total = list.count
+            set(novel.id, completed: 0, total: total, phase: .downloading)
+            await DownloadLiveActivityManager.shared.start(
+                novelTitle: novel.title,
+                novelImageURL: novel.imageUrl,
+                total: total
+            )
+
+            for chapter in list {
+                try Task.checkCancellation()
+                let full: Chapter
+                if let cached = await store.chapter(id: chapter.id), !(cached.content ?? "").isEmpty {
+                    full = cached
+                } else if !(chapter.content ?? "").isEmpty {
+                    full = chapter
+                } else {
+                    full = (try? await apiClient.fetchChapter(id: chapter.id)) ?? chapter
+                    // A cancelled fetch fails too; don't save it as an empty chapter.
+                    try Task.checkCancellation()
+                }
+                await store.cacheChapter(full)
+                let body = "\(novel.title)\n\(full.labeledTitle)\n\n\(full.plainContent)"
+                _ = try await store.saveDownloadedChapter(
+                    novelTitle: novel.title,
+                    chapterNumber: full.chapterNumber,
+                    chapterTitle: full.title,
+                    content: body,
+                    novel: novel,
+                    chapter: full
+                )
+                completed += 1
+                set(novel.id, completed: completed, total: total, phase: .downloading)
+                DownloadLiveActivityManager.shared.update(completed: completed, total: total)
+            }
+
+            await store.flushDownloadedManifests()
+            set(novel.id, completed: total, total: total, phase: .finished)
+            DownloadLiveActivityManager.shared.end(success: true, completed: total, total: total)
+            Haptics.success()
+        } catch {
+            await store.flushDownloadedManifests()
+            if error is CancellationError || Task.isCancelled {
+                set(novel.id, completed: completed, total: max(total, 1), phase: .cancelled)
+                DownloadLiveActivityManager.shared.end(
+                    success: false, completed: completed, total: max(total, 1), statusText: "Cancelled"
+                )
+            } else {
+                set(novel.id, completed: completed, total: max(total, 1),
+                    phase: .failed("Couldn't prepare novel download."))
+                DownloadLiveActivityManager.shared.end(success: false, completed: completed, total: max(total, 1))
+                Haptics.error()
+            }
+        }
+    }
+
+    private func set(_ novelID: String, completed: Int, total: Int, phase: Snapshot.Phase) {
+        guard var snapshot = snapshots[novelID] else { return }
+        snapshot.completed = max(0, min(completed, max(total, 1)))
+        snapshot.total = max(total, 1)
+        snapshot.phase = phase
+        snapshots[novelID] = snapshot
+    }
+}
+
 // MARK: - Download ahead
 
 /// An in-progress novel, as Home resolved it for "Continue".
@@ -512,8 +734,18 @@ final class DownloadAheadCoordinator {
         UserDefaults.standard.object(forKey: enabledKey) as? Bool ?? true
     }
 
+    /// What one pass works from.
+    private struct PassRequest {
+        let novels: [DownloadAheadNovel]
+        let progress: [MediaPlaybackProgress]
+        let apiClient: APIClient
+        let videoDownloads: OfflineVideoDownloadService
+        let force: Bool
+    }
+
     private let store: OfflineChapterStore
-    private var activePass: Task<Void, Never>?
+    /// One pass at a time; a call during a pass waits as its follow-up.
+    private var passes = FollowUpPassQueue<PassRequest>()
     private var lastDownloadPassAt: Date?
     private var lastPassSignature: String?
 
@@ -521,10 +753,13 @@ final class DownloadAheadCoordinator {
         self.store = store ?? .shared
     }
 
-    var isRunning: Bool { activePass != nil }
+    var isRunning: Bool { passes.isRunning }
 
-    /// Starts a pass unless one is running, or the same positions were handled recently.
-    /// A new reading or watching position, or `force` (pull to refresh), skips the cool-down.
+    /// Starts a pass unless the same positions were handled recently. A new
+    /// reading or watching position, or `force` (pull to refresh), skips the
+    /// cool-down. A call that arrives while a pass runs is not dropped: the
+    /// newest one runs once the pass ends (on a cold launch the first pass
+    /// can start before Home has resolved the novels being read).
     func schedule(
         novels: [DownloadAheadNovel],
         watching progress: [MediaPlaybackProgress],
@@ -532,24 +767,44 @@ final class DownloadAheadCoordinator {
         videoDownloads: OfflineVideoDownloadService,
         force: Bool = false
     ) {
-        guard Self.isEnabled, activePass == nil else { return }
+        guard Self.isEnabled else { return }
         guard !novels.isEmpty || !progress.isEmpty else { return }
-        let signature = Self.signature(novels: novels, progress: progress)
-        if !force, signature == lastPassSignature, let lastDownloadPassAt,
+        let request = PassRequest(
+            novels: novels, progress: progress, apiClient: apiClient, videoDownloads: videoDownloads, force: force
+        )
+        guard let next = passes.request(request, merge: { waiting, newest in
+            PassRequest(
+                novels: newest.novels, progress: newest.progress, apiClient: newest.apiClient,
+                videoDownloads: newest.videoDownloads, force: waiting.force || newest.force
+            )
+        }) else { return }
+        Task { [weak self] in await self?.drain(startingWith: next) }
+    }
+
+    /// Runs `first`, then each follow-up that arrived meanwhile.
+    private func drain(startingWith first: PassRequest) async {
+        var request: PassRequest? = first
+        while let current = request {
+            await runIfDue(current)
+            request = passes.finish()
+        }
+    }
+
+    private func runIfDue(_ request: PassRequest) async {
+        guard Self.isEnabled else { return }
+        let signature = Self.signature(novels: request.novels, progress: request.progress)
+        if !request.force, signature == lastPassSignature, let lastDownloadPassAt,
            Date().timeIntervalSince(lastDownloadPassAt) < Self.minimumInterval {
             return
         }
-        activePass = Task { [weak self] in
-            await self?.runPass(
-                novels: novels,
-                progress: progress,
-                apiClient: apiClient,
-                videoDownloads: videoDownloads,
-                signature: signature
-            )
-            await self?.store.flushDownloadedManifests()
-            self?.activePass = nil
-        }
+        await runPass(
+            novels: request.novels,
+            progress: request.progress,
+            apiClient: request.apiClient,
+            videoDownloads: request.videoDownloads,
+            signature: signature
+        )
+        await store.flushDownloadedManifests()
     }
 
     private static func signature(novels: [DownloadAheadNovel], progress: [MediaPlaybackProgress]) -> String {

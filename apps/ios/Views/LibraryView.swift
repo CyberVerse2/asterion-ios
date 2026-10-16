@@ -7,6 +7,7 @@ struct LibraryView: View {
     @EnvironmentObject private var apiClient: APIClient
     @EnvironmentObject private var authService: AuthService
     @EnvironmentObject private var mediaAccountService: MediaAccountService
+    @EnvironmentObject private var novelLibrary: NovelLibraryService
     @EnvironmentObject private var tabBarState: TabBarState
     @EnvironmentObject private var readingProgressService: ReadingProgressService
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -180,6 +181,10 @@ struct LibraryView: View {
                 guard tab == .library else { return }
                 Task { await loadNovels() }
             }
+            // A save or removal elsewhere (or the guest merge at sign-in).
+            .onChange(of: novelLibrary.ledger.novelIds) { _, _ in
+                Task { await rebuildNovels() }
+            }
             .debounceSearch(text: $search, debouncedText: $debouncedSearch)
         }
         .enableInjection()
@@ -271,7 +276,7 @@ struct LibraryView: View {
     // MARK: - Novels
 
     private var showsNovelSpecificState: Bool {
-        filter == .novels && filteredNovels.isEmpty && (!authService.isSignedIn || failedNovels)
+        filter == .novels && filteredNovels.isEmpty && failedNovels
     }
 
     @ViewBuilder
@@ -301,8 +306,6 @@ struct LibraryView: View {
                     }
                 }
             }
-        } else if filter == .novels, !authService.isSignedIn {
-            signInForNovelsState
         } else if failedNovels, filter == .novels {
             novelsFailedState
         }
@@ -449,13 +452,6 @@ struct LibraryView: View {
         }
     }
 
-    private var signInForNovelsState: some View {
-        inlineMessage(
-            "Sign in from Account to save novels and keep reading progress across devices.",
-            systemImage: "person.crop.circle.badge.plus"
-        )
-    }
-
     private var novelsFailedState: some View {
         VStack(spacing: 4) {
             AsterionEmptyState(
@@ -475,22 +471,6 @@ struct LibraryView: View {
             .padding(.top, -24)
         }
         .frame(maxWidth: .infinity)
-    }
-
-    private func inlineMessage(_ message: String, systemImage: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Image(systemName: systemImage)
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(Color.asterionMuted)
-            Text(message)
-                .font(.asterionReading(14))
-                .foregroundStyle(Color.asterionMuted)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .asterionPanel(cornerRadius: 14)
-        .accessibilityElement(children: .combine)
     }
 
     // MARK: - Helpers
@@ -536,65 +516,59 @@ struct LibraryView: View {
         await loadNovels()
     }
 
+    /// Syncs the saved novels (signed in), then rebuilds the shelves.
     private func loadNovels() async {
         loadingNovels = true
         defer { loadingNovels = false }
-        guard authService.isSignedIn else {
+        await novelLibrary.refresh()
+        await rebuildNovels()
+    }
+
+    /// Builds the shelves from the saved novels, which work signed out too:
+    /// a guest's saves live on this device. Catalog entries come from the
+    /// cache, then the network; the copy stored with each save covers offline.
+    private func rebuildNovels() async {
+        let entries = novelLibrary.entries
+        // Signed in with nothing synced yet and the account unreachable.
+        failedNovels = entries.isEmpty && novelLibrary.isSignedIn
+            && novelLibrary.refreshFailed && !novelLibrary.hasAccountCopy
+        guard !entries.isEmpty else {
             novels = []
             readingPositions = [:]
-            failedNovels = false
             return
         }
-        do {
-            async let libraryFetch = apiClient.fetchMyLibrary()
-            async let progressFetch = apiClient.fetchAllReadingProgress()
-            async let novelsFetch = apiClient.fetchAllNovels()
-            let (libraryEntries, progressEntries, catalog) = try await (libraryFetch, progressFetch, novelsFetch)
-            let progressByNovel = Dictionary(uniqueKeysWithValues:
-                readingProgressService.mergedProgress(with: progressEntries).map { ($0.novelId, $0) })
-            let novelByID = Dictionary(uniqueKeysWithValues: catalog.map { ($0.id, $0) })
-            novels = libraryEntries.compactMap { entry in
-                guard let novel = novelByID[entry.novelId] else { return nil }
-                return LibraryItem(
-                    novel: novel,
-                    addedAt: entry.createdAt,
-                    updatedAt: entry.updatedAt,
-                    lastReadAt: progressByNovel[entry.novelId]?.updatedAt,
-                    progress: progressByNovel[entry.novelId]
-                )
-            }
-            await OfflineChapterStore.shared.saveLibrarySnapshot(
-                novels.map {
-                    OfflineLibraryItemSnapshot(
-                        novel: $0.novel,
-                        addedAt: $0.addedAt,
-                        updatedAt: $0.updatedAt,
-                        lastReadAt: $0.lastReadAt
-                    )
-                }
-            )
-            failedNovels = false
-        } catch {
-            let cached = await OfflineChapterStore.shared.loadLibrarySnapshot()
-            if !cached.isEmpty {
-                let local = Dictionary(
-                    readingProgressService.localProgress.map { ($0.novelId, $0) },
-                    uniquingKeysWith: { first, _ in first }
-                )
-                novels = cached.map {
-                    LibraryItem(
-                        novel: $0.novel,
-                        addedAt: $0.addedAt,
-                        updatedAt: $0.updatedAt,
-                        lastReadAt: $0.lastReadAt,
-                        progress: local[$0.novel.id]
-                    )
-                }
-                failedNovels = false
-            } else {
-                failedNovels = true
-            }
+
+        var catalog = Dictionary(
+            await OfflineChapterStore.shared.loadCatalog().map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        if entries.contains(where: { catalog[$0.novelId] == nil }),
+           let fetched = try? await apiClient.fetchAllNovels(), !fetched.isEmpty {
+            await OfflineChapterStore.shared.saveCatalog(fetched)
+            for novel in fetched { catalog[novel.id] = novel }
         }
+
+        let remote = authService.isSignedIn ? ((try? await apiClient.fetchAllReadingProgress()) ?? []) : []
+        let progressByNovel = Dictionary(
+            readingProgressService.mergedProgress(with: remote).map { ($0.novelId, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+
+        var items: [LibraryItem] = []
+        for entry in entries {
+            var novel = catalog[entry.novelId] ?? entry.novel
+            if novel == nil { novel = try? await apiClient.fetchNovel(id: entry.novelId) }
+            guard let novel else { continue }
+            items.append(LibraryItem(
+                novel: novel,
+                addedAt: entry.addedAt == .distantPast ? nil : entry.addedAt,
+                updatedAt: entry.updatedAt,
+                lastReadAt: progressByNovel[entry.novelId]?.updatedAt,
+                progress: progressByNovel[entry.novelId]
+            ))
+        }
+        novels = items
+        novelLibrary.remember(items.map(\.novel))
         await resolveReadingPositions()
     }
 

@@ -9,6 +9,7 @@ struct ProfileView: View {
     @EnvironmentObject private var authService: AuthService
     @EnvironmentObject private var apiClient: APIClient
     @EnvironmentObject private var mediaAccountService: MediaAccountService
+    @EnvironmentObject private var novelLibrary: NovelLibraryService
     @EnvironmentObject private var readingProgressService: ReadingProgressService
     @EnvironmentObject private var tabBarState: TabBarState
     @EnvironmentObject private var readingActivityService: ReadingActivityService
@@ -214,8 +215,9 @@ struct ProfileView: View {
             .padding(.horizontal, isDesktop ? 0 : 32)
             .padding(.top, 30)
 
-            if !mediaAccountService.snapshot.bookmarks.isEmpty || !mediaAccountService.snapshot.progress.isEmpty {
-                Text("Your guest saves and watch progress are ready to merge after sign-in.")
+            if !mediaAccountService.snapshot.bookmarks.isEmpty || !mediaAccountService.snapshot.progress.isEmpty
+                || !novelLibrary.entries.isEmpty || !readingProgressService.localProgress.isEmpty {
+                Text("Your guest saves and reading and watch progress are ready to merge after sign-in.")
                     .font(.asterionReading(13.5))
                     .foregroundStyle(Color.asterionMuted)
                     .multilineTextAlignment(.center)
@@ -505,7 +507,6 @@ struct ProfileView: View {
             async let profileFetch = apiClient.fetchMyProfile()
             async let statsFetch = apiClient.fetchMyStats()
             async let prefsFetch = apiClient.fetchMyPreferences()
-            async let libraryFetch = apiClient.fetchMyLibrary()
             async let allNovelsFetch = apiClient.fetchAllNovels()
             async let progressFetch = apiClient.fetchAllReadingProgress()
             async let historyFetch = fetchAllReadingHistory()
@@ -513,7 +514,6 @@ struct ProfileView: View {
             cloudProfile = try await profileFetch
             let stats = try await statsFetch
             let prefs = try await prefsFetch
-            let libraryItems = try await libraryFetch
             let allNovels = try await allNovelsFetch
             let progressList = try await progressFetch
             let history = try await historyFetch
@@ -525,7 +525,9 @@ struct ProfileView: View {
             cloudProgressCount = stats.novelsInProgress
             cloudChaptersRead = stats.chaptersRead
 
-            let libraryIds = Set(libraryItems.map(\.novelId))
+            // The library service includes saves still on their way to the account.
+            await novelLibrary.refresh()
+            let libraryIds = Set(novelLibrary.ledger.novelIds)
             libraryNovels = allNovels.filter { libraryIds.contains($0.id) }
 
             let startedFromProgress = Set(progressList.map(\.novelId))

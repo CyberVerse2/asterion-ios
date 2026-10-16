@@ -96,6 +96,60 @@ struct AsterionTests {
         #expect(merged.first?.chapterId == "c12")
     }
 
+    @Test
+    func removingDownloadsDeletesTheChapterFilesAndThenTheNovelsFolder() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let cache = root.appendingPathComponent("cache")
+        let documents = root.appendingPathComponent("documents")
+        let store = OfflineChapterStore(baseDirectory: cache, documentsDirectory: documents)
+        let book = novel(id: "book")
+        for number in 1...3 {
+            let chapter = Chapter(id: "c\(number)", chapterNumber: number, title: "Chapter \(number)",
+                                  content: nil, url: nil)
+            _ = try await store.saveDownloadedChapter(
+                novelTitle: book.title, chapterNumber: number, chapterTitle: chapter.title,
+                content: "\(book.title)\nChapter \(number)\n\nBody \(number)", novel: book, chapter: chapter
+            )
+        }
+        let collection = try #require(await store.downloadedCollections().first)
+
+        // Swiping one chapter away leaves the others, and the manifest agrees after a relaunch.
+        let swiped = try #require(collection.chapters.first { $0.id == "c2" })
+        let remaining = try #require(await store.removeDownloadedChapters([swiped], from: collection))
+        #expect(remaining.chapters.map(\.id) == ["c1", "c3"])
+        await store.flushDownloadedManifests()
+        let reopened = OfflineChapterStore(baseDirectory: cache, documentsDirectory: documents)
+        let afterSwipe = try #require(await reopened.downloadedCollections().first)
+        #expect(afterSwipe.chapters.map(\.id) == ["c1", "c3"])
+        #expect(await reopened.downloadedChapterCount(novelTitle: book.title) == 2)
+
+        // Removing the novel takes its folder, manifest included.
+        await reopened.removeDownloadedNovel(afterSwipe)
+        #expect(await reopened.downloadedCollections().isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: afterSwipe.folderURL.path))
+    }
+
+    @Test
+    func aGuestsSavedNovelsMoveIntoTheAccountAtSignIn() async throws {
+        let suite = "asterion.tests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let library = NovelLibraryService(defaults: defaults)
+        #expect(library.toggle(novel(id: "saved-as-guest")))
+
+        await library.handleAuthenticationChange(userID: "user-1")
+        #expect(library.contains("saved-as-guest"))
+        #expect(library.ledger.pending.contains { $0.novelId == "saved-as-guest" && $0.kind == .add })
+
+        // Signed out, the guest shelf starts empty again; the account keeps its copy.
+        await library.handleAuthenticationChange(userID: nil)
+        #expect(!library.contains("saved-as-guest"))
+        let relaunched = NovelLibraryService(defaults: defaults)
+        await relaunched.handleAuthenticationChange(userID: "user-1")
+        #expect(relaunched.contains("saved-as-guest"))
+    }
+
     private func novel(id: String) -> Novel {
         Novel(id: id, title: id, author: nil, rank: nil, totalChapters: nil, views: nil, bookmarks: nil,
               status: nil, genres: [], summary: nil, imageUrl: nil, rating: 4)

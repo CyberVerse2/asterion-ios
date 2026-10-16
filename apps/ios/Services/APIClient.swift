@@ -1045,3 +1045,175 @@ final class MediaAccountService: ObservableObject {
         return value
     }
 }
+
+// MARK: - Novel library
+
+/// The novels the user saved. Works signed out: a guest's saves live on this
+/// device and join the account at sign-in. Signed in, every save or removal
+/// lands here at once and is queued for the account, so the library button
+/// works offline and the queue drains when the connection returns.
+@MainActor
+final class NovelLibraryService: ObservableObject {
+    @Published private(set) var ledger: NovelLibraryLedger
+    @Published private(set) var isRefreshing = false
+    /// The last account fetch failed (offline, or the server is struggling).
+    @Published private(set) var refreshFailed = false
+
+    private static let guestKey = "asterion.novel-library.guest.v1"
+    private static func accountKey(_ userID: String) -> String { "asterion.novel-library.account.v1.\(userID)" }
+
+    private weak var apiClient: APIClient?
+    private let defaults: UserDefaults
+    private(set) var userID: String?
+    private var isFlushing = false
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        ledger = Self.load(Self.guestKey, from: defaults)
+    }
+
+    var isSignedIn: Bool { userID != nil }
+    var entries: [NovelLibraryEntry] { ledger.entries }
+
+    /// The account's list has been fetched at least once, so `entries` is
+    /// more than the queued changes.
+    var hasAccountCopy: Bool { ledger.accountSyncedAt != nil }
+
+    func contains(_ novelID: String) -> Bool { ledger.contains(novelID) }
+
+    func configure(apiClient: APIClient) {
+        self.apiClient = apiClient
+    }
+
+    /// Switches to the signed-in account's library (adopting anything saved
+    /// as a guest) or back to the guest library.
+    func handleAuthenticationChange(userID: String?) async {
+        guard userID != self.userID else {
+            await refresh()
+            return
+        }
+        self.userID = userID
+        refreshFailed = false
+        guard let userID else {
+            ledger = Self.load(Self.guestKey, from: defaults)
+            return
+        }
+        var account = Self.load(Self.accountKey(userID), from: defaults)
+        if defaults.data(forKey: Self.accountKey(userID)) == nil {
+            // First run of this build: start from the shelf earlier builds
+            // cached, so an offline launch isn't empty until the first fetch.
+            let cached = await OfflineChapterStore.shared.loadLibrarySnapshot()
+            account = NovelLibraryLedger(entries: cached.map {
+                NovelLibraryEntry(
+                    novelId: $0.novel.id,
+                    addedAt: $0.addedAt ?? .distantPast,
+                    updatedAt: $0.updatedAt,
+                    novel: $0.novel
+                )
+            })
+            guard self.userID == userID else { return }
+        }
+        let guest = Self.load(Self.guestKey, from: defaults)
+        if !guest.entries.isEmpty {
+            account.adopt(guest: guest)
+            Self.save(account, key: Self.accountKey(userID), to: defaults)
+            defaults.removeObject(forKey: Self.guestKey)
+        }
+        ledger = account
+        notifyChanged()
+        await refresh()
+    }
+
+    /// Saves or removes the novel. Returns whether it is now saved.
+    @discardableResult
+    func toggle(_ novel: Novel) -> Bool {
+        let saved: Bool
+        if ledger.contains(novel.id) {
+            ledger.remove(novel.id)
+            saved = false
+        } else {
+            ledger.add(novel.id, novel: novel)
+            saved = true
+        }
+        persist()
+        notifyChanged()
+        if isSignedIn { Task { await flush() } }
+        return saved
+    }
+
+    /// Keeps the stored titles and covers current for offline shelves.
+    func remember(_ novels: [Novel]) {
+        let before = ledger
+        ledger.remember(novels)
+        if ledger != before { persist() }
+    }
+
+    /// Sends queued changes, then reloads the account's list. Guests have
+    /// nothing to fetch.
+    func refresh() async {
+        guard let userID, let apiClient else { return }
+        isRefreshing = true
+        defer { isRefreshing = false }
+        await flush()
+        do {
+            let remote = try await apiClient.fetchMyLibrary()
+            guard self.userID == userID else { return }
+            let before = ledger.novelIds
+            ledger.applyAccount(remote.map {
+                NovelLibraryEntry(novelId: $0.novelId, addedAt: $0.createdAt ?? .distantPast, updatedAt: $0.updatedAt)
+            })
+            persist()
+            refreshFailed = false
+            if ledger.novelIds != before { notifyChanged() }
+        } catch {
+            guard self.userID == userID else { return }
+            refreshFailed = true
+        }
+    }
+
+    /// Sends the queued changes in order, stopping at the first that can't
+    /// reach the account. A change the server rejects outright is dropped.
+    func flush() async {
+        guard let userID, let apiClient, !isFlushing else { return }
+        isFlushing = true
+        defer { isFlushing = false }
+        while let change = ledger.pending.first {
+            do {
+                switch change.kind {
+                case .add: _ = try await apiClient.addNovelToLibrary(novelId: change.novelId)
+                case .remove: try await apiClient.removeNovelFromLibrary(novelId: change.novelId)
+                }
+            } catch let error as NSError where error.domain == "APIClient"
+                && (400..<500).contains(error.code) && error.code != 401 && error.code != 408 && error.code != 429 {
+                // Rejected (e.g. an unknown novel): retrying won't help.
+            } catch {
+                return
+            }
+            // The account may have changed while the request was in flight.
+            guard self.userID == userID else { return }
+            ledger.acknowledge(change)
+            persist()
+        }
+    }
+
+    private func persist() {
+        Self.save(ledger, key: userID.map(Self.accountKey) ?? Self.guestKey, to: defaults)
+    }
+
+    private func notifyChanged() {
+        NotificationCenter.default.post(name: .asterionSavedNovelsChanged, object: nil)
+    }
+
+    private static func load(_ key: String, from defaults: UserDefaults) -> NovelLibraryLedger {
+        guard let data = defaults.data(forKey: key),
+              let ledger = try? JSONDecoder().decode(NovelLibraryLedger.self, from: data) else {
+            return NovelLibraryLedger()
+        }
+        return ledger
+    }
+
+    private static func save(_ ledger: NovelLibraryLedger, key: String, to defaults: UserDefaults) {
+        guard let data = try? JSONEncoder().encode(ledger) else { return }
+        defaults.set(data, forKey: key)
+    }
+}

@@ -763,6 +763,49 @@ struct ReaderView: View {
         listenRate.formatted(.number.precision(.fractionLength(1))) + "×"
     }
 
+    private var sleepTimerSelection: Binding<ListenSleepTimer?> {
+        Binding(
+            get: { speech.sleepSchedule?.timer },
+            set: { speech.setSleepTimer($0) }
+        )
+    }
+
+    /// Off, a few durations, or the end of the chapter, like the video player's.
+    private var sleepTimerMenu: some View {
+        Menu {
+            Picker("Sleep timer", selection: sleepTimerSelection) {
+                Text("Off").tag(ListenSleepTimer?.none)
+                ForEach(ListenSleepTimer.choices, id: \.self) { choice in
+                    Text(choice.title).tag(Optional(choice))
+                }
+            }
+        } label: {
+            TimelineView(.periodic(from: .now, by: 15)) { context in
+                HStack(spacing: 4) {
+                    Image(systemName: speech.sleepSchedule == nil ? "moon.zzz" : "moon.zzz.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                    if let label = speech.sleepSchedule?.shortLabel(at: context.date) {
+                        Text(verbatim: label)
+                            .font(.asterionMono(11, weight: .medium))
+                            .contentTransition(.numericText())
+                    }
+                }
+                .foregroundStyle(Color.white.opacity(speech.sleepSchedule == nil ? 0.8 : 1))
+                .frame(minWidth: 40, minHeight: 44)
+                .contentShape(Rectangle())
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Sleep timer")
+                .accessibilityValue(sleepTimerAccessibilityValue(at: context.date))
+            }
+        }
+    }
+
+    private func sleepTimerAccessibilityValue(at date: Date) -> String {
+        guard let schedule = speech.sleepSchedule else { return "Off" }
+        guard let minutes = schedule.minutesLeft(at: date) else { return "End of chapter" }
+        return minutes == 1 ? "1 minute left" : String(minutes) + " minutes left"
+    }
+
     /// Smoked transport shown above the dock while the chapter is read aloud.
     private var listeningControls: some View {
         HStack(spacing: 0) {
@@ -813,6 +856,8 @@ struct ReaderView: View {
             }
             .accessibilityLabel("Speed")
             .accessibilityValue(listenRateLabel)
+
+            sleepTimerMenu
 
             Button { speech.stop() } label: {
                 Image(systemName: "xmark")
@@ -1639,6 +1684,8 @@ private final class ReaderSpeechController: NSObject, ObservableObject {
     @Published private(set) var isActive = false
     @Published private(set) var isPlaying = false
     @Published private(set) var spokenParagraph: Int?
+    /// The sleep timer, while one is set.
+    @Published private(set) var sleepSchedule: ListenSleepSchedule?
 
     var onParagraphStart: ((Int) -> Void)?
     var onChapterFinished: (() -> Void)?
@@ -1663,6 +1710,9 @@ private final class ReaderSpeechController: NSObject, ObservableObject {
     private var commandTargets: [(MPRemoteCommand, Any)] = []
     private var artwork: MPMediaItemArtwork?
     private var artworkURL: URL?
+    private var sleepTask: Task<Void, Never>?
+    /// The sleep timer stopped listening at a chapter's end; resuming opens the next chapter.
+    private var advancesOnResume = false
 
     override init() {
         super.init()
@@ -1723,6 +1773,7 @@ private final class ReaderSpeechController: NSObject, ObservableObject {
 
     func stop() {
         guard isActive else { return }
+        setSleepTimer(nil)
         clearQueue()
         isActive = false
         isPlaying = false
@@ -1752,12 +1803,22 @@ private final class ReaderSpeechController: NSObject, ObservableObject {
         guard isActive, isPlaying else { return }
         if synthesizer.isSpeaking { synthesizer.pauseSpeaking(at: .word) }
         isPlaying = false
+        // Paused between chapters: the next one opens paused too.
+        awaitingChapter = false
         updateNowPlaying()
     }
 
     func resume() {
         guard isActive, !isPlaying else { return }
         activateAudioSession()
+        if advancesOnResume {
+            // Stopped at the end of a chapter by the sleep timer: go on to the next.
+            advancesOnResume = false
+            awaitingChapter = true
+            holdBackgroundTime()
+            onChapterFinished?()
+            return
+        }
         if synthesizer.isPaused, !needsRequeueOnResume {
             synthesizer.continueSpeaking()
             isPlaying = true
@@ -1799,6 +1860,31 @@ private final class ReaderSpeechController: NSObject, ObservableObject {
         }
     }
 
+    // MARK: Sleep timer
+
+    /// Sets (or with nil, clears) the sleep timer. A timed one pauses
+    /// listening when it runs out; end of chapter stops after the current one.
+    func setSleepTimer(_ timer: ListenSleepTimer?) {
+        sleepTask?.cancel()
+        sleepTask = nil
+        guard let timer else {
+            sleepSchedule = nil
+            return
+        }
+        let schedule = ListenSleepSchedule(timer)
+        sleepSchedule = schedule
+        guard let endsAt = schedule.endsAt else { return }
+        // Task.sleep keeps counting while the app is suspended, so a timer
+        // that ran out with the screen locked fires as soon as it can.
+        sleepTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(max(0, endsAt.timeIntervalSinceNow)))
+            guard !Task.isCancelled, let self else { return }
+            self.sleepTask = nil
+            self.sleepSchedule = nil
+            self.pause()
+        }
+    }
+
     // MARK: Queue
 
     private func enqueue(from index: Int, heading: String?) {
@@ -1827,6 +1913,7 @@ private final class ReaderSpeechController: NSObject, ObservableObject {
     }
 
     private func clearQueue() {
+        advancesOnResume = false
         queued.removeAll()
         queuedUtterances.removeAll()
         lastQueuedParagraph = -1
@@ -1862,6 +1949,14 @@ private final class ReaderSpeechController: NSObject, ObservableObject {
         guard let paragraph = queued.removeValue(forKey: id) else { return }
         queuedUtterances.removeAll { ObjectIdentifier($0) == id }
         guard paragraph == lastQueuedParagraph, queued.isEmpty else { return }
+        if sleepSchedule?.stopsAtChapterEnd == true {
+            // The sleep timer ends here; Play picks up with the next chapter.
+            sleepSchedule = nil
+            isPlaying = false
+            advancesOnResume = true
+            updateNowPlaying()
+            return
+        }
         // Chapter done. Hold a little background time so the next chapter can
         // load with the screen locked, then hand over to the reader.
         awaitingChapter = true

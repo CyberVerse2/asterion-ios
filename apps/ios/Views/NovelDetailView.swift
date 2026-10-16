@@ -12,7 +12,8 @@ struct NovelDetailView: View {
     @EnvironmentObject private var tabBarState: TabBarState
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @ObservedObject private var downloadStore = NovelDownloadProgressStore.shared
+    @EnvironmentObject private var novelLibrary: NovelLibraryService
+    @ObservedObject private var downloadManager = NovelDownloadManager.shared
     let novel: Novel
     var onBack: (() -> Void)?
 
@@ -24,12 +25,6 @@ struct NovelDetailView: View {
     @State private var allNovels: [Novel] = []
     @State private var readingProgress: ReadingProgress?
     @State private var continueChapter: Chapter?
-    @State private var isInLibrary = false
-    @State private var libraryActionInFlight = false
-    @State private var isDownloadingAllChapters = false
-    @State private var downloadError: String?
-    @State private var downloadPreparedCount = 0
-    @State private var downloadTotalCount = 0
     @State private var isNovelAvailableOffline = false
     @State private var downloadedChapterIds = Set<String>()
     /// Chapters around the one being read; nil shows the first chapters.
@@ -96,7 +91,18 @@ struct NovelDetailView: View {
         .toolbarVisibility(.hidden, for: .navigationBar)
         .toolbarVisibility(.hidden, for: .tabBar)
         .task { await loadInitialData() }
-        .onAppear { tabBarState.isVisible = false }
+        .onAppear {
+            tabBarState.isVisible = false
+            // A download may have finished, or been removed in Downloads, meanwhile.
+            Task { await refreshOfflineAvailability() }
+        }
+        .onChange(of: downloadManager.snapshot(for: novel.id)?.phase) { _, phase in
+            guard phase == .finished else { return }
+            Task {
+                await refreshOfflineAvailability()
+                await refreshDownloadedPreviewChapters()
+            }
+        }
         .onDisappear { tabBarState.isVisible = true }
         .edgeSwipeToDismiss { performBack() }
         .enableInjection()
@@ -333,22 +339,23 @@ struct NovelDetailView: View {
         return "Continue reading"
     }
 
+    private var isInLibrary: Bool { novelLibrary.contains(novel.id) }
+
+    /// Works signed out and offline: the save lands on this device at once
+    /// and reaches the account when it can.
     private var libraryBadge: some View {
         AsterionCircleIconButton(
             systemName: isInLibrary ? "bookmark.fill" : "bookmark",
-            isBusy: libraryActionInFlight,
             accessibilityLabel: isInLibrary ? "Remove from library" : "Save to library"
         ) {
-            Task { await toggleLibrary() }
+            toggleLibrary()
         }
-        .disabled(libraryActionInFlight || !networkMonitor.isConnected)
-        .opacity(!networkMonitor.isConnected ? 0.55 : 1)
     }
 
     private var downloadChip: some View {
         Button {
             if !effectiveIsDownloading {
-                Task { await downloadAllChapters() }
+                downloadAllChapters()
             }
         } label: {
             ZStack {
@@ -446,26 +453,24 @@ struct NovelDetailView: View {
         }
     }
 
-    private var persistedDownloadSnapshot: NovelDownloadProgressStore.Snapshot? {
-        downloadStore.snapshot(for: novel.id)
+    private var downloadSnapshot: NovelDownloadManager.Snapshot? {
+        downloadManager.snapshot(for: novel.id)
     }
 
     private var effectiveIsDownloading: Bool {
-        isDownloadingAllChapters || persistedDownloadSnapshot?.isActive == true
+        downloadSnapshot?.isActive == true
     }
 
     private var effectivePreparedCount: Int {
-        if let snapshot = persistedDownloadSnapshot {
-            return snapshot.completed
-        }
-        return downloadPreparedCount
+        downloadSnapshot?.completed ?? 0
     }
 
     private var effectiveTotalCount: Int {
-        if let snapshot = persistedDownloadSnapshot {
-            return snapshot.total
-        }
-        return downloadTotalCount
+        downloadSnapshot.map { $0.phase == .preparing ? 0 : $0.total } ?? 0
+    }
+
+    private var downloadError: String? {
+        downloadSnapshot?.errorMessage
     }
 
     private var downloadProgress: CGFloat {
@@ -687,7 +692,8 @@ struct NovelDetailView: View {
         async let chaptersTask: () = loadChapters()
         async let novelsTask: () = loadAllNovels()
         async let progressTask: () = loadProgress()
-        async let libraryTask: () = loadLibraryState()
+        // Picks up saves made on another device (no-op for guests).
+        async let libraryTask: () = novelLibrary.refresh()
         _ = await (chaptersTask, novelsTask, progressTask, libraryTask)
         await loadPreviewAroundCurrent()
         await refreshOfflineAvailability()
@@ -825,235 +831,30 @@ struct NovelDetailView: View {
         }
     }
 
-    private func loadLibraryState() async {
-        guard authService.isSignedIn else {
-            isInLibrary = false
-            return
-        }
-        do {
-            let library = try await apiClient.fetchMyLibrary()
-            isInLibrary = library.contains(where: { $0.novelId == novel.id })
-        } catch {
-            isInLibrary = false
-        }
-    }
-
-    private func toggleLibrary() async {
-        guard authService.isSignedIn, !libraryActionInFlight else { return }
-        libraryActionInFlight = true
-        defer { libraryActionInFlight = false }
-        do {
-            if isInLibrary {
-                _ = try await apiClient.removeNovelFromLibrary(novelId: novel.id)
-                isInLibrary = false
-                Haptics.tap()
-            } else {
-                _ = try await apiClient.addNovelToLibrary(novelId: novel.id)
-                isInLibrary = true
-                Haptics.success()
-            }
-            NotificationCenter.default.post(name: .asterionSavedNovelsChanged, object: nil)
-        } catch {
-            // Keep the current state when request fails.
-            Haptics.error()
-        }
-    }
-
-    private func downloadAllChapters() async {
-        guard !effectiveIsDownloading else { return }
-        isDownloadingAllChapters = true
-        downloadError = nil
-        downloadPreparedCount = 0
-        downloadTotalCount = 0
-        defer { isDownloadingAllChapters = false }
-
-        do {
-            let chapterList = try await fetchAllChaptersForDownload()
-            if chapterList.isEmpty {
-                downloadError = "No chapters available to download."
-                downloadStore.fail(
-                    novelId: novel.id,
-                    completed: 0,
-                    total: 1,
-                    message: "No chapters available to download."
-                )
-                DownloadLiveActivityManager.shared.end(success: false, completed: 0, total: 1)
-                Haptics.error()
-                return
-            }
-            downloadTotalCount = chapterList.count
-            downloadStore.start(novelId: novel.id, total: chapterList.count)
-            await DownloadLiveActivityManager.shared.start(
-                novelTitle: novel.title,
-                novelImageURL: novel.imageUrl,
-                total: chapterList.count
-            )
-
-            for chapter in chapterList {
-                let fullChapter: Chapter
-                if let cached = await OfflineChapterStore.shared.chapter(id: chapter.id),
-                   !(cached.content ?? "").isEmpty
-                {
-                    fullChapter = cached
-                } else if !(chapter.content ?? "").isEmpty {
-                    fullChapter = chapter
-                } else {
-                    do {
-                        fullChapter = try await apiClient.fetchChapter(id: chapter.id)
-                    } catch {
-                        fullChapter = chapter
-                    }
-                }
-
-                let chapterHeader = fullChapter.labeledTitle
-                await OfflineChapterStore.shared.cacheChapter(fullChapter)
-
-                let fileBody = """
-                \(novel.title)
-                \(chapterHeader)
-
-                \(fullChapter.plainContent)
-                """
-                _ = try await OfflineChapterStore.shared.saveDownloadedChapter(
-                    novelTitle: novel.title,
-                    chapterNumber: fullChapter.chapterNumber,
-                    chapterTitle: fullChapter.title,
-                    content: fileBody,
-                    novel: novel,
-                    chapter: fullChapter
-                )
-                downloadPreparedCount += 1
-                downloadStore.update(
-                    novelId: novel.id,
-                    completed: downloadPreparedCount,
-                    total: chapterList.count,
-                    statusText: "Downloading"
-                )
-                DownloadLiveActivityManager.shared.update(
-                    completed: downloadPreparedCount,
-                    total: chapterList.count
-                )
-            }
-
-            await OfflineChapterStore.shared.flushDownloadedManifests()
-            isNovelAvailableOffline = true
-            downloadStore.finish(
-                novelId: novel.id,
-                completed: chapterList.count,
-                total: chapterList.count
-            )
-            DownloadLiveActivityManager.shared.end(
-                success: true,
-                completed: chapterList.count,
-                total: chapterList.count
-            )
+    private func toggleLibrary() {
+        if novelLibrary.toggle(novel) {
             Haptics.success()
-        } catch {
-            await OfflineChapterStore.shared.flushDownloadedManifests()
-            downloadError = "Couldn't prepare novel download."
-            downloadStore.fail(
-                novelId: novel.id,
-                completed: downloadPreparedCount,
-                total: max(downloadTotalCount, 1),
-                message: "Download failed."
-            )
-            DownloadLiveActivityManager.shared.end(
-                success: false,
-                completed: downloadPreparedCount,
-                total: max(downloadTotalCount, 1)
-            )
-            Haptics.error()
+        } else {
+            Haptics.tap()
         }
     }
 
-    private func fetchAllChaptersForDownload() async throws -> [Chapter] {
-        let results = try await apiClient.fetchAllChapters(novelId: novel.id)
-
-        if results.isEmpty, !chapters.isEmpty {
-            return chapters
-        }
-        await OfflineChapterStore.shared.saveChapterList(novelId: novel.id, chapters: results, mergeWithExisting: true)
-        return results
+    private func downloadAllChapters() {
+        downloadManager.start(novel: novel, apiClient: apiClient, knownChapters: chapters)
     }
 
+    /// Available offline once the download folder holds every chapter.
     private func refreshOfflineAvailability() async {
-        let cachedChapterList = await OfflineChapterStore.shared.loadChapterList(novelId: novel.id)
-        guard !cachedChapterList.isEmpty else {
+        let downloaded = await OfflineChapterStore.shared.downloadedChapterCount(novelTitle: novel.title)
+        guard downloaded > 0 else {
             isNovelAvailableOffline = false
             return
         }
-
-        let expectedTotal = totalChapters > 0
-            ? totalChapters
-            : (Int(novel.totalChapters?.filter(\.isNumber) ?? "") ?? cachedChapterList.count)
-        if cachedChapterList.count < max(1, expectedTotal) {
-            isNovelAvailableOffline = false
-            return
+        var expected = totalChapters > 0 ? totalChapters : (novel.catalogChapterCount ?? 0)
+        if expected == 0 {
+            expected = await OfflineChapterStore.shared.loadChapterList(novelId: novel.id).count
         }
-
-        for chapter in cachedChapterList {
-            guard let cached = await OfflineChapterStore.shared.chapter(id: chapter.id),
-                  !(cached.content ?? "").isEmpty
-            else {
-                isNovelAvailableOffline = false
-                return
-            }
-        }
-        isNovelAvailableOffline = true
-    }
-}
-
-@MainActor
-private final class NovelDownloadProgressStore: ObservableObject {
-    static let shared = NovelDownloadProgressStore()
-
-    struct Snapshot {
-        let completed: Int
-        let total: Int
-        let statusText: String
-        let isActive: Bool
-    }
-
-    @Published private var state: [String: Snapshot] = [:]
-
-    func snapshot(for novelId: String) -> Snapshot? {
-        state[novelId]
-    }
-
-    func start(novelId: String, total: Int) {
-        state[novelId] = Snapshot(
-            completed: 0,
-            total: max(total, 1),
-            statusText: "Preparing",
-            isActive: true
-        )
-    }
-
-    func update(novelId: String, completed: Int, total: Int, statusText: String) {
-        state[novelId] = Snapshot(
-            completed: max(0, min(completed, max(total, 1))),
-            total: max(total, 1),
-            statusText: statusText,
-            isActive: true
-        )
-    }
-
-    func finish(novelId: String, completed: Int, total: Int) {
-        state[novelId] = Snapshot(
-            completed: max(0, min(completed, max(total, 1))),
-            total: max(total, 1),
-            statusText: "Completed",
-            isActive: false
-        )
-    }
-
-    func fail(novelId: String, completed: Int, total: Int, message: String) {
-        state[novelId] = Snapshot(
-            completed: max(0, min(completed, max(total, 1))),
-            total: max(total, 1),
-            statusText: message,
-            isActive: false
-        )
+        isNovelAvailableOffline = downloaded >= max(1, expected)
     }
 }
 

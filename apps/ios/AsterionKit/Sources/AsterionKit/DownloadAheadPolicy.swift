@@ -58,3 +58,40 @@ public enum OfflineVideoPaths {
         return path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
     }
 }
+
+/// Runs one pass at a time. A request that arrives while a pass runs is kept
+/// (only the newest, merged with any request already waiting) and handed back
+/// when the pass finishes, so a later call with fresher inputs is never lost.
+public struct FollowUpPassQueue<Input> {
+    public private(set) var isRunning = false
+    public private(set) var waiting: Input?
+
+    public init() {}
+
+    /// The input to start now, or nil when a pass is running and `input`
+    /// waits for it. `merge(waiting, new)` combines with a request already waiting.
+    public mutating func request(
+        _ input: Input,
+        merge: (Input, Input) -> Input = { _, newest in newest }
+    ) -> Input? {
+        guard isRunning else {
+            isRunning = true
+            return input
+        }
+        waiting = waiting.map { merge($0, input) } ?? input
+        return nil
+    }
+
+    /// Call when a pass ends. Returns the waiting input to run next (the queue
+    /// stays running), or nil once there is nothing left to do.
+    public mutating func finish() -> Input? {
+        guard let next = waiting else {
+            isRunning = false
+            return nil
+        }
+        waiting = nil
+        return next
+    }
+}
+
+extension FollowUpPassQueue: Sendable where Input: Sendable {}

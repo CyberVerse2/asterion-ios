@@ -111,6 +111,7 @@ struct AsterionApp: App {
     @StateObject private var tabBarState = TabBarState()
     @StateObject private var readingProgressService = ReadingProgressService()
     @StateObject private var mediaAccountService = MediaAccountService()
+    @StateObject private var novelLibraryService = NovelLibraryService()
     @StateObject private var offlineVideoDownloadService = OfflineVideoDownloadService()
     @StateObject private var networkMonitor = NetworkMonitor()
     @StateObject private var readingActivityService = ReadingActivityService()
@@ -129,6 +130,7 @@ struct AsterionApp: App {
                 .environmentObject(tabBarState)
                 .environmentObject(readingProgressService)
                 .environmentObject(mediaAccountService)
+                .environmentObject(novelLibraryService)
                 .environmentObject(offlineVideoDownloadService)
                 .environmentObject(networkMonitor)
                 .environmentObject(readingActivityService)
@@ -143,7 +145,9 @@ struct AsterionApp: App {
                     readingProgressService.configure(apiClient: apiClient)
                     readingActivityService.setUser(authService.currentUser?.id)
                     mediaAccountService.configure(apiClient: apiClient)
+                    novelLibraryService.configure(apiClient: apiClient)
                     await mediaAccountService.handleAuthenticationChange(isSignedIn: authService.isSignedIn)
+                    await novelLibraryService.handleAuthenticationChange(userID: authService.currentUser?.id)
                     await readingProgressService.flushQueue()
                     accountReady = true
                     await refreshContentAlerts()
@@ -154,6 +158,9 @@ struct AsterionApp: App {
                         apiClient.setSessionToken(authService.sessionToken)
                         readingActivityService.setUser(authService.currentUser?.id)
                         await mediaAccountService.handleAuthenticationChange(isSignedIn: isSignedIn)
+                        await novelLibraryService.handleAuthenticationChange(userID: authService.currentUser?.id)
+                        // Reading done as a guest waits in the queue; send it to the new account.
+                        if isSignedIn { await readingProgressService.flushQueue() }
                         await refreshContentAlerts()
                     }
                 }
@@ -163,6 +170,7 @@ struct AsterionApp: App {
                         apiClient.setSessionToken(authService.sessionToken)
                         await readingProgressService.flushQueue()
                         await mediaAccountService.handleAuthenticationChange(isSignedIn: authService.isSignedIn)
+                        await novelLibraryService.handleAuthenticationChange(userID: authService.currentUser?.id)
                     }
                 }
                 .onChange(of: mediaAccountService.snapshot.bookmarks.map(\.id)) { _, _ in
@@ -183,15 +191,17 @@ struct AsterionApp: App {
 
     private func refreshContentAlerts() async {
         contentNotifications.setUser(authService.currentUser?.id)
-        let library = authService.isSignedIn ? try? await apiClient.fetchMyLibrary() : []
-        if let library {
+        // Guest saves count too; they live on this device until sign-in.
+        // Signed in before the account's list has ever loaded, the local copy
+        // is only the queued changes, so leave the current targets alone.
+        if !novelLibraryService.isSignedIn || novelLibraryService.hasAccountCopy {
             let catalog = await OfflineChapterStore.shared.loadCatalog()
             var targets: [ContentWatchTarget] = []
-            for entry in library {
-                var novel = catalog.first { $0.id == entry.novelId }
-                if novel == nil { novel = try? await apiClient.fetchNovel(id: entry.novelId) }
-                guard let novel else { continue }
-                targets.append(ContentWatchTarget(kind: .novel, contentID: novel.id, title: novel.title))
+            for entry in novelLibraryService.entries {
+                var title = catalog.first { $0.id == entry.novelId }?.title ?? entry.novel?.title
+                if title == nil { title = (try? await apiClient.fetchNovel(id: entry.novelId))?.title }
+                guard let title else { continue }
+                targets.append(ContentWatchTarget(kind: .novel, contentID: entry.novelId, title: title))
             }
             contentNotifications.replaceTargets(kind: .novel, with: targets)
         }

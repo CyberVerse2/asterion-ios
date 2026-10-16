@@ -4,15 +4,23 @@ import SwiftUI
 struct DownloadCenterView: View {
     @EnvironmentObject private var offlineVideoDownloadService: OfflineVideoDownloadService
     @EnvironmentObject private var tabBarState: TabBarState
+    @ObservedObject private var novelDownloads = NovelDownloadManager.shared
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var collections: [DownloadedNovelCollection] = OfflineChapterStore.shared.cachedCollections ?? []
     @State private var isLoading = OfflineChapterStore.shared.cachedCollections == nil
     @State private var selectedPlayback: PlaybackRequest?
+    @State private var novelPendingRemoval: DownloadedNovelCollection?
+
+    private var activeNovelDownloads: [NovelDownloadManager.Snapshot] { novelDownloads.activeDownloads }
+
+    private var activeCount: Int {
+        offlineVideoDownloadService.transfers.count + activeNovelDownloads.count
+    }
 
     private var hasDownloads: Bool {
         !collections.isEmpty
             || !offlineVideoDownloadService.records.isEmpty
-            || !offlineVideoDownloadService.transfers.isEmpty
+            || activeCount > 0
     }
 
     private var pageHorizontalPadding: CGFloat { AsterionLayout.pagePadding(horizontalSizeClass) }
@@ -61,13 +69,32 @@ struct DownloadCenterView: View {
             .fullScreenCover(item: $selectedPlayback, onDismiss: PlaybackOrientationLock.endVideo) { request in
                 NativeMediaPlayerView(request: request)
             }
+            // A novel download finished or stopped: its folder changed.
+            .onChange(of: activeNovelDownloads.map(\.id)) { _, _ in
+                Task { await loadDownloads() }
+            }
+            .confirmationDialog(
+                novelPendingRemoval.map { "Remove \($0.title) from this device?" } ?? "",
+                isPresented: Binding(
+                    get: { novelPendingRemoval != nil },
+                    set: { if !$0 { novelPendingRemoval = nil } }
+                ),
+                titleVisibility: .visible,
+                presenting: novelPendingRemoval
+            ) { collection in
+                Button("Remove download", role: .destructive) {
+                    Task { await remove(collection) }
+                }
+            } message: { collection in
+                Text("All \(collection.chapterCount) downloaded chapters are deleted. Reading progress is kept.")
+            }
         }
     }
 
     // MARK: - Summary
 
     private var downloadSummary: String {
-        let active = offlineVideoDownloadService.transfers.count
+        let active = activeCount
         let offline = offlineVideoDownloadService.records.count + collections.count
         let parts: [String]
         if active > 0 {
@@ -130,8 +157,8 @@ struct DownloadCenterView: View {
         let groups = videoGroupsByKind
 
         return VStack(alignment: .leading, spacing: 30) {
-            if !offlineVideoDownloadService.transfers.isEmpty {
-                videoTransfersSection
+            if activeCount > 0 {
+                transfersSection
             }
 
             if !collections.isEmpty {
@@ -157,11 +184,16 @@ struct DownloadCenterView: View {
         }
     }
 
-    private var videoTransfersSection: some View {
-        section(title: "Downloading", count: offlineVideoDownloadService.transfers.count) {
+    /// Novels and videos still downloading, each with its progress and a cancel button.
+    private var transfersSection: some View {
+        section(title: "Downloading", count: activeCount) {
             panel(prominent: true) {
-                ForEach(Array(offlineVideoDownloadService.transfers.enumerated()), id: \.element.id) { index, transfer in
+                ForEach(Array(activeNovelDownloads.enumerated()), id: \.element.id) { index, download in
                     if index > 0 { DownloadSeparator() }
+                    novelTransferRow(download)
+                }
+                ForEach(Array(offlineVideoDownloadService.transfers.enumerated()), id: \.element.id) { index, transfer in
+                    if index > 0 || !activeNovelDownloads.isEmpty { DownloadSeparator() }
                     HStack(spacing: 14) {
                         DownloadThumbnail(url: nil, fallbackSystemImage: "arrow.down")
                         VStack(alignment: .leading, spacing: 4) {
@@ -196,42 +228,111 @@ struct DownloadCenterView: View {
             panel {
                 ForEach(Array(collections.enumerated()), id: \.element.id) { index, collection in
                     if index > 0 { DownloadSeparator() }
-                    NavigationLink(value: collection) {
-                        HStack(spacing: 14) {
-                            NovelPosterArt(novel: collection.novel)
-                                .frame(width: 44, height: 66)
-                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                                .overlay {
-                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                        .strokeBorder(Color.asterionBorder)
+                    HStack(spacing: 14) {
+                        NavigationLink(value: collection) {
+                            HStack(spacing: 14) {
+                                NovelPosterArt(novel: collection.novel)
+                                    .frame(width: 44, height: 66)
+                                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                    .overlay {
+                                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                            .strokeBorder(Color.asterionBorder)
+                                    }
+
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(collection.title)
+                                        .font(.asterionReading(14.5, weight: .semibold))
+                                        .foregroundStyle(Color.asterionText)
+                                        .lineLimit(2)
+
+                                    Text(chapterDetail(for: collection))
+                                        .font(.asterionMono(11, weight: .medium))
+                                        .foregroundStyle(Color.asterionMuted)
                                 }
 
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(collection.title)
-                                    .font(.asterionReading(14.5, weight: .semibold))
-                                    .foregroundStyle(Color.asterionText)
-                                    .lineLimit(2)
-
-                                Text(chapterDetail(for: collection))
-                                    .font(.asterionMono(11, weight: .medium))
-                                    .foregroundStyle(Color.asterionMuted)
+                                Spacer(minLength: 0)
                             }
-
-                            Spacer(minLength: 8)
-
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(Color.asterionFaint)
-                                .accessibilityLabel("Available offline")
+                            .contentShape(Rectangle())
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
-                        .contentShape(Rectangle())
+                        .buttonStyle(.plain)
+                        .accessibilityHint("Opens the downloaded chapters")
+                        .contextMenu {
+                            Button(role: .destructive) {
+                                novelPendingRemoval = collection
+                            } label: {
+                                Label("Remove download", systemImage: "trash")
+                            }
+                        }
+
+                        removeButton {
+                            novelPendingRemoval = collection
+                        }
                     }
-                    .buttonStyle(.plain)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
                 }
             }
         }
+    }
+
+    private func novelTransferRow(_ download: NovelDownloadManager.Snapshot) -> some View {
+        HStack(spacing: 14) {
+            NovelPosterArt(novel: download.novel)
+                .frame(width: 44, height: 66)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(Color.asterionBorder)
+                }
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(download.novel.title)
+                    .font(.asterionReading(14.5, weight: .semibold))
+                    .foregroundStyle(Color.asterionText)
+                    .lineLimit(2)
+                if download.phase == .preparing {
+                    Text("Preparing chapters…")
+                        .font(.asterionReading(12))
+                        .foregroundStyle(Color.asterionMuted)
+                        .padding(.top, 2)
+                } else {
+                    HStack(spacing: 10) {
+                        AsterionLightLine(fraction: download.fraction, height: 3)
+                        Text(verbatim: String(download.completed) + "/" + String(download.total))
+                            .font(.asterionMono(11, weight: .medium))
+                            .foregroundStyle(Color.asterionText)
+                            .fixedSize()
+                    }
+                    .padding(.top, 6)
+                }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Downloading " + download.novel.title)
+            .accessibilityValue(
+                download.phase == .preparing
+                    ? "Preparing"
+                    : String(download.completed) + " of " + String(download.total) + " chapters"
+            )
+
+            DownloadIconButton(systemImage: "xmark", accessibilityLabel: "Cancel download") {
+                novelDownloads.cancel(novelID: download.id)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+    }
+
+    private func removeButton(action: @escaping () -> Void) -> some View {
+        Button(role: .destructive, action: action) {
+            Image(systemName: "trash")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Color.asterionMuted)
+                .frame(width: 34, height: 34)
+                .background(Color.white.opacity(0.06), in: Circle())
+                .overlay(Circle().strokeBorder(Color.asterionBorder))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Remove download")
     }
 
     private func videoRow(_ record: OfflineVideoRecord, title: String, imageURL: URL?, isNested: Bool) -> some View {
@@ -265,18 +366,9 @@ struct DownloadCenterView: View {
             .buttonStyle(.plain)
             .accessibilityHint("Plays offline")
 
-            Button(role: .destructive) {
+            removeButton {
                 offlineVideoDownloadService.remove(record)
-            } label: {
-                Image(systemName: "trash")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Color.asterionMuted)
-                    .frame(width: 34, height: 34)
-                    .background(Color.white.opacity(0.06), in: Circle())
-                    .overlay(Circle().strokeBorder(Color.asterionBorder))
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Remove download")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, isNested ? 10 : 12)
@@ -376,6 +468,15 @@ struct DownloadCenterView: View {
         .clipShape(RoundedRectangle(cornerRadius: prominent ? 16 : 14, style: .continuous))
         .asterionPanel(cornerRadius: prominent ? 16 : 14, fill: prominent ? .asterionCard : .asterionSurface)
         .shadow(color: .black.opacity(prominent ? 0.28 : 0), radius: 18, y: 8)
+    }
+
+    private func remove(_ collection: DownloadedNovelCollection) async {
+        await novelDownloads.cancelAndWait(novelID: collection.novel.id)
+        await OfflineChapterStore.shared.removeDownloadedNovel(collection)
+        withAnimation(.snappy(duration: 0.25)) {
+            collections.removeAll { $0.id == collection.id }
+        }
+        Haptics.tap()
     }
 
     private func loadDownloads() async {

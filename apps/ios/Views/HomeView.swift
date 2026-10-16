@@ -710,6 +710,8 @@ enum HomeHeroLane: CaseIterable, Hashable {
 
 struct HomeNovelCard: View {
     let novel: Novel
+    /// Replaces the catalog line under the poster.
+    var subtitle: String? = nil
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     private var posterSize: CGSize {
@@ -719,7 +721,7 @@ struct HomeNovelCard: View {
     var body: some View {
         HomePosterCaption(
             title: novel.title,
-            subtitle: novel.compactMetadata.isEmpty ? (novel.author ?? "Novel") : novel.compactMetadata,
+            subtitle: subtitle ?? (novel.compactMetadata.isEmpty ? (novel.author ?? "Novel") : novel.compactMetadata),
             width: posterSize.width
         ) {
             NovelPosterArt(novel: novel)
@@ -1469,8 +1471,10 @@ private struct HomeSearchView: View {
                 switch section {
                 case .novels:
                     ForEach(novels) { novel in
-                        NavigationLink(value: novel) { HomeNovelCard(novel: novel) }
-                            .buttonStyle(.plain)
+                        NavigationLink(value: novel) {
+                            HomeNovelCard(novel: novel, subtitle: searchSubtitle(for: novel))
+                        }
+                        .buttonStyle(.plain)
                     }
                 case .anime:
                     ForEach(anime) { title in
@@ -1512,6 +1516,18 @@ private struct HomeSearchView: View {
                 }
             }
         }
+    }
+
+    /// Like the media rows beside it: what the title is and how much of it
+    /// there is ("398 chapters · Ongoing"), then the author when the catalog
+    /// has neither.
+    private func searchSubtitle(for novel: Novel) -> String {
+        let facts = [
+            novel.catalogChapterCount.map { $0 == 1 ? "1 chapter" : String($0) + " chapters" },
+            novel.statusTitle,
+        ].compactMap { $0 }
+        if !facts.isEmpty { return facts.joined(separator: " · ") }
+        return novel.author ?? "Novel"
     }
 
     private func shelf<Content: View>(

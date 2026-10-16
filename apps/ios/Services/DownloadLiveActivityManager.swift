@@ -93,7 +93,7 @@ final class DownloadLiveActivityManager {
         Task { await activity.update(ActivityContent(state: state, staleDate: nil)) }
     }
 
-    func end(success: Bool, completed: Int, total: Int) {
+    func end(success: Bool, completed: Int, total: Int, statusText: String? = nil) {
         guard #available(iOS 16.1, *) else {
             activity = nil
             return
@@ -103,7 +103,7 @@ final class DownloadLiveActivityManager {
         let finalState = ChapterDownloadActivityAttributes.ContentState(
             completed: clampedCompleted,
             total: max(total, 1),
-            statusText: success ? "Complete" : "Failed"
+            statusText: statusText ?? (success ? "Complete" : "Failed")
         )
         Task {
             await activity.end(
@@ -497,7 +497,7 @@ final class DownloadLiveActivityManager {
 
     func start(novelTitle: String, novelImageURL: String?, total: Int) async {}
     func update(completed: Int, total: Int) {}
-    func end(success: Bool, completed: Int, total: Int) {}
+    func end(success: Bool, completed: Int, total: Int, statusText: String? = nil) {}
 }
 
 @MainActor
