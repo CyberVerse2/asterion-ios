@@ -505,7 +505,9 @@ final class DownloadAheadCoordinator {
     static let enabledKey = "asterion.downloadAhead.enabled"
     static let chaptersAhead = 5
     static let episodesAhead = 2
-    private static let maximumShows = 3
+    private nonisolated static let maximumShows = 3
+    /// Shows untouched for longer than this are left alone.
+    private nonisolated static let recentWatchWindow: TimeInterval = 21 * 24 * 60 * 60
     private static let minimumInterval: TimeInterval = 10 * 60
 
     static var isEnabled: Bool {
@@ -583,6 +585,9 @@ final class DownloadAheadCoordinator {
             await downloadChaptersAhead(for: entry, apiClient: apiClient)
         }
 
+        // Downloads from an earlier launch may still be running; wait until
+        // they are known so a second copy isn't queued.
+        await videoDownloads.waitUntilRestored()
         let shows = Self.showsToQueue(from: progress)
         for item in shows {
             guard Self.isEnabled, !Task.isCancelled else { return }
@@ -651,12 +656,17 @@ final class DownloadAheadCoordinator {
 
     // MARK: Episodes
 
-    /// Most recent in-progress anime and series, one entry per title.
-    private static func showsToQueue(from progress: [MediaPlaybackProgress]) -> [MediaPlaybackProgress] {
+    /// Anime and series watched recently, one entry per title. A finished
+    /// episode counts too: the episodes after it are the ones to fetch.
+    nonisolated static func showsToQueue(
+        from progress: [MediaPlaybackProgress],
+        now: Date = Date()
+    ) -> [MediaPlaybackProgress] {
         var seen = Set<String>()
         return progress
             .filter { item in
-                guard !item.completed, item.positionSeconds > 0 else { return false }
+                guard item.completed || item.positionSeconds > 0 else { return false }
+                guard now.timeIntervalSince(item.updatedAt) < recentWatchWindow else { return false }
                 switch item.mediaType {
                 case .anime: return item.episodeNumber != nil
                 case .movie: return item.episodeNumber != nil || item.seasonNumber != nil

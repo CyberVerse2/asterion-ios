@@ -282,6 +282,42 @@ struct AsterionTests {
     }
 
     @Test
+    func videoDownloadPathsSurviveIOS26PathsAndReinstalls() {
+        let device = "/.nofollow/private/var/mobile/Containers/Data/Application/2B6E3794-15CA-480C-912C-4E87A8700797/Library/com.apple.UserManagedAssets.9lmNoF/Show_1.movpkg"
+        #expect(OfflineVideoDownloadService.containerRelativePath(device)
+            == "Library/com.apple.UserManagedAssets.9lmNoF/Show_1.movpkg")
+        let relative = "Library/com.apple.UserManagedAssets.9lmNoF/Show_1.movpkg"
+        #expect(OfflineVideoDownloadService.containerRelativePath(relative) == relative)
+    }
+
+    @Test
+    func downloadAheadPrunesEpisodesWatchedPast() {
+        func unit(_ episode: Int) -> MediaPlaybackDescriptor {
+            MediaPlaybackDescriptor(
+                item: MediaItemDescriptor(mediaType: .anime, contentID: "show", title: "Show", subtitle: nil, imageURL: nil),
+                unitID: "1-\(episode)", unitTitle: nil, seasonNumber: 1, episodeNumber: episode
+            )
+        }
+        // Watching 11 (unfinished): 10 is behind, 11 and 12 are kept.
+        let watching11 = playbackProgress(unitId: "1-11", episodeNumber: 11, completed: false, positionSeconds: 300)
+        #expect(OfflineVideoDownloadService.isWatchedPast(unit(10), latest: watching11))
+        #expect(!OfflineVideoDownloadService.isWatchedPast(unit(11), latest: watching11))
+        #expect(!OfflineVideoDownloadService.isWatchedPast(unit(12), latest: watching11))
+        // Finished 11: 11 can go too.
+        let finished11 = playbackProgress(unitId: "1-11", episodeNumber: 11, completed: true, positionSeconds: 1_000)
+        #expect(OfflineVideoDownloadService.isWatchedPast(unit(11), latest: finished11))
+    }
+
+    @Test
+    func downloadAheadQueuesRecentShowsEvenAfterAFinishedEpisode() {
+        let now = Date()
+        let finishedRecently = playbackProgress(unitId: "1-8", episodeNumber: 8, completed: true, positionSeconds: 1_000, updatedAt: now)
+        let abandoned = playbackProgress(unitId: "1-9", episodeNumber: 9, completed: false, positionSeconds: 2, updatedAt: now.addingTimeInterval(-40 * 24 * 3600))
+        #expect(DownloadAheadCoordinator.showsToQueue(from: [finishedRecently], now: now).count == 1)
+        #expect(DownloadAheadCoordinator.showsToQueue(from: [abandoned], now: now).isEmpty)
+    }
+
+    @Test
     func chapterDisplayTitleDropsALeadingChapterNumber() {
         #expect(
             Chapter.strippedChapterPrefix(from: "Chapter 1 My Soon-To-Be Girlfriend Is Dead [1]")

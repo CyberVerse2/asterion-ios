@@ -35,9 +35,10 @@ final class OfflineVideoDownloadService: NSObject, ObservableObject {
     private var progressByID: [String: Double] = [:]
     private var metadataByTaskID: [Int: OfflineVideoTaskMetadata] = [:]
     private var session: AVAssetDownloadURLSession!
+    private var restoreTask: Task<Void, Never>?
 
     override init() {
-        records = Self.loadRecords()
+        records = Self.loadRecords().map(Self.repairingPath)
         downloadedAheadIDs = Set(UserDefaults.standard.stringArray(forKey: Self.downloadedAheadKey) ?? [])
         super.init()
 
@@ -52,8 +53,15 @@ final class OfflineVideoDownloadService: NSObject, ObservableObject {
             assetDownloadDelegate: self,
             delegateQueue: .main
         )
-        restoreActiveTasks()
         removeMissingRecords()
+        saveRecords()
+        restoreActiveTasks()
+    }
+
+    /// Resolves once downloads still running from an earlier launch are known,
+    /// so "Download ahead" doesn't queue a second copy of one in flight.
+    func waitUntilRestored() async {
+        await restoreTask?.value
     }
 
     func start(_ request: PlaybackRequest) {
@@ -140,18 +148,31 @@ final class OfflineVideoDownloadService: NSObject, ObservableObject {
     }
 
     /// Deletes "Download ahead" episodes the viewer has since finished.
+    /// Removes "Download ahead" episodes the viewer has moved past. The
+    /// account keeps only the latest episode per title, so compare episode
+    /// numbers rather than looking for each episode's own record.
     func pruneWatchedDownloadsAhead(progress: [MediaPlaybackProgress]) {
-        let finished = Set(
-            progress.filter(\.completed).map { "\($0.mediaType.rawValue):\($0.contentId):\($0.unitId)" }
+        let latestByTitle = Dictionary(
+            progress.map { ("\($0.mediaType.rawValue):\($0.contentId)", $0) },
+            uniquingKeysWith: { $0.updatedAt >= $1.updatedAt ? $0 : $1 }
         )
-        guard !finished.isEmpty else { return }
         for record in records where downloadedAheadIDs.contains(record.id) {
-            guard let playback = record.playback else { continue }
-            let key = "\(playback.item.mediaType.rawValue):\(playback.item.contentID):\(playback.unitID)"
-            if finished.contains(key) {
+            guard let playback = record.playback,
+                  let latest = latestByTitle["\(playback.item.mediaType.rawValue):\(playback.item.contentID)"]
+            else { continue }
+            if Self.isWatchedPast(playback, latest: latest) {
                 remove(record)
             }
         }
+    }
+
+    nonisolated static func isWatchedPast(_ unit: MediaPlaybackDescriptor, latest: MediaPlaybackProgress) -> Bool {
+        if let episode = unit.episodeNumber, let latestEpisode = latest.episodeNumber {
+            let position = (unit.seasonNumber ?? 0, episode)
+            let latestPosition = (latest.seasonNumber ?? 0, latestEpisode)
+            return position < latestPosition || (position == latestPosition && latest.completed)
+        }
+        return latest.completed && unit.unitID == latest.unitId
     }
 
     private func setDownloadedAhead(_ id: String, _ isAhead: Bool) {
@@ -193,15 +214,44 @@ final class OfflineVideoDownloadService: NSObject, ObservableObject {
     }
 
     private func restoreActiveTasks() {
-        session.getAllTasks { [weak self] tasks in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                for task in tasks {
-                    guard let metadata = Self.metadata(from: task) else { continue }
-                    metadataByTaskID[task.taskIdentifier] = metadata
-                    progressByID[metadata.id] = max(0, min(1, task.progress.fractionCompleted))
-                }
-                rebuildTransfers()
+        restoreTask = Task { [weak self] in
+            guard let session = self?.session else { return }
+            let tasks = await session.allTasks
+            guard let self else { return }
+            for task in tasks where task.state == .running || task.state == .suspended {
+                guard let metadata = Self.metadata(from: task) else { continue }
+                metadataByTaskID[task.taskIdentifier] = metadata
+                progressByID[metadata.id] = max(0, min(1, task.progress.fractionCompleted))
+            }
+            rebuildTransfers()
+            if metadataByTaskID.isEmpty {
+                removeOrphanedPackages()
+            }
+        }
+    }
+
+    /// Deletes downloaded packages no record points to: copies left behind
+    /// when a record's path could not be resolved, and partial packages from
+    /// failed downloads. Only runs when nothing is downloading, and only for
+    /// packages untouched for an hour.
+    private func removeOrphanedPackages() {
+        let fileManager = FileManager.default
+        let library = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library", isDirectory: true)
+        let kept = Set(records.compactMap { localURL(for: $0)?.standardizedFileURL.path })
+        let folders = (try? fileManager.contentsOfDirectory(at: library, includingPropertiesForKeys: nil)) ?? []
+        for folder in folders where folder.lastPathComponent.hasPrefix("com.apple.UserManagedAssets") {
+            let packages = (try? fileManager.contentsOfDirectory(
+                at: folder,
+                includingPropertiesForKeys: [.contentModificationDateKey]
+            )) ?? []
+            for package in packages where package.pathExtension == "movpkg"
+                && !kept.contains(package.standardizedFileURL.path) {
+                // A download that finished while the app was closed reports
+                // its package after launch; leave anything recent alone.
+                let modified = (try? package.resourceValues(forKeys: [.contentModificationDateKey]))?
+                    .contentModificationDate ?? .distantPast
+                guard modified < Date().addingTimeInterval(-3600) else { continue }
+                try? fileManager.removeItem(at: package)
             }
         }
     }
@@ -215,7 +265,7 @@ final class OfflineVideoDownloadService: NSObject, ObservableObject {
             OfflineVideoRecord(
                 id: metadata.id,
                 title: metadata.title,
-                relativePath: Self.relativePath(for: location),
+                relativePath: Self.containerRelativePath(location.standardizedFileURL.path),
                 playback: metadata.playback,
                 downloadedAt: Date()
             ),
@@ -236,6 +286,13 @@ final class OfflineVideoDownloadService: NSObject, ObservableObject {
         metadataByTaskID.removeValue(forKey: task.taskIdentifier)
         rebuildTransfers()
         let wasAhead = downloadedAheadIDs.contains(metadata.id)
+        // The system reports the package location before it reports the
+        // error, so a failed download had already been recorded with a
+        // partial package. Drop both, or it would pass as downloaded.
+        if let partial = records.first(where: { $0.id == metadata.id }),
+           partial.downloadedAt > Date().addingTimeInterval(-60) {
+            remove(partial)
+        }
         setDownloadedAhead(metadata.id, false)
         if (error as NSError).code != NSURLErrorCancelled, !wasAhead {
             lastError = error.localizedDescription
@@ -275,7 +332,7 @@ final class OfflineVideoDownloadService: NSObject, ObservableObject {
 
     private func localURL(for record: OfflineVideoRecord) -> URL? {
         let url = URL(fileURLWithPath: NSHomeDirectory())
-            .appendingPathComponent(record.relativePath)
+            .appendingPathComponent(Self.containerRelativePath(record.relativePath))
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
@@ -299,11 +356,31 @@ final class OfflineVideoDownloadService: NSObject, ObservableObject {
         return records
     }
 
-    private static func relativePath(for location: URL) -> String {
-        let homePath = URL(fileURLWithPath: NSHomeDirectory()).standardizedFileURL.path
-        let locationPath = location.standardizedFileURL.path
-        guard locationPath.hasPrefix(homePath) else { return locationPath }
-        return String(locationPath.dropFirst(homePath.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+    /// Where a package lives inside the app container. iOS 26 reports
+    /// downloads under /.nofollow/private/var/…, NSHomeDirectory() is /var/…,
+    /// and the container ID changes on reinstall, so keep only the part after
+    /// the container. Also repairs absolute paths saved by earlier builds.
+    nonisolated static func containerRelativePath(_ path: String) -> String {
+        if let range = path.range(of: #"/Containers/Data/Application/[^/]+/"#, options: .regularExpression) {
+            return String(path[range.upperBound...])
+        }
+        let home = URL(fileURLWithPath: NSHomeDirectory()).standardizedFileURL.path
+        if path.hasPrefix(home + "/") {
+            return String(path.dropFirst(home.count + 1))
+        }
+        return path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+    }
+
+    private static func repairingPath(_ record: OfflineVideoRecord) -> OfflineVideoRecord {
+        let relative = containerRelativePath(record.relativePath)
+        guard relative != record.relativePath else { return record }
+        return OfflineVideoRecord(
+            id: record.id,
+            title: record.title,
+            relativePath: relative,
+            playback: record.playback,
+            downloadedAt: record.downloadedAt
+        )
     }
 
     private nonisolated static func metadata(from task: URLSessionTask) -> OfflineVideoTaskMetadata? {
