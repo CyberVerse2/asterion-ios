@@ -1,12 +1,15 @@
-.PHONY: test test-macos test-core-api test-anime test-movies test-football run-macos build-core-api
+.PHONY: test test-macos test-core-api test-novels test-anime test-movies test-football run-macos build-core-api
 
-test: test-macos test-core-api test-anime test-movies test-football
+test: test-macos test-core-api test-novels test-anime test-movies test-football
 
 test-macos:
 	cd apps/macos && swift test
 
 test-core-api:
 	cd services/core-api && npm run build && npx tsx --test test/*.test.ts
+
+test-novels:
+	cd services/novels && npm run typecheck && npm test
 
 test-anime:
 	cd services/anime && python3 -m unittest

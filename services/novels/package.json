@@ -1,0 +1,31 @@
+{
+  "name": "asterion-novels",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Incremental, scheduled novelfire.net chapter scraper for Asterion",
+  "type": "module",
+  "main": "dist/server.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "dev": "tsx src/server.ts",
+    "scrape": "node dist/cli.js",
+    "scrape:dev": "tsx src/cli.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p test/tsconfig.json --noEmit",
+    "test": "tsx --test test/*.test.ts"
+  },
+  "dependencies": {
+    "cheerio": "^1.2.0",
+    "pg": "^8.16.3",
+    "undici": "^7.16.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.0",
+    "@types/pg": "^8.15.5",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.3"
+  }
+}
