@@ -51,6 +51,30 @@ function str(env: Env, name: string): string | null {
   return raw ? raw : null;
 }
 
+/**
+ * Accepts a proxy as a URL (`http://user:pass@host:port`) or in the `host:port:user:pass`,
+ * `user:pass@host:port` and `host:port` shapes proxy dashboards hand out, and returns a URL.
+ */
+export function normalizeProxyUrl(raw: string | null): string | null {
+  if (!raw) return null;
+  const value = raw.trim();
+  if (!value) return null;
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) return value;
+
+  const [host, port, user, ...rest] = value.split(':');
+  const hostPortFirst = !!host && !host.includes('@') && !!port && /^\d+$/.test(port);
+  if (!hostPortFirst) {
+    if (value.includes('@')) return `http://${value}`;
+    throw new Error('PROXY_URL must look like http://user:pass@host:port or host:port:user:pass');
+  }
+  if (user === undefined) return `http://${host}:${port}`;
+  const password = rest.join(':');
+  const auth = password
+    ? `${encodeURIComponent(user)}:${encodeURIComponent(password)}`
+    : encodeURIComponent(user);
+  return `http://${auth}@${host}:${port}`;
+}
+
 export function loadConfig(env: Env = process.env): Config {
   const databaseUrl = str(env, 'DATABASE_URL');
   if (!databaseUrl) {
@@ -60,7 +84,7 @@ export function loadConfig(env: Env = process.env): Config {
   return {
     databaseUrl,
     token: str(env, 'NOVEL_SCRAPER_TOKEN'),
-    proxyUrl: str(env, 'PROXY_URL') ?? str(env, 'HTTPS_PROXY') ?? str(env, 'https_proxy'),
+    proxyUrl: normalizeProxyUrl(str(env, 'PROXY_URL') ?? str(env, 'HTTPS_PROXY') ?? str(env, 'https_proxy')),
     host: str(env, 'HOST') ?? '0.0.0.0',
     port: int(env, 'PORT', 8080, 1, 65535),
 
