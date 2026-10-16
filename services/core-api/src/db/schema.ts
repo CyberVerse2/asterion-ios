@@ -66,12 +66,18 @@ export const readingHistory = pgTable("reading_history", {
   userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   novelId: text("novel_id").notNull(),
   chapterId: text("chapter_id").notNull(),
+  chapterNumber: integer("chapter_number"),
+  chapterTitle: text("chapter_title"),
+  // How far into the chapter the reader got, 0–100. Only ever grows.
+  progress: doublePrecision("progress").notNull().default(0),
+  // The latest time the chapter was read, on any device.
   visitedAt: timestamp("visited_at", { withTimezone: false, mode: "date" }).notNull().defaultNow(),
   createdAt: timestamp("created_at", { withTimezone: false, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: false, mode: "date" }).notNull().defaultNow(),
 }, (table) => [
   index("reading_history_user_visited_idx").on(table.userId, table.visitedAt),
   index("reading_history_user_novel_idx").on(table.userId, table.novelId),
+  uniqueIndex("reading_history_user_chapter_unique").on(table.userId, table.novelId, table.chapterId),
 ]);
 
 export const userPreferences = pgTable("user_preferences", {

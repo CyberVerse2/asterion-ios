@@ -1381,6 +1381,17 @@ struct ReaderView: View {
                 saved: percentage * 100
             )
         )
+
+        // History: one entry per chapter opened, its progress kept current.
+        if !paragraphs.isEmpty {
+            readingActivityService.recordChapterVisit(
+                novelID: novel.id,
+                chapterID: currentChapter.id,
+                chapterNumber: currentChapter.chapterNumber,
+                chapterTitle: currentChapter.title,
+                progress: novelProgress.chapterPercentage
+            )
+        }
         ContinueReadingStore.saveSnapshot(
             ContinueReadingSnapshot(
                 novelId: novel.id,

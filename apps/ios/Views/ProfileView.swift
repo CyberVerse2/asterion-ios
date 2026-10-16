@@ -18,7 +18,6 @@ struct ProfileView: View {
     @State private var libraryNovels: [Novel] = []
     @State private var activityNovels: [Novel] = []
     @State private var readingProgress: [ReadingProgress] = []
-    @State private var readingHistory: [AsterionReadingHistoryEntry] = []
     @State private var readingGoal: Int = 30
     @State private var notificationsOn = true
     @State private var fontSizePref: FontSizePref = .medium
@@ -492,7 +491,6 @@ struct ProfileView: View {
             libraryNovels = []
             activityNovels = []
             readingProgress = []
-            readingHistory = []
             startedNovelIds = []
             completedNovelIds = []
             cloudSyncError = nil
@@ -502,6 +500,9 @@ struct ProfileView: View {
         if activityNovels.isEmpty {
             activityNovels = await OfflineChapterStore.shared.loadCatalog()
         }
+
+        // Send chapters read here (offline included) alongside the loads below.
+        Task { await readingActivityService.syncHistory(pullRemote: false) }
 
         do {
             async let profileFetch = apiClient.fetchMyProfile()
@@ -517,13 +518,14 @@ struct ProfileView: View {
             let allNovels = try await allNovelsFetch
             let progressList = try await progressFetch
             let history = try await historyFetch
-            readingHistory = history
+            readingActivityService.mergeRemoteHistory(history)
+            let localHistory = readingActivityService.history
             activityNovels = allNovels
             readingProgress = progressList
 
             cloudBookmarkCount = stats.bookmarks
             cloudProgressCount = stats.novelsInProgress
-            cloudChaptersRead = stats.chaptersRead
+            cloudChaptersRead = localHistory.chaptersRead(accountCount: stats.chaptersRead)
 
             // The library service includes saves still on their way to the account.
             await novelLibrary.refresh()
@@ -531,10 +533,11 @@ struct ProfileView: View {
             libraryNovels = allNovels.filter { libraryIds.contains($0.id) }
 
             let startedFromProgress = Set(progressList.map(\.novelId))
-            let startedFromHistory = Set(history.map(\.novelId))
+            let startedFromHistory = Set(history.map(\.novelId)).union(localHistory.entries.map(\.novelId))
             startedNovelIds = startedFromProgress.union(startedFromHistory)
 
-            var distinctChapterCountsByNovel: [String: Set<String>] = [:]
+            // Chapters read here but not yet uploaded count too.
+            var distinctChapterCountsByNovel = localHistory.chapterIdsByNovel
             for entry in history {
                 distinctChapterCountsByNovel[entry.novelId, default: []].insert(entry.chapterId)
             }
@@ -597,7 +600,7 @@ struct ProfileView: View {
 
     /// One panel: what is saved, what is underway, and this week's reading.
     private var statisticsSection: some View {
-        let activity = readingActivityService.summary(history: readingHistory, goal: readingGoal)
+        let activity = readingActivityService.summary(goal: readingGoal)
         let saved = libraryNovels.count + mediaAccountService.snapshot.bookmarks.count
         let inProgress = ongoing + mediaAccountService.snapshot.stats.titlesInProgress
 

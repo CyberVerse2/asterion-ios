@@ -47,6 +47,21 @@ actor ReadingHistoryStore {
         return try update(ownerID: ownerID) { ReadingHistory.merging(remote: rows, into: $0) }
     }
 
+    /// The next batch of chapters the account hasn't seen.
+    func pendingUploads(
+        ownerID: String,
+        limit: Int = ReadingHistory.uploadBatchLimit
+    ) throws -> [ReadingHistory.Upload] {
+        ReadingHistory.pendingUploads(in: try entries(ownerID: ownerID), limit: limit)
+    }
+
+    /// Records that the account now holds `uploads`.
+    @discardableResult
+    func markUploaded(ownerID: String, _ uploads: [ReadingHistory.Upload]) throws -> [ReadingHistoryEntry] {
+        guard !uploads.isEmpty else { return try entries(ownerID: ownerID) }
+        return try update(ownerID: ownerID) { ReadingHistory.markingUploaded(uploads, in: $0) }
+    }
+
     /// Fills in chapter numbers and titles resolved after a synced row arrived.
     @discardableResult
     func resolveChapters(

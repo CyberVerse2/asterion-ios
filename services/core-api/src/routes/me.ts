@@ -12,6 +12,11 @@ import {
 } from "../db/schema";
 import { db } from "../lib/db";
 import { ensureUser, ensureUserPreferences } from "../lib/users";
+import {
+  collapseReadingHistoryEntries,
+  readingHistoryBatchSchema,
+} from "../lib/reading-history-contract";
+import { buildReadingHistoryUpsert } from "../lib/reading-history-queries";
 import { registerMediaAccountRoutes } from "./media-account";
 
 const profilePatchSchema = z.object({
@@ -195,12 +200,17 @@ export const meRoutes: FastifyPluginAsync = async (app) => {
       })
       .returning();
 
-    await db.insert(readingHistory).values({
-      id: randomUUID(),
-      userId: user.id,
+    // Every save also marks the chapter as read; one row per chapter.
+    const savedAt = new Date();
+    await buildReadingHistoryUpsert(db, user.id, [{
       novelId: parsed.data.novelId,
       chapterId: parsed.data.chapterId,
-    });
+      chapterNumber: null,
+      chapterTitle: null,
+      readAt: savedAt,
+      firstReadAt: savedAt,
+      progress: percentage,
+    }], savedAt);
 
     app.log.info(
       {
@@ -275,7 +285,7 @@ export const meRoutes: FastifyPluginAsync = async (app) => {
       .select()
       .from(readingHistory)
       .where(eq(readingHistory.userId, user.id))
-      .orderBy(desc(readingHistory.visitedAt))
+      .orderBy(desc(readingHistory.visitedAt), desc(readingHistory.id))
       .limit(parsed.data.limit)
       .offset(parsed.data.offset);
 
@@ -287,6 +297,35 @@ export const meRoutes: FastifyPluginAsync = async (app) => {
         offset: parsed.data.offset,
       },
       "GET /me/history completed."
+    );
+    return { data: rows };
+  });
+
+  // Chapters read on a device, possibly offline or long ago. Idempotent: one
+  // row per chapter keeps the newest read time and the furthest progress.
+  app.post("/me/history", async (request, reply) => {
+    const parsed = readingHistoryBatchSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "Invalid history payload.", issues: parsed.error.flatten() });
+    }
+
+    const { user, created } = await ensureUser(request.auth.clerkUserId);
+    if (created) {
+      app.log.info({ clerkUserId: request.auth.clerkUserId, userId: user.id }, "User saved in DB.");
+    }
+
+    const now = new Date();
+    const entries = collapseReadingHistoryEntries(parsed.data.entries, now);
+    const rows = await buildReadingHistoryUpsert(db, user.id, entries, now);
+
+    app.log.info(
+      {
+        clerkUserId: request.auth.clerkUserId,
+        userId: user.id,
+        received: parsed.data.entries.length,
+        saved: rows.length,
+      },
+      "POST /me/history completed."
     );
     return { data: rows };
   });

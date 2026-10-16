@@ -23,14 +23,34 @@ struct AsterionBookmark: Identifiable, Codable, Hashable {
     let updatedAt: Date?
 }
 
+/// A `reading_history` row: one per chapter, `visitedAt` its latest read on
+/// any device and `createdAt` its first. Older API builds repeated a chapter
+/// per progress save and had no chapter details or progress.
 struct AsterionReadingHistoryEntry: Identifiable, Codable, Hashable {
     let id: String
     let userId: String
     let novelId: String
     let chapterId: String
+    let chapterNumber: Int?
+    let chapterTitle: String?
+    /// 0–100.
+    let progress: Double?
     let visitedAt: Date?
     let createdAt: Date?
     let updatedAt: Date?
+
+    var record: RemoteReadingHistoryRecord? {
+        guard let visitedAt = visitedAt ?? createdAt else { return nil }
+        return RemoteReadingHistoryRecord(
+            novelId: novelId,
+            chapterId: chapterId,
+            visitedAt: visitedAt,
+            firstReadAt: createdAt,
+            chapterNumber: chapterNumber,
+            chapterTitle: chapterTitle,
+            progress: progress
+        )
+    }
 }
 
 struct AsterionLibraryNovel: Identifiable, Codable, Hashable {
@@ -341,6 +361,26 @@ final class APIClient: ObservableObject {
         ])
         let wrapper: DataWrapper<[AsterionReadingHistoryEntry]> = try await request(url: url)
         return wrapper.data
+    }
+
+    /// Sends chapters read on this device (at most
+    /// `ReadingHistoryLedger.uploadBatchLimit`). Idempotent: the account keeps
+    /// one row per chapter with the newest read and the furthest progress.
+    /// Failures arrive as `ReadingHistoryUploadError` or transport errors.
+    func uploadReadingHistory(_ entries: [ReadingHistoryUpload]) async throws {
+        let url = userBaseURL.appending(path: "/me/history")
+        struct RequestBody: Encodable {
+            let entries: [ReadingHistoryUpload]
+        }
+        do {
+            let _: DataWrapper<[AsterionReadingHistoryEntry]> = try await request(
+                url: url,
+                method: "POST",
+                body: RequestBody(entries: entries)
+            )
+        } catch let error as NSError where error.domain == "APIClient" {
+            throw ReadingHistoryUploadError(httpStatus: error.code)
+        }
     }
 
     func fetchMyPreferences() async throws -> AsterionUserPreferences {

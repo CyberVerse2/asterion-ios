@@ -302,8 +302,8 @@ actor APIClient {
         return envelope.data
     }
 
-    /// The account's most recent reading history, newest first. The API
-    /// writes a row on every progress save, so pages repeat chapters.
+    /// The account's most recent reading history, newest first: one row per
+    /// chapter (older API builds repeated a chapter once per progress save).
     func fetchReadingHistory(limit: Int = 50, offset: Int = 0) async throws -> [RemoteReadingHistoryRow] {
         let envelope: DataEnvelope<[RemoteReadingHistoryRow]> = try await request(
             path: "/me/history",
@@ -313,6 +313,20 @@ actor APIClient {
             ]
         )
         return envelope.data
+    }
+
+    /// Sends chapters read on this Mac (at most `ReadingHistory.uploadBatchLimit`).
+    /// Idempotent: the account keeps one row per chapter with the newest
+    /// read and the furthest progress.
+    func uploadReadingHistory(_ entries: [ReadingHistory.Upload]) async throws {
+        struct Body: Encodable, Sendable {
+            let entries: [ReadingHistory.Upload]
+        }
+        let _: DataEnvelope<[RemoteReadingHistoryRow]> = try await request(
+            path: "/me/history",
+            method: "POST",
+            body: Body(entries: entries)
+        )
     }
 
     func fetchReadingStats() async throws -> RemoteReadingStats {

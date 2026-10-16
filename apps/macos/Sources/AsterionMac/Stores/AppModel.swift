@@ -134,6 +134,17 @@ final class AppModel: ObservableObject {
     private let networkStatus = NetworkStatusMonitor()
     private lazy var progressUploadQueue = ReadingProgressUploadQueue(api: api)
     private lazy var mediaProgressUploadQueue = MediaProgressUploadQueue(api: api)
+    private lazy var historyUploadQueue: ReadingHistoryUploadQueue = {
+        let api = api
+        return ReadingHistoryUploadQueue(store: readingHistoryStore) { [weak self] ownerID, batch in
+            // Never send one account's reading under another's token.
+            guard await self?.signedInUser?.id == ownerID else { throw CancellationError() }
+            try await api.uploadReadingHistory(batch)
+        }
+    }()
+    /// The pending (debounced or retrying) upload of History to the account.
+    private var historyUploadTask: Task<Void, Never>?
+    private var historyUploadGeneration = 0
 
     private var chapterByID: [String: Chapter] = [:]
     private var chaptersByNovelID: [String: ChapterListCacheEntry] = [:]
@@ -174,6 +185,7 @@ final class AppModel: ObservableObject {
         authEventsTask?.cancel()
         networkEventsTask?.cancel()
         accountSyncRetryTask?.cancel()
+        historyUploadTask?.cancel()
         mediaOutboxTask?.cancel()
         novelSnapshotSaveTask?.cancel()
         historyChapterResolutionTask?.cancel()
@@ -1182,6 +1194,9 @@ final class AppModel: ObservableObject {
         guard let clerkUser = Clerk.shared.user else {
             await progressUploadQueue.cancelAll()
             await mediaProgressUploadQueue.cancelAll()
+            await historyUploadQueue.cancelAll()
+            historyUploadTask?.cancel()
+            historyUploadTask = nil
             accountSyncRetryTask?.cancel()
             accountSyncRetryTask = nil
             accountBootstrappedOwnerID = nil
@@ -1219,7 +1234,10 @@ final class AppModel: ObservableObject {
         let changesOwner = synchronizedSessionUser?.id != clerkUser.id
         await progressUploadQueue.cancelAll(exceptOwnerID: clerkUser.id)
         await mediaProgressUploadQueue.cancelAll(exceptOwnerID: clerkUser.id)
+        await historyUploadQueue.cancelAll(exceptOwnerID: clerkUser.id)
         if changesOwner {
+            historyUploadTask?.cancel()
+            historyUploadTask = nil
             accountSyncRetryTask?.cancel()
             accountSyncRetryTask = nil
             accountBootstrappedOwnerID = nil
@@ -1377,12 +1395,64 @@ final class AppModel: ObservableObject {
         guard let entries = try? await readingHistoryStore.record(ownerID: ownerID, visit: visit),
               progressOwnerID == ownerID else { return }
         readingHistory = entries
+        // Progress saves come in bursts while reading; send the chapter a
+        // moment later, together with whatever else was read meanwhile. An
+        // upload already waiting (or backing off) will carry it.
+        if signedInUser?.id == ownerID, historyUploadTask == nil {
+            scheduleHistoryUpload(ownerID: ownerID, after: .seconds(4))
+        }
     }
 
-    /// Folds the account's recent reading history into this Mac's and
-    /// refreshes the account's chapter count. The API records history on its
-    /// own from every progress save, so there is nothing to upload.
+    /// Uploads this Mac's pending History after `delay`, retrying with
+    /// backoff while offline or the API is down. A new request replaces the
+    /// waiting one; an upload already in flight finishes either way.
+    private func scheduleHistoryUpload(ownerID: String, after delay: Duration) {
+        historyUploadTask?.cancel()
+        historyUploadGeneration &+= 1
+        let generation = historyUploadGeneration
+        historyUploadTask = Task { @MainActor [weak self] in
+            defer {
+                if self?.historyUploadGeneration == generation { self?.historyUploadTask = nil }
+            }
+            var delay = delay
+            var failures = 0
+            while true {
+                do {
+                    try await Task.sleep(for: delay)
+                } catch {
+                    return
+                }
+                guard let self, self.signedInUser?.id == ownerID else { return }
+                switch await self.historyUploadQueue.flush(ownerID: ownerID) {
+                case .finished, .cancelled:
+                    return
+                case .unauthorized:
+                    // The session token expired; fetch a fresh one and retry.
+                    if let token = try? await Clerk.shared.auth.getToken(),
+                       self.signedInUser?.id == ownerID {
+                        await self.api.setToken(token)
+                    }
+                case .retryLater:
+                    break
+                }
+                delay = ReadingHistory.uploadRetryDelay(afterFailures: failures)
+                failures += 1
+            }
+        }
+    }
+
+    /// Sends this Mac's pending History to the account, then folds the
+    /// account's recent history (other devices' reading included) into this
+    /// Mac's and refreshes the account's chapter count.
     private func synchronizeReadingHistoryForSession(ownerID: String) async {
+        switch await historyUploadQueue.flush(ownerID: ownerID) {
+        case .finished, .cancelled:
+            break
+        case .retryLater, .unauthorized:
+            if signedInUser?.id == ownerID {
+                scheduleHistoryUpload(ownerID: ownerID, after: ReadingHistory.uploadRetryDelay(afterFailures: 0))
+            }
+        }
         var rows: [RemoteReadingHistoryRow] = []
         for page in 0..<Self.readingHistoryPageCount {
             guard let pageRows = try? await api.fetchReadingHistory(limit: 50, offset: page * 50) else { break }

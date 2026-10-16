@@ -143,6 +143,7 @@ struct AsterionApp: App {
                     apiClient.setSessionToken(authService.sessionToken)
                     await authService.syncUserProfileToBackend(using: apiClient)
                     readingProgressService.configure(apiClient: apiClient)
+                    readingActivityService.configure(apiClient: apiClient)
                     readingActivityService.setUser(authService.currentUser?.id)
                     mediaAccountService.configure(apiClient: apiClient)
                     novelLibraryService.configure(apiClient: apiClient)
@@ -150,6 +151,7 @@ struct AsterionApp: App {
                     await novelLibraryService.handleAuthenticationChange(userID: authService.currentUser?.id)
                     await readingProgressService.flushQueue()
                     accountReady = true
+                    await readingActivityService.syncHistory()
                     await refreshContentAlerts()
                 }
                 .onChange(of: authService.isSignedIn) { _, isSignedIn in
@@ -160,7 +162,10 @@ struct AsterionApp: App {
                         await mediaAccountService.handleAuthenticationChange(isSignedIn: isSignedIn)
                         await novelLibraryService.handleAuthenticationChange(userID: authService.currentUser?.id)
                         // Reading done as a guest waits in the queue; send it to the new account.
-                        if isSignedIn { await readingProgressService.flushQueue() }
+                        if isSignedIn {
+                            await readingProgressService.flushQueue()
+                            await readingActivityService.syncHistory()
+                        }
                         await refreshContentAlerts()
                     }
                 }
@@ -169,6 +174,7 @@ struct AsterionApp: App {
                     Task {
                         apiClient.setSessionToken(authService.sessionToken)
                         await readingProgressService.flushQueue()
+                        await readingActivityService.syncHistory(pullRemote: false)
                         await mediaAccountService.handleAuthenticationChange(isSignedIn: authService.isSignedIn)
                         await novelLibraryService.handleAuthenticationChange(userID: authService.currentUser?.id)
                     }
@@ -184,7 +190,10 @@ struct AsterionApp: App {
                 .onChange(of: scenePhase) { _, phase in
                     guard accountReady else { return }
                     if phase == .background { contentNotifications.scheduleRefresh() }
-                    if phase == .active { Task { await refreshContentAlerts() } }
+                    if phase == .active {
+                        Task { await readingActivityService.syncHistory(pullRemote: false) }
+                        Task { await refreshContentAlerts() }
+                    }
                 }
         }
     }
