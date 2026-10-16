@@ -1,3 +1,4 @@
+import AsterionKit
 import Foundation
 import Testing
 @testable import Asterion
@@ -64,17 +65,6 @@ struct ReadingRecencyTests {
 
         #expect(service.currentProgress?.chapterId == "remote-chapter")
         #expect(service.mergedProgress(with: [remote]).first == remote)
-    }
-
-    @Test
-    func mergingProgressKeepsOnlyTheNewestRecordPerNovel() {
-        let old = ReadingProgress(id: "old", userId: "user", novelId: "novel", chapterId: "one",
-                                  currentLine: 1, totalLines: 10, percentage: 10,
-                                  updatedAt: Date(timeIntervalSince1970: 100))
-        let new = ReadingProgress(id: "new", userId: "user", novelId: "novel", chapterId: "two",
-                                  currentLine: 2, totalLines: 10, percentage: 20,
-                                  updatedAt: Date(timeIntervalSince1970: 200))
-        #expect(ReadingProgress.latestByNovel([new, old]) == [new])
     }
 }
 

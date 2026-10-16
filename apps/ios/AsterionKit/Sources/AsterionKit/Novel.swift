@@ -1,18 +1,46 @@
 import Foundation
 
-struct Novel: Identifiable, Codable, Hashable {
-    let id: String
-    let title: String
-    let author: String?
-    let rank: String?
-    let totalChapters: String?
-    let views: String?
-    let bookmarks: String?
-    let status: String?
-    let genres: [String]?
-    let summary: String?
-    let imageUrl: String?
-    let rating: Double?
+public struct Novel: Identifiable, Codable, Hashable, Sendable {
+    public let id: String
+    public let title: String
+    public let author: String?
+    public let rank: String?
+    public let totalChapters: String?
+    public let views: String?
+    public let bookmarks: String?
+    public let status: String?
+    public let genres: [String]?
+    public let summary: String?
+    public let imageUrl: String?
+    public let rating: Double?
+
+    public init(
+        id: String,
+        title: String,
+        author: String?,
+        rank: String?,
+        totalChapters: String?,
+        views: String?,
+        bookmarks: String?,
+        status: String?,
+        genres: [String]?,
+        summary: String?,
+        imageUrl: String?,
+        rating: Double?
+    ) {
+        self.id = id
+        self.title = title
+        self.author = author
+        self.rank = rank
+        self.totalChapters = totalChapters
+        self.views = views
+        self.bookmarks = bookmarks
+        self.status = status
+        self.genres = genres
+        self.summary = summary
+        self.imageUrl = imageUrl
+        self.rating = rating
+    }
 
     private enum CodingKeys: String, CodingKey {
         case id = "_id"
@@ -20,11 +48,11 @@ struct Novel: Identifiable, Codable, Hashable {
         case status, genres, summary, imageUrl, rating
     }
 
-    var rankPosition: Int {
+    public var rankPosition: Int {
         Self.rankPosition(from: rank)
     }
 
-    static func ranked(_ novels: [Novel]) -> [Novel] {
+    public static func ranked(_ novels: [Novel]) -> [Novel] {
         novels.sorted { lhs, rhs in
             if lhs.rankPosition != rhs.rankPosition {
                 return lhs.rankPosition < rhs.rankPosition
@@ -33,14 +61,14 @@ struct Novel: Identifiable, Codable, Hashable {
         }
     }
 
-    static func rankPosition(from raw: String?) -> Int {
+    public static func rankPosition(from raw: String?) -> Int {
         Int(raw?.filter(\.isNumber) ?? "") ?? .max
     }
 }
 
 extension Novel {
     /// The catalog's chapter count ("3172", "3,172"), when it has one.
-    var catalogChapterCount: Int? {
+    public var catalogChapterCount: Int? {
         NovelProgress.totalChapters(catalog: totalChapters)
     }
 }
@@ -49,19 +77,19 @@ extension Novel {
 
 extension Novel {
     /// Whether the catalog lists the novel as still publishing.
-    var isOngoing: Bool {
+    public var isOngoing: Bool {
         status?.lowercased().contains("ongoing") == true
     }
 
     /// Whether the catalog lists the novel as fully published. This is the
     /// catalog's status, not whether the reader has finished it.
-    var isCompleted: Bool {
+    public var isCompleted: Bool {
         guard let status = status?.lowercased() else { return false }
         return status.contains("complete") || status.contains("finished")
     }
 
     /// "Ongoing", "Completed", or the catalog's own wording.
-    var statusTitle: String? {
+    public var statusTitle: String? {
         if isOngoing { return "Ongoing" }
         if isCompleted { return "Completed" }
         let trimmed = status?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -69,19 +97,19 @@ extension Novel {
     }
 
     /// Views as a number ("766.5K" → 766500).
-    var viewCount: Int { NovelCatalog.count(from: views) }
+    public var viewCount: Int { NovelCatalog.count(from: views) }
 
     /// Bookmarks as a number ("2.2K" → 2200).
-    var bookmarkCount: Int { NovelCatalog.count(from: bookmarks) }
+    public var bookmarkCount: Int { NovelCatalog.count(from: bookmarks) }
 
     /// "★ 4.3", when the catalog has a rating.
-    var ratingLabel: String? {
+    public var ratingLabel: String? {
         rating.map { "★ " + String(format: "%.1f", $0) }
     }
 
     /// The compact line under a poster: "★ 4.3 · 398 ch · Ongoing".
     /// Numbers are never grouped with separators.
-    var compactMetadata: String {
+    public var compactMetadata: String {
         [
             ratingLabel,
             catalogChapterCount.map { String($0) + " ch" },
@@ -95,15 +123,15 @@ extension Novel {
 /// Client-side shaping of the novel catalog: shelves, filters, rankings and
 /// recommendations. The catalog is small (a couple of hundred titles), so
 /// everything sorts the whole list in memory.
-enum NovelCatalog {
-    enum RankingSort: String, CaseIterable, Hashable {
+public enum NovelCatalog {
+    public enum RankingSort: String, CaseIterable, Hashable, Sendable {
         case rank = "By rank"
         case rating = "By rating"
         case views = "By views"
     }
 
     /// Parses catalog counts: "12345", "12,345", "1.2K", "3.4M", "987 views".
-    static func count(from raw: String?) -> Int {
+    public static func count(from raw: String?) -> Int {
         guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
             return 0
         }
@@ -121,7 +149,7 @@ enum NovelCatalog {
     }
 
     /// Genre key for comparisons: "Sci-Fi", "sci fi" and " SCI-FI " are one genre.
-    static func genreKey(_ genre: String) -> String {
+    public static func genreKey(_ genre: String) -> String {
         genre
             .lowercased()
             .replacingOccurrences(of: "-", with: " ")
@@ -130,13 +158,13 @@ enum NovelCatalog {
             .joined(separator: " ")
     }
 
-    static func genreKeys(of novel: Novel) -> Set<String> {
+    public static func genreKeys(of novel: Novel) -> Set<String> {
         Set((novel.genres ?? []).map { genreKey($0) }.filter { !$0.isEmpty })
     }
 
     /// The catalog's genres, most common first, each under its most common
     /// spelling.
-    static func genres(in novels: [Novel]) -> [String] {
+    public static func genres(in novels: [Novel]) -> [String] {
         var counts: [String: Int] = [:]
         var spellings: [String: [String: Int]] = [:]
         for novel in novels {
@@ -165,7 +193,7 @@ enum NovelCatalog {
     }
 
     /// Most read first: views, then rating, then the catalog's rank.
-    static func byPopularity(_ novels: [Novel]) -> [Novel] {
+    public static func byPopularity(_ novels: [Novel]) -> [Novel] {
         novels.sorted { lhs, rhs in
             if lhs.viewCount != rhs.viewCount { return lhs.viewCount > rhs.viewCount }
             if (lhs.rating ?? 0) != (rhs.rating ?? 0) { return (lhs.rating ?? 0) > (rhs.rating ?? 0) }
@@ -174,7 +202,7 @@ enum NovelCatalog {
     }
 
     /// Highest rated first. Unrated titles are left out.
-    static func topRated(_ novels: [Novel]) -> [Novel] {
+    public static func topRated(_ novels: [Novel]) -> [Novel] {
         novels
             .filter { $0.rating != nil }
             .sorted { lhs, rhs in
@@ -184,22 +212,22 @@ enum NovelCatalog {
             }
     }
 
-    static func ongoing(_ novels: [Novel]) -> [Novel] {
+    public static func ongoing(_ novels: [Novel]) -> [Novel] {
         byPopularity(novels.filter(\.isOngoing))
     }
 
-    static func completed(_ novels: [Novel]) -> [Novel] {
+    public static func completed(_ novels: [Novel]) -> [Novel] {
         byPopularity(novels.filter(\.isCompleted))
     }
 
     /// Titles tagged with `genre`, most read first.
-    static func filter(_ novels: [Novel], genre: String) -> [Novel] {
+    public static func filter(_ novels: [Novel], genre: String) -> [Novel] {
         let key = genreKey(genre)
         return byPopularity(novels.filter { genreKeys(of: $0).contains(key) })
     }
 
     /// Title, author or genre contains the query, best ranked first.
-    static func search(_ novels: [Novel], query: String) -> [Novel] {
+    public static func search(_ novels: [Novel], query: String) -> [Novel] {
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !needle.isEmpty else { return Novel.ranked(novels) }
         let key = genreKey(needle)
@@ -210,7 +238,7 @@ enum NovelCatalog {
         })
     }
 
-    static func ranking(_ novels: [Novel], by sort: RankingSort) -> [Novel] {
+    public static func ranking(_ novels: [Novel], by sort: RankingSort) -> [Novel] {
         switch sort {
         case .rank: Novel.ranked(novels)
         case .rating: topRated(novels) + byPopularity(novels.filter { $0.rating == nil })
@@ -220,7 +248,7 @@ enum NovelCatalog {
 
     /// "More like this": titles sharing the most genres with `novel`, then
     /// the best rated. Titles sharing no genre are left out.
-    static func similar(to novel: Novel, in catalog: [Novel], limit: Int = 12) -> [Novel] {
+    public static func similar(to novel: Novel, in catalog: [Novel], limit: Int = 12) -> [Novel] {
         let keys = genreKeys(of: novel)
         guard !keys.isEmpty else { return [] }
         var seen: Set<String> = [novel.id]
@@ -244,7 +272,7 @@ enum NovelCatalog {
 
     /// Titles worth a billboard: they have artwork, match the reader's
     /// genres, and rate well. Titles with a synopsis lead.
-    static func featured(_ novels: [Novel], preferredGenres: Set<String>, limit: Int = 10) -> [Novel] {
+    public static func featured(_ novels: [Novel], preferredGenres: Set<String>, limit: Int = 10) -> [Novel] {
         let withArt = novels.filter { !($0.imageUrl ?? "").isEmpty }
         let ordered = NovelPersonalizer.order(withArt, preferredGenres: preferredGenres)
         let hasSummary: (Novel) -> Bool = { !($0.summary ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -253,7 +281,7 @@ enum NovelCatalog {
 
     /// Up to `count` genres for Discover shelves: the reader's own picks
     /// first (when the catalog has enough of them), then the most common.
-    static func shelfGenres(
+    public static func shelfGenres(
         _ novels: [Novel],
         preferred: [String],
         count: Int = 2,
@@ -281,5 +309,37 @@ enum NovelCatalog {
     private static func rankedBefore(_ lhs: Novel, _ rhs: Novel) -> Bool {
         if lhs.rankPosition != rhs.rankPosition { return lhs.rankPosition < rhs.rankPosition }
         return lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
+    }
+}
+
+/// Orders novels for Home: titles matching more of the reader's genres
+/// first, then the best rated, then the catalog's rank and title.
+public enum NovelPersonalizer {
+    public static func order(_ novels: [Novel], preferredGenres: Set<String>) -> [Novel] {
+        let normalizedGenres = Set(preferredGenres.map { NovelCatalog.genreKey($0) }.filter { !$0.isEmpty })
+
+        // Score once so the comparator stays cheap and deterministic.
+        let scored = novels.map { novel in
+            (novel: novel, matches: matchCount(for: novel, preferredGenres: normalizedGenres))
+        }
+        return scored.sorted { left, right in
+            if left.matches != right.matches {
+                return left.matches > right.matches
+            }
+            let leftRating = left.novel.rating ?? 0
+            let rightRating = right.novel.rating ?? 0
+            if leftRating != rightRating {
+                return leftRating > rightRating
+            }
+            if left.novel.rankPosition != right.novel.rankPosition {
+                return left.novel.rankPosition < right.novel.rankPosition
+            }
+            return left.novel.title.localizedStandardCompare(right.novel.title) == .orderedAscending
+        }
+        .map(\.novel)
+    }
+
+    private static func matchCount(for novel: Novel, preferredGenres: Set<String>) -> Int {
+        NovelCatalog.genreKeys(of: novel).intersection(preferredGenres).count
     }
 }

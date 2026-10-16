@@ -1,3 +1,4 @@
+import AsterionKit
 import AVFoundation
 import Inject
 import Combine
@@ -1127,7 +1128,7 @@ struct ReaderView: View {
             let nextIdx = currentIndex + direction
             let listed = navigationChapters.indices.contains(nextIdx) ? navigationChapters[nextIdx] : nil
             let target: Chapter?
-            if let listed, Self.isAdjacent(listed, to: currentChapter, direction: direction) {
+            if let listed, Chapter.isAdjacent(listed, to: currentChapter, direction: direction) {
                 target = listed
             } else {
                 target = await fetchAdjacentChapterFallback(direction: direction) ?? listed
@@ -1162,13 +1163,6 @@ struct ReaderView: View {
             continueListening(in: loaded)
             scheduleHideControls()
         }
-    }
-
-    /// True when `candidate` is the chapter straight after (or before) `current`.
-    /// Unnumbered chapters can't be checked, so their list order is trusted.
-    static func isAdjacent(_ candidate: Chapter, to current: Chapter, direction: Int) -> Bool {
-        guard candidate.chapterNumber > 0, current.chapterNumber > 0 else { return true }
-        return candidate.chapterNumber == current.chapterNumber + direction
     }
 
     private func fetchAdjacentChapterFallback(direction: Int) async -> Chapter? {

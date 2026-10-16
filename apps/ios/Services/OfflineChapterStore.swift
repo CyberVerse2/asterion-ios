@@ -1,3 +1,4 @@
+import AsterionKit
 import Foundation
 import Network
 import UIKit
@@ -505,9 +506,6 @@ final class DownloadAheadCoordinator {
     static let enabledKey = "asterion.downloadAhead.enabled"
     static let chaptersAhead = 5
     static let episodesAhead = 2
-    private nonisolated static let maximumShows = 3
-    /// Shows untouched for longer than this are left alone.
-    private nonisolated static let recentWatchWindow: TimeInterval = 21 * 24 * 60 * 60
     private static let minimumInterval: TimeInterval = 10 * 60
 
     static var isEnabled: Bool {
@@ -556,7 +554,7 @@ final class DownloadAheadCoordinator {
 
     private static func signature(novels: [DownloadAheadNovel], progress: [MediaPlaybackProgress]) -> String {
         let reading = novels.map { "\($0.novel.id):\($0.currentChapter.id)" }.sorted()
-        let watching = showsToQueue(from: progress).map { "\($0.contentId):\($0.unitId)" }.sorted()
+        let watching = DownloadAheadPolicy.showsToQueue(from: progress).map { "\($0.contentId):\($0.unitId)" }.sorted()
         return (reading + ["|"] + watching).joined(separator: ",")
     }
 
@@ -588,7 +586,7 @@ final class DownloadAheadCoordinator {
         // Downloads from an earlier launch may still be running; wait until
         // they are known so a second copy isn't queued.
         await videoDownloads.waitUntilRestored()
-        let shows = Self.showsToQueue(from: progress)
+        let shows = DownloadAheadPolicy.showsToQueue(from: progress)
         for item in shows {
             guard Self.isEnabled, !Task.isCancelled else { return }
             guard await Self.isOnUnmeteredNetwork() else { return }
@@ -655,29 +653,6 @@ final class DownloadAheadCoordinator {
     }
 
     // MARK: Episodes
-
-    /// Anime and series watched recently, one entry per title. A finished
-    /// episode counts too: the episodes after it are the ones to fetch.
-    nonisolated static func showsToQueue(
-        from progress: [MediaPlaybackProgress],
-        now: Date = Date()
-    ) -> [MediaPlaybackProgress] {
-        var seen = Set<String>()
-        return progress
-            .filter { item in
-                guard item.completed || item.positionSeconds > 0 else { return false }
-                guard now.timeIntervalSince(item.updatedAt) < recentWatchWindow else { return false }
-                switch item.mediaType {
-                case .anime: return item.episodeNumber != nil
-                case .movie: return item.episodeNumber != nil || item.seasonNumber != nil
-                default: return false
-                }
-            }
-            .sorted { $0.updatedAt > $1.updatedAt }
-            .filter { seen.insert("\($0.mediaType.rawValue):\($0.contentId)").inserted }
-            .prefix(maximumShows)
-            .map { $0 }
-    }
 
     private func queueAnimeEpisodesAhead(
         after item: MediaPlaybackProgress,

@@ -1,3 +1,4 @@
+import AsterionKit
 import Inject
 import SwiftUI
 import Combine
@@ -1236,23 +1237,3 @@ struct ChapterNumberLabel: View {
     }
 }
 
-/// Read state for chapter lists.
-enum ChapterReadState {
-    /// A chapter counts as read when it comes before the chapter being read,
-    /// or when the whole novel is finished.
-    static func isRead(chapterNumber: Int, readingChapterNumber: Int?, novelFinished: Bool = false) -> Bool {
-        guard chapterNumber > 0 else { return false }
-        if novelFinished { return true }
-        guard let readingChapterNumber, readingChapterNumber > 0 else { return false }
-        return chapterNumber < readingChapterNumber
-    }
-}
-
-/// Where a short chapter preview starts so `number` sits in its middle.
-enum ChapterPreviewWindow {
-    static func offset(around number: Int, size: Int, total: Int?) -> Int {
-        let centered = max(0, number - 1 - size / 2)
-        guard let total, total > 0 else { return centered }
-        return max(0, min(centered, total - size))
-    }
-}

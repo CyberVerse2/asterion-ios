@@ -1,3 +1,4 @@
+import AsterionKit
 import Inject
 import SwiftUI
 
@@ -655,20 +656,6 @@ struct HomeView: View {
     }
 }
 
-/// When Home's Continue shelf must be rebuilt.
-enum HomeContinueReload {
-    /// Changes when the API gains or loses its session, or when the newest
-    /// reading position for any novel moves to another chapter. Line-by-line
-    /// progress inside a chapter does not change it.
-    static func key(isAuthorized: Bool, progress: [ReadingProgress]) -> String {
-        let positions = ReadingProgress.latestByNovel(progress)
-            .prefix(16)
-            .map { "\($0.novelId):\($0.chapterId)" }
-            .joined(separator: ",")
-        return (isAuthorized ? "auth|" : "guest|") + positions
-    }
-}
-
 /// The billboard's rotation of novels, anime and films, ordered by what the
 /// reader picked in onboarding.
 enum HomeHeroLane: CaseIterable, Hashable {
@@ -718,36 +705,6 @@ enum HomeHeroLane: CaseIterable, Hashable {
             cursors[lane] = index + 1
             return items[index]
         }
-    }
-}
-
-enum NovelPersonalizer {
-    static func order(_ novels: [Novel], preferredGenres: Set<String>) -> [Novel] {
-        let normalizedGenres = Set(preferredGenres.map { NovelCatalog.genreKey($0) }.filter { !$0.isEmpty })
-
-        // Score once so the comparator stays cheap and deterministic.
-        let scored = novels.map { novel in
-            (novel: novel, matches: matchCount(for: novel, preferredGenres: normalizedGenres))
-        }
-        return scored.sorted { left, right in
-            if left.matches != right.matches {
-                return left.matches > right.matches
-            }
-            let leftRating = left.novel.rating ?? 0
-            let rightRating = right.novel.rating ?? 0
-            if leftRating != rightRating {
-                return leftRating > rightRating
-            }
-            if left.novel.rankPosition != right.novel.rankPosition {
-                return left.novel.rankPosition < right.novel.rankPosition
-            }
-            return left.novel.title.localizedStandardCompare(right.novel.title) == .orderedAscending
-        }
-        .map(\.novel)
-    }
-
-    private static func matchCount(for novel: Novel, preferredGenres: Set<String>) -> Int {
-        NovelCatalog.genreKeys(of: novel).intersection(preferredGenres).count
     }
 }
 
@@ -1266,28 +1223,7 @@ private struct HomeHero: View {
 
 // MARK: - Novel read action
 
-/// Where a novel's "Read" action opens: the saved chapter (resuming at the
-/// saved line) or, for a new or finished novel, chapter 1.
-struct NovelReadTarget {
-    let chapter: Chapter
-    let chapters: [Chapter]
-    let progress: NovelProgress?
-    let resumesSavedPosition: Bool
-
-    var title: String { Self.title(for: progress) }
-
-    /// "Read", "Continue chapter 1929", "Continue reading" or "Read again".
-    static func title(for progress: NovelProgress?) -> String {
-        guard let progress else { return "Read" }
-        if progress.isFinished { return "Read again" }
-        if let chapter = progress.chapterNumber { return "Continue chapter " + String(chapter) }
-        return "Continue reading"
-    }
-
-    static func symbol(for progress: NovelProgress?) -> String {
-        progress?.isFinished == true ? "book.closed.fill" : "book.fill"
-    }
-
+extension NovelReadTarget {
     /// Resolves the target from synced and local progress, then the cached
     /// chapter list or the first page of chapters.
     static func resolve(

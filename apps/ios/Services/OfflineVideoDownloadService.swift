@@ -1,4 +1,5 @@
 @preconcurrency import AVFoundation
+import AsterionKit
 import Combine
 import Foundation
 
@@ -160,19 +161,10 @@ final class OfflineVideoDownloadService: NSObject, ObservableObject {
             guard let playback = record.playback,
                   let latest = latestByTitle["\(playback.item.mediaType.rawValue):\(playback.item.contentID)"]
             else { continue }
-            if Self.isWatchedPast(playback, latest: latest) {
+            if DownloadAheadPolicy.isWatchedPast(playback, latest: latest) {
                 remove(record)
             }
         }
-    }
-
-    nonisolated static func isWatchedPast(_ unit: MediaPlaybackDescriptor, latest: MediaPlaybackProgress) -> Bool {
-        if let episode = unit.episodeNumber, let latestEpisode = latest.episodeNumber {
-            let position = (unit.seasonNumber ?? 0, episode)
-            let latestPosition = (latest.seasonNumber ?? 0, latestEpisode)
-            return position < latestPosition || (position == latestPosition && latest.completed)
-        }
-        return latest.completed && unit.unitID == latest.unitId
     }
 
     private func setDownloadedAhead(_ id: String, _ isAhead: Bool) {
@@ -331,7 +323,7 @@ final class OfflineVideoDownloadService: NSObject, ObservableObject {
     }
 
     private func localURL(for record: OfflineVideoRecord) -> URL? {
-        Self.existingURL(forRelativePath: Self.containerRelativePath(record.relativePath))
+        Self.existingURL(forRelativePath: OfflineVideoPaths.containerRelativePath(record.relativePath))
     }
 
     /// Records saved by earlier builds hold percent-encoded paths
@@ -369,31 +361,16 @@ final class OfflineVideoDownloadService: NSObject, ObservableObject {
         return records
     }
 
-    /// Where a package lives inside the app container. iOS 26 reports
-    /// downloads under /.nofollow/private/var/…, NSHomeDirectory() is /var/…,
-    /// and the container ID changes on reinstall, so keep only the part after
-    /// the container. Also repairs absolute paths saved by earlier builds.
-    nonisolated static func containerRelativePath(_ path: String) -> String {
-        if let range = path.range(of: #"/Containers/Data/Application/[^/]+/"#, options: .regularExpression) {
-            return String(path[range.upperBound...])
-        }
-        let home = URL(fileURLWithPath: NSHomeDirectory()).standardizedFileURL.path
-        if path.hasPrefix(home + "/") {
-            return String(path.dropFirst(home.count + 1))
-        }
-        return path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-    }
-
     /// The container-relative path of a finished package, in whichever
     /// spelling (decoded or percent-encoded) actually exists on disk.
     private static func storedRelativePath(for location: URL) -> String {
-        let decoded = containerRelativePath(location.path(percentEncoded: false))
+        let decoded = OfflineVideoPaths.containerRelativePath(location.path(percentEncoded: false))
         if existingURL(forRelativePath: decoded) != nil { return decoded }
-        return containerRelativePath(location.path(percentEncoded: true))
+        return OfflineVideoPaths.containerRelativePath(location.path(percentEncoded: true))
     }
 
     private static func repairingPath(_ record: OfflineVideoRecord) -> OfflineVideoRecord {
-        let relative = containerRelativePath(record.relativePath)
+        let relative = OfflineVideoPaths.containerRelativePath(record.relativePath)
         guard relative != record.relativePath else { return record }
         return OfflineVideoRecord(
             id: record.id,

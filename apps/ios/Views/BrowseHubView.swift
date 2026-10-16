@@ -1,3 +1,4 @@
+import AsterionKit
 import SwiftUI
 import UserNotifications
 
@@ -559,10 +560,6 @@ struct NovelCatalogView: View {
         NovelShelf(title: "Completed", novels: Array(NovelCatalog.completed(novels).prefix(12))) {
             section = .completed
         }
-
-        MediaSectionHeader(title: "All novels", count: String(novels.count))
-            .padding(.top, 8)
-        novelGrid(Novel.ranked(novels))
     }
 
     private func genreShelf(_ genre: String) -> some View {

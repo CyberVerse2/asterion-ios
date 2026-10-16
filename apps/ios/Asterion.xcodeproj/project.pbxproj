@@ -13,11 +13,8 @@
 		70CC44972F55E13B0099DF4E /* ProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC448D2F55E13B0099DF4E /* ProfileView.swift */; };
 		70CC44982F55E13B0099DF4E /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC44822F55E13B0099DF4E /* APIClient.swift */; };
 		70CC44992F55E13B0099DF4E /* AuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC44832F55E13B0099DF4E /* AuthService.swift */; };
-		70CC449A2F55E13B0099DF4E /* ReadingProgress.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC447E2F55E13B0099DF4E /* ReadingProgress.swift */; };
-		70CC449B2F55E13B0099DF4E /* Chapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC447C2F55E13B0099DF4E /* Chapter.swift */; };
 		70CC449C2F55E13B0099DF4E /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC44842F55E13B0099DF4E /* KeychainHelper.swift */; };
 		70CC449D2F55E13B0099DF4E /* URL+QueryItems.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC44882F55E13B0099DF4E /* URL+QueryItems.swift */; };
-		70CC449E2F55E13B0099DF4E /* Novel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC447D2F55E13B0099DF4E /* Novel.swift */; };
 		70CC449F2F55E13B0099DF4E /* AppShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC44792F55E13B0099DF4E /* AppShortcuts.swift */; };
 		70CC44A02F55E13B0099DF4E /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC448A2F55E13B0099DF4E /* HomeView.swift */; };
 		70CC44A12F55E13B0099DF4E /* RankingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CC448E2F55E13B0099DF4E /* RankingView.swift */; };
@@ -65,10 +62,11 @@
 		C0DE00362F6100010099DF4E /* IBMPlexMono-SemiBold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = C0DE00262F6100010099DF4E /* IBMPlexMono-SemiBold.ttf */; };
 		C0DE00412F6100010099DF4E /* AsterionChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00402F6100010099DF4E /* AsterionChrome.swift */; };
 		C0DE00512F6100020099DF4E /* DetailChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00502F6100020099DF4E /* DetailChrome.swift */; };
-		C0DE01012F6200010099DF4E /* ContentUpdates.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE01002F6200010099DF4E /* ContentUpdates.swift */; };
 		C0DE01032F6200010099DF4E /* ContentNotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE01022F6200010099DF4E /* ContentNotificationService.swift */; };
 		C0DE01052F6200010099DF4E /* ReadingActivityService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE01042F6200010099DF4E /* ReadingActivityService.swift */; };
 		C0DE01072F6200010099DF4E /* DownloadedNovelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE01062F6200010099DF4E /* DownloadedNovelView.swift */; };
+		A57E00042F70000100A5E7B1 /* AsterionKit in Frameworks */ = {isa = PBXBuildFile; productRef = A57E00022F70000100A5E7B1 /* AsterionKit */; };
+		A57E00052F70000100A5E7B1 /* AsterionKit in Frameworks */ = {isa = PBXBuildFile; productRef = A57E00032F70000100A5E7B1 /* AsterionKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -118,9 +116,6 @@
 		70CC44762F55E13B0099DF4E /* screenshots-checklist.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = "screenshots-checklist.md"; sourceTree = "<group>"; };
 		70CC44792F55E13B0099DF4E /* AppShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppShortcuts.swift; sourceTree = "<group>"; };
 		70CC447A2F55E13B0099DF4E /* ContinueReadingIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContinueReadingIntent.swift; sourceTree = "<group>"; };
-		70CC447C2F55E13B0099DF4E /* Chapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chapter.swift; sourceTree = "<group>"; };
-		70CC447D2F55E13B0099DF4E /* Novel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Novel.swift; sourceTree = "<group>"; };
-		70CC447E2F55E13B0099DF4E /* ReadingProgress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingProgress.swift; sourceTree = "<group>"; };
 		70CC447F2F55E13B0099DF4E /* User.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = User.swift; sourceTree = "<group>"; };
 		70CC44822F55E13B0099DF4E /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
 		70CC44832F55E13B0099DF4E /* AuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthService.swift; sourceTree = "<group>"; };
@@ -167,7 +162,6 @@
 		C0DE00262F6100010099DF4E /* IBMPlexMono-SemiBold.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; name = "IBMPlexMono-SemiBold.ttf"; path = "Resources/Fonts/IBMPlexMono-SemiBold.ttf"; sourceTree = "<group>"; };
 		C0DE00402F6100010099DF4E /* AsterionChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AsterionChrome.swift; sourceTree = "<group>"; };
 		C0DE00502F6100020099DF4E /* DetailChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetailChrome.swift; sourceTree = "<group>"; };
-		C0DE01002F6200010099DF4E /* ContentUpdates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentUpdates.swift; sourceTree = "<group>"; };
 		C0DE01022F6200010099DF4E /* ContentNotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentNotificationService.swift; sourceTree = "<group>"; };
 		C0DE01042F6200010099DF4E /* ReadingActivityService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingActivityService.swift; sourceTree = "<group>"; };
 		C0DE01062F6200010099DF4E /* DownloadedNovelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadedNovelView.swift; sourceTree = "<group>"; };
@@ -194,6 +188,7 @@
 				70CC44B72F55FC420099DF4E /* Inject in Frameworks */,
 				70CC450B2F5686900099DF4E /* ClerkKit in Frameworks */,
 				70CC450D2F5686900099DF4E /* ClerkKitUI in Frameworks */,
+				A57E00042F70000100A5E7B1 /* AsterionKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -215,6 +210,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A57E00052F70000100A5E7B1 /* AsterionKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -276,12 +272,8 @@
 		70CC44802F55E13B0099DF4E /* Models */ = {
 			isa = PBXGroup;
 			children = (
-				C0DE01002F6200010099DF4E /* ContentUpdates.swift */,
 				AABB00062F5700010099DF4E /* ChapterDownloadActivityAttributes.swift */,
-				70CC447C2F55E13B0099DF4E /* Chapter.swift */,
 				C0DE00052F6000010099DF4E /* EntertainmentModels.swift */,
-				70CC447D2F55E13B0099DF4E /* Novel.swift */,
-				70CC447E2F55E13B0099DF4E /* ReadingProgress.swift */,
 				70CC447F2F55E13B0099DF4E /* User.swift */,
 			);
 			path = Models;
@@ -400,6 +392,7 @@
 				70CC44B62F55FC410099DF4E /* Inject */,
 				70CC450C2F5686900099DF4E /* ClerkKit */,
 				70CC450E2F5686900099DF4E /* ClerkKitUI */,
+				A57E00022F70000100A5E7B1 /* AsterionKit */,
 			);
 			productName = Asterion;
 			productReference = 70CC44482F55E07E0099DF4E /* Asterion.app */;
@@ -465,6 +458,7 @@
 			);
 			name = AsterionWidgetExtension;
 			packageProductDependencies = (
+				A57E00032F70000100A5E7B1 /* AsterionKit */,
 			);
 			productName = AsterionWidgetExtension;
 			productReference = AABB00152F5700010099DF4E /* AsterionWidgetExtension.appex */;
@@ -508,6 +502,7 @@
 			packageReferences = (
 				70CC44B52F55FC400099DF4E /* XCRemoteSwiftPackageReference "Inject" */,
 				70CC450A2F56868A0099DF4E /* XCRemoteSwiftPackageReference "clerk-ios" */,
+				A57E00012F70000100A5E7B1 /* XCLocalSwiftPackageReference "AsterionKit" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 70CC44492F55E07E0099DF4E /* Products */;
@@ -571,7 +566,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				C0DE01012F6200010099DF4E /* ContentUpdates.swift in Sources */,
 				C0DE01032F6200010099DF4E /* ContentNotificationService.swift in Sources */,
 				C0DE01052F6200010099DF4E /* ReadingActivityService.swift in Sources */,
 				C0DE01072F6200010099DF4E /* DownloadedNovelView.swift in Sources */,
@@ -581,11 +575,8 @@
 				70CC44972F55E13B0099DF4E /* ProfileView.swift in Sources */,
 				70CC44982F55E13B0099DF4E /* APIClient.swift in Sources */,
 				70CC44992F55E13B0099DF4E /* AuthService.swift in Sources */,
-				70CC449A2F55E13B0099DF4E /* ReadingProgress.swift in Sources */,
-				70CC449B2F55E13B0099DF4E /* Chapter.swift in Sources */,
 				70CC449C2F55E13B0099DF4E /* KeychainHelper.swift in Sources */,
 				70CC449D2F55E13B0099DF4E /* URL+QueryItems.swift in Sources */,
-				70CC449E2F55E13B0099DF4E /* Novel.swift in Sources */,
 				70CC449F2F55E13B0099DF4E /* AppShortcuts.swift in Sources */,
 				70CC44A02F55E13B0099DF4E /* HomeView.swift in Sources */,
 				70CC44A12F55E13B0099DF4E /* RankingView.swift in Sources */,
@@ -1101,6 +1092,13 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCLocalSwiftPackageReference section */
+		A57E00012F70000100A5E7B1 /* XCLocalSwiftPackageReference "AsterionKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = AsterionKit;
+		};
+/* End XCLocalSwiftPackageReference section */
+
 /* Begin XCRemoteSwiftPackageReference section */
 		70CC44B52F55FC400099DF4E /* XCRemoteSwiftPackageReference "Inject" */ = {
 			isa = XCRemoteSwiftPackageReference;
@@ -1135,6 +1133,14 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 70CC450A2F56868A0099DF4E /* XCRemoteSwiftPackageReference "clerk-ios" */;
 			productName = ClerkKitUI;
+		};
+		A57E00022F70000100A5E7B1 /* AsterionKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = AsterionKit;
+		};
+		A57E00032F70000100A5E7B1 /* AsterionKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = AsterionKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

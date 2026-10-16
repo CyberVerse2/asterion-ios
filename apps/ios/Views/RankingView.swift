@@ -1,3 +1,4 @@
+import AsterionKit
 import SwiftUI
 
 /// Browse → Novels → Ranking: the catalog ordered by rank, rating or views,
