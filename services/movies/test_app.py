@@ -241,5 +241,29 @@ class HLSProxyTests(unittest.TestCase):
         self.assertEqual(response.headers["X-Upstream-Status"], "playlist-too-large")
 
 
+
+class PlaylistRewriteTests(unittest.TestCase):
+    def test_drops_stray_uri_lines_after_media_tags(self):
+        body = (
+            "#EXTM3U\n"
+            '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="a",NAME="English",URI="audio-en.m3u8"\n'
+            "audio-en.m3u8\n"
+            "\n"
+            '#EXT-X-STREAM-INF:BANDWIDTH=800000,AUDIO="a"\n'
+            "video-720.m3u8\n"
+        )
+        rewritten = playback.rewrite_playlist(body, "https://cdn.example/movie/master.m3u8")
+        uri_lines = [line for line in rewritten.splitlines() if line and not line.startswith("#")]
+        self.assertEqual(len(uri_lines), 1)
+        self.assertIn("video-720.m3u8", uri_lines[0])
+        self.assertIn("audio-en.m3u8", rewritten.splitlines()[1])
+
+    def test_keeps_every_segment_in_media_playlists(self):
+        body = "#EXTM3U\n#EXTINF:6.0,\nseg1.ts\n#EXTINF:6.0,\nseg2.ts\n#EXT-X-ENDLIST\n"
+        rewritten = playback.rewrite_playlist(body, "https://cdn.example/movie/index.m3u8")
+        uri_lines = [line for line in rewritten.splitlines() if line and not line.startswith("#")]
+        self.assertEqual(len(uri_lines), 2)
+
+
 if __name__ == "__main__":
     unittest.main()

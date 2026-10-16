@@ -150,6 +150,13 @@ def rewrite_playlist(body: str, source_url: str) -> str:
     def proxied(reference: str) -> str:
         return proxy_url(urljoin(source_url, reference.strip()))
 
+    # Some hosts put a stray URI line after each #EXT-X-MEDIA tag. Browser
+    # players skip it; AVPlayer rejects the whole master playlist
+    # (CoreMediaErrorDomain -12642). In a master playlist a URI line is only
+    # valid straight after #EXT-X-STREAM-INF, so drop the rest.
+    is_master = "#EXT-X-STREAM-INF" in body
+    expects_variant_uri = False
+
     rewritten: list[str] = []
     for line in body.splitlines():
         stripped = line.strip()
@@ -157,6 +164,10 @@ def rewrite_playlist(body: str, source_url: str) -> str:
             rewritten.append(line)
             continue
         if stripped.startswith("#"):
+            if stripped.startswith("#EXT-X-STREAM-INF"):
+                expects_variant_uri = True
+            elif stripped.startswith("#EXT-X-MEDIA"):
+                expects_variant_uri = False
             rewritten.append(
                 re.sub(
                     r'URI=("|\')([^"\']+)(\1)',
@@ -167,6 +178,9 @@ def rewrite_playlist(body: str, source_url: str) -> str:
                 )
             )
             continue
+        if is_master and not expects_variant_uri:
+            continue
+        expects_variant_uri = False
         rewritten.append(proxied(stripped))
     return "\n".join(rewritten) + ("\n" if body.endswith("\n") else "")
 
