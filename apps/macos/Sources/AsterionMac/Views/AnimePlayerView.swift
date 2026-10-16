@@ -133,7 +133,7 @@ struct AnimePlayerView: View {
                         .foregroundStyle(Color.asterionText)
                         .accessibilityAddTraits(.isHeader)
                     Spacer(minLength: 8)
-                    Text(store.episodes.count.formatted())
+                    Text(verbatim: String(store.episodes.count))
                         .font(.asterionMono(11, weight: .medium))
                         .foregroundStyle(Color.asterionFaint)
                         .accessibilityLabel("\(store.episodes.count) episodes")

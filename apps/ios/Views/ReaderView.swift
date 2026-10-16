@@ -2317,7 +2317,7 @@ private struct ReaderChapterPickerSheet: View {
                     Button("Close", action: onClose)
                 }
                 ToolbarItem(placement: .primaryAction) {
-                    Text(chapters.count.formatted())
+                    Text(verbatim: String(chapters.count))
                         .font(.asterionMono(12, weight: .medium))
                         .foregroundStyle(Color.asterionFaint)
                         .accessibilityLabel("\(chapters.count) chapters")

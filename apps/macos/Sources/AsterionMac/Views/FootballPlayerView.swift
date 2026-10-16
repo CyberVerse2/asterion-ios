@@ -143,7 +143,7 @@ struct FootballPlayerView: View {
                         .foregroundStyle(Color.asterionText)
                         .accessibilityAddTraits(.isHeader)
                     Spacer(minLength: 8)
-                    Text(store.streams.count.formatted())
+                    Text(verbatim: String(store.streams.count))
                         .font(.asterionMono(11, weight: .medium))
                         .foregroundStyle(Color.asterionFaint)
                         .accessibilityLabel("\(store.streams.count) streams")

@@ -87,6 +87,13 @@ struct NovelDetailView: View {
             // Scroll to the true top edge; an id anchor lined the page up
             // under the toolbar instead, so it jumped once loaded.
             scrollPosition.scrollTo(edge: .top)
+            // Then bring the chapter being read into view, once the hero has
+            // been seen, so the list opens where the reader left off.
+            if let progressChapter, !isFinished {
+                try? await Task.sleep(for: .milliseconds(450))
+                guard !Task.isCancelled else { return }
+                await showReadingChapter(progressChapter)
+            }
         }
         .task(id: chapterSearch) {
             await searchChapters()
