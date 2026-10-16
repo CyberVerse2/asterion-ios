@@ -2,12 +2,6 @@ import Inject
 import SwiftUI
 
 struct HomeView: View {
-    enum Mode {
-        case home
-        case browse
-    }
-
-    let mode: Mode
     @ObserveInjection var inject
     @EnvironmentObject private var apiClient: APIClient
     @EnvironmentObject private var readingProgressService: ReadingProgressService
@@ -15,9 +9,7 @@ struct HomeView: View {
     @EnvironmentObject private var offlineVideoDownloadService: OfflineVideoDownloadService
     @State private var novels: [Novel] = []
     @State private var loading = false
-    @State private var failed = false
-    @State private var search = ""
-    @State private var debouncedSearch = ""
+    @State private var catalogRefreshedAt: Date?
     @State private var continueReadingItems: [ContinueReadingItem] = []
     @State private var continueReadingDestination: ContinueReadingDestination?
     @State private var navigationPath = NavigationPath()
@@ -26,12 +18,9 @@ struct HomeView: View {
     @State private var liveMatches: [FootballMatch] = []
     @State private var heroIndex = 0
     @AppStorage("asterion.onboarding.genres") private var preferredGenres = ""
+    @AppStorage("asterion.onboarding.contentTypes") private var preferredContentTypes = ""
     @AppStorage(DownloadAheadCoordinator.enabledKey) private var downloadAheadEnabled = true
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-
-    init(mode: Mode = .home) {
-        self.mode = mode
-    }
 
     private var isDesktop: Bool {
         #if targetEnvironment(macCatalyst)
@@ -40,42 +29,44 @@ struct HomeView: View {
         false
         #endif
     }
-    private var isWideCanvas: Bool { AsterionLayout.isWide(horizontalSizeClass) }
     private var contentMaxWidth: CGFloat { AsterionLayout.pageMaxWidth(horizontalSizeClass) }
     private var pageHorizontalPadding: CGFloat { AsterionLayout.pagePadding(horizontalSizeClass) }
-    private let novelPageSize = 50
 
-    private var browseGridColumns: [GridItem] {
-        AsterionLayout.posterColumns(horizontalSizeClass)
+    private var preferredGenreSet: Set<String> {
+        Set(
+            preferredGenres
+                .split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+        )
     }
 
-    private var displayNovels: [Novel] {
-        Novel.ranked(novels)
+    /// The whole catalog ordered for this reader: their genres, then rating
+    /// and rank. Billboard novels come from the front of it.
+    private var featuredNovels: [Novel] {
+        NovelCatalog.featured(novels, preferredGenres: preferredGenreSet, limit: 16)
+    }
+
+    private var heroNovelIDs: Set<String> {
+        Set(heroItems.compactMap { item in
+            if case .novel(let novel) = item { return novel.id }
+            return nil
+        })
     }
 
     private var homeNovelShelf: [Novel] {
-        Array(personalizedNovels.filter { $0.imageUrl?.isEmpty == false }.prefix(8))
+        Array(featuredNovels.filter { !heroNovelIDs.contains($0.id) }.prefix(8))
     }
 
-    private var personalizedNovels: [Novel] {
-        let interests = Set(
-            preferredGenres
-                .split(separator: ",")
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-        )
-        return NovelPersonalizer.order(novels, preferredGenres: interests)
-    }
-
-    /// Billboard items: newest anime, films, and novels interleaved.
+    /// Billboard items, interleaved in the order of the reader's onboarding
+    /// picks: a reader who chose Novels sees a novel first.
     private var heroItems: [HomeHeroItem] {
-        let anime = featuredAnime.prefix(2).map(HomeHeroItem.anime)
-        let movies = featuredMovies.prefix(2).map(HomeHeroItem.movie)
-        let novels = homeNovelShelf.prefix(2).map(HomeHeroItem.novel)
-        let lanes = [Array(anime), Array(movies), Array(novels)]
-        let longest = lanes.map(\.count).max() ?? 0
-        return (0..<longest).flatMap { index in
-            lanes.compactMap { lane in lane.indices.contains(index) ? lane[index] : nil }
-        }
+        HomeHeroLane.fill(
+            slots: HomeHeroLane.slots(picks: preferredContentTypes),
+            novels: featuredNovels.map(HomeHeroItem.novel),
+            anime: featuredAnime.map(HomeHeroItem.anime),
+            films: featuredMovies.map(HomeHeroItem.movie)
+        )
     }
 
     private var homeSkeleton: some View {
@@ -115,6 +106,19 @@ struct HomeView: View {
 
     private static let continueSlots = 8
 
+    /// Rebuilds Continue whenever what it is built from changes: the API
+    /// gaining (or losing) its session token, or the reader moving to another
+    /// chapter. Before this, the shelf was built once on first appearance —
+    /// on a cold launch that ran before the session token reached the API, so
+    /// synced progress came back empty and the shelf stayed stale until Home
+    /// re-appeared (e.g. after visiting Library).
+    private var continueReloadKey: String {
+        HomeContinueReload.key(
+            isAuthorized: apiClient.isAuthorized,
+            progress: readingProgressService.localProgress
+        )
+    }
+
     private struct ContinueReadingItem: Identifiable {
         let novel: Novel
         let chapter: Chapter
@@ -152,67 +156,47 @@ struct HomeView: View {
 
     var body: some View {
         NavigationStack(path: $navigationPath) {
-            BrowseCatalogChrome {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    if mode == .home {
-                        if heroItems.isEmpty {
-                            if loading || novels.isEmpty {
-                                homeSkeleton
-                            } else {
-                                pageTitleSection
-                                    .padding(.top, 64)
-                            }
+                    if heroItems.isEmpty {
+                        if loading || novels.isEmpty {
+                            homeSkeleton
                         } else {
-                            HomeHero(items: heroItems, selection: $heroIndex)
+                            pageTitleSection
+                                .padding(.top, 64)
                         }
-                    }
-                    if mode == .browse {
-                        searchSection
+                    } else {
+                        HomeHero(items: heroItems, selection: $heroIndex)
                     }
 
-                    if mode == .home {
-                        contentSection
-                    } else if loading && novels.isEmpty {
-                        loadingSection
-                    } else if failed && novels.isEmpty {
-                        errorSection
-                    } else if novels.isEmpty {
-                        emptySection
-                    } else {
-                        contentSection
-                    }
+                    contentSection
                 }
                 .padding(.bottom, 24)
                 .frame(maxWidth: contentMaxWidth, alignment: .topLeading)
                 .frame(maxWidth: .infinity, alignment: .top)
             }
-            .scrollDismissesKeyboard(.interactively)
-            .ignoresSafeArea(.container, edges: mode == .home ? .top : [])
+            .ignoresSafeArea(.container, edges: .top)
             .overlay(alignment: .top) {
-                if mode == .home {
-                    // Keeps the status bar legible over artwork and shelves.
-                    LinearGradient(
-                        colors: [Color.asterionBackground.opacity(0.85), Color.asterionBackground.opacity(0)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                    .frame(height: 64)
-                    .ignoresSafeArea(edges: .top)
-                    .allowsHitTesting(false)
-                }
+                // Keeps the status bar legible over artwork and shelves.
+                LinearGradient(
+                    colors: [Color.asterionBackground.opacity(0.85), Color.asterionBackground.opacity(0)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: 64)
+                .ignoresSafeArea(edges: .top)
+                .allowsHitTesting(false)
             }
             .overlay(alignment: .topTrailing) {
-                if mode == .home {
-                    AsterionCircleIconButton(systemName: "magnifyingglass", accessibilityLabel: "Search everything") {
-                        navigationPath.append(HomeSearchRoute())
-                    }
-                    .padding(.top, 6)
-                    .padding(.trailing, 16)
+                AsterionCircleIconButton(systemName: "magnifyingglass", accessibilityLabel: "Search everything") {
+                    navigationPath.append(HomeSearchRoute())
                 }
+                .padding(.top, 6)
+                .padding(.trailing, 16)
             }
             .refreshable {
-                await loadNovels(search: debouncedSearch)
+                await loadNovels(force: true)
+                await loadContinueReading()
                 scheduleDownloadAhead(force: true)
             }
             .background {
@@ -245,20 +229,17 @@ struct HomeView: View {
             }
             .task {
                 await loadNovels()
+            }
+            .task(id: continueReloadKey) {
+                await loadContinueReading()
                 scheduleDownloadAhead()
             }
             .task {
-                guard mode == .home else { return }
                 await loadEntertainmentHighlights()
             }
             .onAppear { scheduleDownloadAhead() }
-            .debounceSearch(text: $search, debouncedText: $debouncedSearch)
-            .onChange(of: debouncedSearch) { _, newValue in
-                Task { await loadNovels(search: newValue) }
-            }
             .onReceive(NotificationCenter.default.publisher(for: .asterionContinueReadingRequested)) { _ in
                 Task { await openContinueReadingFromWidget() }
-            }
             }
         }
         .enableInjection()
@@ -266,7 +247,7 @@ struct HomeView: View {
 
     /// Keeps the next chapters and episodes of in-progress titles ready offline.
     private func scheduleDownloadAhead(force: Bool = false) {
-        guard mode == .home, downloadAheadEnabled, debouncedSearch.isEmpty else { return }
+        guard downloadAheadEnabled else { return }
         let reading = continueReadingItems.map {
             DownloadAheadNovel(novel: $0.novel, currentChapter: $0.chapter, chapters: $0.allChapters)
         }
@@ -284,115 +265,29 @@ struct HomeView: View {
         navigationPath.removeLast()
     }
 
-    // MARK: - Search
-
     private var pageTitleSection: some View {
-        AsterionPageHeader(
-            title: mode == .home ? "Home" : "Novels",
-            style: mode == .home ? .wordmark : .page
-        )
-        .padding(.horizontal, pageHorizontalPadding)
-        .padding(.top, isDesktop ? 12 : 0)
-        .padding(.bottom, 12)
-    }
-
-    private var searchSection: some View {
-        SearchInputView(text: $search)
+        AsterionPageHeader(title: "Home", style: .wordmark)
             .padding(.horizontal, pageHorizontalPadding)
-            .padding(.vertical, 8)
-    }
-
-    // MARK: - Loading / Error / Empty
-
-    private var loadingSection: some View {
-        LazyVGrid(columns: browseGridColumns, spacing: 18) {
-            ForEach(0..<6, id: \.self) { _ in
-                VStack(alignment: .leading, spacing: 8) {
-                    AsterionSkeleton(cornerRadius: 10)
-                        .aspectRatio(2 / 3, contentMode: .fit)
-                    AsterionSkeleton(cornerRadius: 3).frame(width: 110, height: 10)
-                    AsterionSkeleton(cornerRadius: 3).frame(width: 70, height: 8)
-                }
-            }
-        }
-        .padding(.horizontal, pageHorizontalPadding)
-        .padding(.top, 8)
-        .accessibilityLabel("Loading novels")
-    }
-
-    private var errorSection: some View {
-        VStack(spacing: 16) {
-            AsterionEmptyState(
-                symbol: "wifi.exclamationmark",
-                title: "Couldn't load novels",
-                message: "Pull down or try again when the connection returns."
-            )
-            Button {
-                Task { await loadNovels(search: debouncedSearch) }
-            } label: {
-                Text("Try again")
-                    .font(.asterionReading(15, weight: .semibold))
-                    .padding(.horizontal, 22)
-                    .padding(.vertical, 12)
-            }
-            .buttonStyle(AsterionOutlineButtonStyle())
-        }
-        .padding(.vertical, 20)
-    }
-
-    private var emptySection: some View {
-        AsterionEmptyState(
-            symbol: "book.closed",
-            title: debouncedSearch.isEmpty ? "No novels found" : "No novels match your search",
-            message: debouncedSearch.isEmpty ? "The catalog will appear here." : "Try another title or author."
-        )
+            .padding(.top, isDesktop ? 12 : 0)
+            .padding(.bottom, 12)
     }
 
     // MARK: - Content
 
     @ViewBuilder
     private var contentSection: some View {
-        if mode == .browse {
-            browseGridSection
-        } else {
-            if debouncedSearch.isEmpty && !continueItems.isEmpty {
-                homeSection(title: "Continue", detail: "Pick up where you left off") {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 13) {
-                            ForEach(continueItems) { item in
-                                continueLink(for: item)
-                            }
+        if !continueItems.isEmpty {
+            homeSection(title: "Continue", detail: "Pick up where you left off") {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 13) {
+                        ForEach(continueItems) { item in
+                            continueLink(for: item)
                         }
                     }
                 }
             }
-            catalogShelves
         }
-    }
-
-    // MARK: - Browse Grid
-
-    private var browseGridSection: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            if !debouncedSearch.isEmpty {
-                Text("Results")
-                    .font(.asterionTitle(17, weight: .bold))
-                    .foregroundStyle(Color.asterionText)
-            }
-
-            LazyVGrid(columns: browseGridColumns, spacing: isWideCanvas ? 16 : 14) {
-                ForEach(displayNovels) { novel in
-                    NavigationLink(value: novel) {
-                        NovelTileCard(novel: novel)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-
-        }
-        .padding(.horizontal, pageHorizontalPadding)
-        .padding(.top, 8)
-        .padding(.bottom, 12)
+        catalogShelves
     }
 
     @ViewBuilder
@@ -459,10 +354,10 @@ struct HomeView: View {
                     allChapters: reading.allChapters
                 )
             } label: {
-                AsterionReadingContinueCard(
+                AsterionContinueCard(
                     title: reading.novel.title,
                     progress: reading.progress,
-                    coverURL: reading.novel.imageUrl.flatMap(URL.init(string:))
+                    fallbackSubtitle: reading.chapter.title
                 ) {
                     NovelPosterArt(novel: reading.novel)
                 }
@@ -544,59 +439,42 @@ struct HomeView: View {
 
     // MARK: - Data
 
-    private func loadNovels(search: String = "") async {
+    /// The whole catalog, so featured novels are chosen by rating, rank and
+    /// the reader's genres rather than by the order of the first page. The
+    /// cached copy shows at once; the network copy replaces it at most every
+    /// ten minutes (Home's tasks re-run each time the tab appears).
+    private func loadNovels(force: Bool = false) async {
+        if novels.isEmpty {
+            let cached = await OfflineChapterStore.shared.loadCatalog()
+            if !cached.isEmpty { novels = cached }
+        }
+        if !force, let catalogRefreshedAt, Date().timeIntervalSince(catalogRefreshedAt) < 600 {
+            return
+        }
         loading = novels.isEmpty
         defer { loading = false }
-
         do {
-            if mode == .browse {
-                // Match desktop: sort the complete catalog, not each source page.
-                novels = try await apiClient.fetchAllNovels(search: search)
-            } else {
-                novels = try await apiClient.fetchNovelsPage(limit: novelPageSize, search: search).data
+            let fetched = try await apiClient.fetchAllNovels()
+            guard !Task.isCancelled else { return }
+            if !fetched.isEmpty {
+                novels = fetched
+                catalogRefreshedAt = Date()
+                await OfflineChapterStore.shared.saveCatalog(fetched)
             }
-            if !novels.isEmpty {
-                await OfflineChapterStore.shared.saveCatalog(novels)
-            }
-            if search.isEmpty {
-                await loadContinueReading()
-            } else {
-                continueReadingItems = []
-            }
-            failed = false
         } catch {
-            if !Task.isCancelled {
-                let cached = await OfflineChapterStore.shared.loadCatalog()
-                if !cached.isEmpty {
-                    if search.isEmpty {
-                        novels = cached
-                    } else {
-                        let q = search.lowercased()
-                        novels = cached.filter {
-                            $0.title.lowercased().contains(q) || ($0.author?.lowercased().contains(q) ?? false)
-                        }
-                    }
-                    if search.isEmpty {
-                        await loadContinueReading()
-                    } else {
-                        continueReadingItems = []
-                    }
-                    failed = false
-                } else if novels.isEmpty {
-                    failed = true
-                }
-            }
+            // Keep the cached catalog.
         }
     }
 
+    /// Every source of reading progress, newest per novel: synced progress
+    /// (when the API has a session), this device's own reading (which also
+    /// covers guests and the moments before the session token arrives),
+    /// queued uploads, and the widget's snapshot.
     private func loadContinueReading() async {
+        let remote = (try? await apiClient.fetchAllReadingProgress()) ?? []
+        guard !Task.isCancelled else { return }
         var byNovel: [String: ReadingProgress] = [:]
-        if let remote = try? await apiClient.fetchAllReadingProgress() {
-            for item in remote {
-                byNovel[item.novelId] = item
-            }
-        }
-        for item in readingProgressService.queuedProgressList() {
+        for item in readingProgressService.mergedProgress(with: remote) + readingProgressService.queuedProgressList() {
             if let existing = byNovel[item.novelId],
                (existing.lastReadAt ?? .distantPast) >= (item.lastReadAt ?? .distantPast) {
                 continue
@@ -615,13 +493,27 @@ struct HomeView: View {
                 updatedAt: snapshot.updatedAt
             )
         }
-        continueReadingItems = await buildContinueReadingItems(from: Array(byNovel.values))
+        let progress = Array(byNovel.values)
+
+        // First from what is on the device, so the shelf appears at once…
+        let quick = await buildContinueReadingItems(from: progress, refreshChapterLists: false)
+        guard !Task.isCancelled else { return }
+        continueReadingItems = quick
+
+        // …then with fresh chapter lists, which correct the chapter counts.
+        let refreshed = await buildContinueReadingItems(from: progress, refreshChapterLists: true)
+        guard !Task.isCancelled else { return }
+        continueReadingItems = refreshed
     }
 
-    private func buildContinueReadingItems(from progress: [ReadingProgress]) async -> [ContinueReadingItem] {
-        let catalogById = Dictionary(uniqueKeysWithValues: novels.map { ($0.id, $0) })
+    private func buildContinueReadingItems(
+        from progress: [ReadingProgress],
+        refreshChapterLists: Bool
+    ) async -> [ContinueReadingItem] {
+        let catalogById = Dictionary(novels.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let cachedById = Dictionary(
-            uniqueKeysWithValues: (await OfflineChapterStore.shared.loadCatalog()).map { ($0.id, $0) }
+            (await OfflineChapterStore.shared.loadCatalog()).map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
         )
         let sortedProgress = progress.sorted {
             ($0.lastReadAt ?? .distantPast) > ($1.lastReadAt ?? .distantPast)
@@ -629,18 +521,20 @@ struct HomeView: View {
         var seenNovelIds = Set<String>()
         var orderedEntries: [(novel: Novel, progress: ReadingProgress)] = []
         for p in sortedProgress where seenNovelIds.insert(p.novelId).inserted {
+            guard !Task.isCancelled else { return [] }
             guard let novel = await resolveContinueNovel(
                 id: p.novelId,
                 catalogById: catalogById,
                 cachedById: cachedById
             ) else { continue }
             orderedEntries.append((novel: novel, progress: p))
+            // Finished novels drop out, so look a little past the visible slots.
+            if orderedEntries.count >= Self.continueSlots + 4 { break }
         }
-        // Finished novels drop out, so look a little past the visible slots.
-        let candidates = Array(orderedEntries.prefix(Self.continueSlots + 4))
 
         var built: [ContinueReadingItem] = []
-        for entry in candidates where built.count < Self.continueSlots {
+        for entry in orderedEntries where built.count < Self.continueSlots {
+            guard !Task.isCancelled else { return built }
             let novel = entry.novel
             let p = entry.progress
 
@@ -658,10 +552,11 @@ struct HomeView: View {
             )
             if catalogProgress.isFinished { continue }
 
-            let chapterList: [Chapter]
+            var chapterList = await OfflineChapterStore.shared.loadChapterList(novelId: novel.id)
             var loadedChapterCount: Int?
-            do {
-                let fetchedChapters = try await apiClient.fetchAllChapters(novelId: novel.id)
+            if refreshChapterLists || chapterList.isEmpty,
+               let fetchedChapters = try? await apiClient.fetchAllChapters(novelId: novel.id),
+               !fetchedChapters.isEmpty {
                 await OfflineChapterStore.shared.saveChapterList(
                     novelId: novel.id,
                     chapters: fetchedChapters,
@@ -669,10 +564,8 @@ struct HomeView: View {
                 )
                 chapterList = fetchedChapters
                 loadedChapterCount = fetchedChapters.count
-            } catch {
-                let cached = await OfflineChapterStore.shared.loadChapterList(novelId: novel.id)
-                chapterList = cached.isEmpty ? [chapter] : cached
             }
+            if chapterList.isEmpty { chapterList = [chapter] }
             let containsCurrent = chapterList.contains(where: { $0.id == chapter.id })
             let allChapters = containsCurrent ? chapterList : ([chapter] + chapterList)
 
@@ -762,13 +655,75 @@ struct HomeView: View {
     }
 }
 
+/// When Home's Continue shelf must be rebuilt.
+enum HomeContinueReload {
+    /// Changes when the API gains or loses its session, or when the newest
+    /// reading position for any novel moves to another chapter. Line-by-line
+    /// progress inside a chapter does not change it.
+    static func key(isAuthorized: Bool, progress: [ReadingProgress]) -> String {
+        let positions = ReadingProgress.latestByNovel(progress)
+            .prefix(16)
+            .map { "\($0.novelId):\($0.chapterId)" }
+            .joined(separator: ",")
+        return (isAuthorized ? "auth|" : "guest|") + positions
+    }
+}
+
+/// The billboard's rotation of novels, anime and films, ordered by what the
+/// reader picked in onboarding.
+enum HomeHeroLane: CaseIterable, Hashable {
+    case novels
+    case anime
+    case films
+
+    /// Onboarding's content-type title for this lane.
+    var pickTitle: String {
+        switch self {
+        case .novels: "Novels"
+        case .anime: "Anime"
+        case .films: "Movies & TV"
+        }
+    }
+
+    /// Billboard slots in order. Picked lanes lead and show more often (three
+    /// slots for a single pick, two each otherwise); the rest get one. With
+    /// no saved picks, Novels counts as picked, matching onboarding's default.
+    static func slots(picks rawPicks: String) -> [HomeHeroLane] {
+        let picks = Set(
+            rawPicks.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+        )
+        var picked = allCases.filter { picks.contains($0.pickTitle.lowercased()) }
+        if picked.isEmpty { picked = [.novels] }
+        let others = allCases.filter { !picked.contains($0) }
+        let pickedCount = picked.count == 1 ? 3 : 2
+        let lanes = picked.map { ($0, pickedCount) } + others.map { ($0, 1) }
+        let rounds = lanes.map(\.1).max() ?? 0
+        return (0..<rounds).flatMap { round in
+            lanes.compactMap { lane, count in round < count ? lane : nil }
+        }
+    }
+
+    /// Fills `slots` from each lane's items in turn; a lane that runs out
+    /// simply leaves its later slots out.
+    static func fill<Item>(slots: [HomeHeroLane], novels: [Item], anime: [Item], films: [Item]) -> [Item] {
+        var cursors: [HomeHeroLane: Int] = [:]
+        return slots.compactMap { lane in
+            let items: [Item] = switch lane {
+            case .novels: novels
+            case .anime: anime
+            case .films: films
+            }
+            let index = cursors[lane, default: 0]
+            guard items.indices.contains(index) else { return nil }
+            cursors[lane] = index + 1
+            return items[index]
+        }
+    }
+}
+
 enum NovelPersonalizer {
     static func order(_ novels: [Novel], preferredGenres: Set<String>) -> [Novel] {
-        let normalizedGenres = Set(
-            preferredGenres.map {
-                $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            }
-        )
+        let normalizedGenres = Set(preferredGenres.map { NovelCatalog.genreKey($0) }.filter { !$0.isEmpty })
 
         // Score once so the comparator stays cheap and deterministic.
         let scored = novels.map { novel in
@@ -792,17 +747,11 @@ enum NovelPersonalizer {
     }
 
     private static func matchCount(for novel: Novel, preferredGenres: Set<String>) -> Int {
-        Set(
-            (novel.genres ?? []).map {
-                $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            }
-        )
-        .intersection(preferredGenres)
-        .count
+        NovelCatalog.genreKeys(of: novel).intersection(preferredGenres).count
     }
 }
 
-private struct HomeNovelCard: View {
+struct HomeNovelCard: View {
     let novel: Novel
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
@@ -813,7 +762,7 @@ private struct HomeNovelCard: View {
     var body: some View {
         HomePosterCaption(
             title: novel.title,
-            subtitle: novel.author ?? "Unknown author",
+            subtitle: novel.compactMetadata.isEmpty ? (novel.author ?? "Novel") : novel.compactMetadata,
             width: posterSize.width
         ) {
             NovelPosterArt(novel: novel)
@@ -991,7 +940,7 @@ struct NovelTileCard: View {
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
 
-                Text(novel.author ?? "Unknown author")
+                Text(novel.compactMetadata.isEmpty ? (novel.author ?? "Novel") : novel.compactMetadata)
                     .font(.asterionReading(isWideCanvas ? 12.5 : 11.5))
                     .foregroundStyle(Color.asterionMuted)
                     .lineLimit(1)
@@ -999,7 +948,10 @@ struct NovelTileCard: View {
             .padding(.horizontal, 2)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .clipped()
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel([novel.title, novel.author.map { "by " + $0 }].compactMap { $0 }.joined(separator: ", "))
+        .accessibilityValue(novel.compactMetadata)
     }
 }
 
@@ -1073,9 +1025,14 @@ enum HomeHeroItem: Identifiable, Hashable {
     var metadata: String {
         switch self {
         case .novel(let novel):
-            return [novel.author, novel.rating.map { String(format: "★ %.1f", $0) }]
-                .compactMap { $0 }
-                .joined(separator: " · ")
+            return [
+                novel.ratingLabel,
+                novel.catalogChapterCount.map { String($0) + " chapters" },
+                novel.statusTitle,
+                novel.author,
+            ]
+            .compactMap { $0 }
+            .joined(separator: " · ")
         case .anime(let title):
             return [title.type?.uppercased(), title.episodeLabel]
                 .compactMap { $0 }
@@ -1244,8 +1201,10 @@ private struct HomeHero: View {
             .padding(.vertical, 13)
         switch item {
         case .novel(let novel):
-            NavigationLink(value: novel) { label }
-                .buttonStyle(AsterionFilledButtonStyle())
+            HStack(spacing: 10) {
+                NovelReadButton(novel: novel)
+                NovelDetailsButton(novel: novel)
+            }
         case .anime(let title):
             NavigationLink(value: title) { label }
                 .buttonStyle(AsterionFilledButtonStyle())
@@ -1302,6 +1261,171 @@ private struct HomeHero: View {
         withAnimation(.easeInOut(duration: 0.5)) {
             selection = (safeSelection + 1) % items.count
         }
+    }
+}
+
+// MARK: - Novel read action
+
+/// Where a novel's "Read" action opens: the saved chapter (resuming at the
+/// saved line) or, for a new or finished novel, chapter 1.
+struct NovelReadTarget {
+    let chapter: Chapter
+    let chapters: [Chapter]
+    let progress: NovelProgress?
+    let resumesSavedPosition: Bool
+
+    var title: String { Self.title(for: progress) }
+
+    /// "Read", "Continue chapter 1929", "Continue reading" or "Read again".
+    static func title(for progress: NovelProgress?) -> String {
+        guard let progress else { return "Read" }
+        if progress.isFinished { return "Read again" }
+        if let chapter = progress.chapterNumber { return "Continue chapter " + String(chapter) }
+        return "Continue reading"
+    }
+
+    static func symbol(for progress: NovelProgress?) -> String {
+        progress?.isFinished == true ? "book.closed.fill" : "book.fill"
+    }
+
+    /// Resolves the target from synced and local progress, then the cached
+    /// chapter list or the first page of chapters.
+    static func resolve(
+        novel: Novel,
+        apiClient: APIClient,
+        progressService: ReadingProgressService
+    ) async -> NovelReadTarget? {
+        let remote = try? await apiClient.fetchReadingProgress(novelId: novel.id)
+        let saved = progressService.mergedProgress(with: remote.flatMap { $0 }.map { [$0] } ?? [])
+            .first { $0.novelId == novel.id }
+            ?? progressService.queuedProgress(for: novel.id)
+        var cachedList = await OfflineChapterStore.shared.loadChapterList(novelId: novel.id)
+
+        if let saved,
+           let chapter = await ReadingPositionResolver.chapter(id: saved.chapterId, novelId: novel.id, apiClient: apiClient) {
+            let progress = NovelProgress(
+                progress: saved,
+                chapterNumber: chapter.chapterNumber,
+                totalChapters: NovelProgress.totalChapters(
+                    loaded: cachedList.count >= (novel.catalogChapterCount ?? .max) ? cachedList.count : nil,
+                    catalog: novel.totalChapters
+                )
+            )
+            if !progress.isFinished {
+                let list = cachedList.contains(where: { $0.id == chapter.id }) ? cachedList : [chapter] + cachedList
+                return NovelReadTarget(chapter: chapter, chapters: list, progress: progress, resumesSavedPosition: true)
+            }
+            if let first = await firstChapter(novel: novel, cachedList: &cachedList, apiClient: apiClient) {
+                return NovelReadTarget(chapter: first, chapters: cachedList, progress: progress, resumesSavedPosition: false)
+            }
+            return nil
+        }
+
+        guard let first = await firstChapter(novel: novel, cachedList: &cachedList, apiClient: apiClient) else {
+            return nil
+        }
+        return NovelReadTarget(chapter: first, chapters: cachedList, progress: nil, resumesSavedPosition: false)
+    }
+
+    private static func firstChapter(novel: Novel, cachedList: inout [Chapter], apiClient: APIClient) async -> Chapter? {
+        if let first = cachedList.first(where: { $0.chapterNumber == 1 }) { return first }
+        if let page = try? await apiClient.fetchChapters(novelId: novel.id, limit: 5, offset: 0), !page.data.isEmpty {
+            await OfflineChapterStore.shared.saveChapterList(novelId: novel.id, chapters: page.data, mergeWithExisting: true)
+            cachedList = page.data + cachedList.filter { chapter in !page.data.contains { $0.id == chapter.id } }
+            return page.data.first(where: { $0.chapterNumber == 1 }) ?? page.data.first
+        }
+        return cachedList.min { $0.chapterNumber < $1.chapterNumber }
+    }
+}
+
+/// A novel's one lit action, straight into the reader: "Read",
+/// "Continue chapter 1929" or "Read again". Falls back to the novel's page
+/// when no chapter can be reached.
+struct NovelReadButton: View {
+    let novel: Novel
+    var compact = false
+
+    @EnvironmentObject private var apiClient: APIClient
+    @EnvironmentObject private var readingProgressService: ReadingProgressService
+    @State private var target: NovelReadTarget?
+    @State private var resolving = true
+
+    private var fontSize: CGFloat { compact ? 14 : 15 }
+    private var horizontalPadding: CGFloat { compact ? 18 : 22 }
+    private var verticalPadding: CGFloat { compact ? 11 : 13 }
+
+    var body: some View {
+        Group {
+            if let target {
+                NavigationLink {
+                    ReaderView(
+                        initialChapter: target.chapter,
+                        novel: novel,
+                        allChapters: target.chapters,
+                        shouldAutoResumeFromSavedProgress: target.resumesSavedPosition
+                    )
+                } label: {
+                    label(target.title, symbol: NovelReadTarget.symbol(for: target.progress))
+                }
+            } else if resolving {
+                Button {} label: {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(Color.asterionOnInk)
+                        Text("Read")
+                    }
+                    .font(.asterionReading(fontSize, weight: .semibold))
+                    .padding(.horizontal, horizontalPadding)
+                    .padding(.vertical, verticalPadding)
+                }
+                .disabled(true)
+            } else {
+                NavigationLink(value: novel) {
+                    label("View novel", symbol: "book.pages")
+                }
+            }
+        }
+        .buttonStyle(AsterionFilledButtonStyle())
+        .layoutPriority(1)
+        .task(id: "\(novel.id)-\(readingProgressService.localProgress.first { $0.novelId == novel.id }?.chapterId ?? "")") {
+            let resolved = await NovelReadTarget.resolve(
+                novel: novel,
+                apiClient: apiClient,
+                progressService: readingProgressService
+            )
+            guard !Task.isCancelled else { return }
+            target = resolved
+            resolving = false
+        }
+    }
+
+    private func label(_ title: String, symbol: String) -> some View {
+        Label(title, systemImage: symbol)
+            .font(.asterionReading(fontSize, weight: .semibold))
+            .lineLimit(1)
+            .padding(.horizontal, horizontalPadding)
+            .padding(.vertical, verticalPadding)
+            .fixedSize(horizontal: true, vertical: false)
+    }
+}
+
+/// The smoked "Details" capsule beside a novel's read action.
+struct NovelDetailsButton: View {
+    let novel: Novel
+    var compact = false
+
+    var body: some View {
+        NavigationLink(value: novel) {
+            Text("Details")
+                .font(.asterionReading(compact ? 14 : 15, weight: .semibold))
+                .lineLimit(1)
+                .padding(.horizontal, compact ? 16 : 20)
+                .padding(.vertical, compact ? 11 : 13)
+                .fixedSize(horizontal: true, vertical: false)
+        }
+        .buttonStyle(AsterionOutlineButtonStyle())
+        .accessibilityLabel("Details for \(novel.title)")
     }
 }
 

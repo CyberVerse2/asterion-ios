@@ -73,6 +73,10 @@ final class APIClient: ObservableObject {
     private let contentBaseURL = URL(string: "https://asterion-api.cyberverse.cloud")!
     private let userBaseURL: URL = APIClient.resolveUserBaseURL()
     private var sessionToken: String?
+    /// Whether requests carry a session token. Views that show synced data
+    /// (Home's Continue shelf) reload when this flips, since the token
+    /// arrives only after Clerk restores the session on launch.
+    @Published private(set) var isAuthorized = false
 
     private func debugLog(_ message: String) {
         #if DEBUG
@@ -86,6 +90,7 @@ final class APIClient: ObservableObject {
 
     func setSessionToken(_ token: String?) {
         self.sessionToken = token
+        if isAuthorized != (token != nil) { isAuthorized = token != nil }
         debugLog("Session token updated. tokenPresent=\(token != nil)")
     }
 

@@ -30,6 +30,11 @@ struct ChaptersView: View {
     @State private var exportingChapterId: String?
     @State private var downloadedChapterIds = Set<String>()
     @State private var showDownloadAlert = false
+    /// This account's saved position from the server, merged with the
+    /// device's own reading so another device's progress counts too.
+    @State private var syncedProgress: ReadingProgress?
+    /// The chapter number of `currentChapterId`; chapters before it are read.
+    @State private var currentChapterNumber: Int?
     @State private var downloadAlertMessage = ""
     @FocusState private var searchFocused: Bool
 
@@ -49,20 +54,26 @@ struct ChaptersView: View {
 
     private var headerSubtitle: String {
         if let searchResultCount {
-            return searchResultCount == 1 ? "1 match" : "\(searchResultCount.formatted()) matches"
+            return searchResultCount == 1 ? "1 match" : String(searchResultCount) + " matches"
         }
         if resolvedTotalCount > 0 {
-            return resolvedTotalCount == 1 ? "1 chapter" : "\(resolvedTotalCount.formatted()) chapters"
+            return resolvedTotalCount == 1 ? "1 chapter" : String(resolvedTotalCount) + " chapters"
         }
         return "Chapters"
     }
 
+    /// The newest saved position for this novel: synced progress merged with
+    /// this device's reading and queued uploads.
+    private var currentProgress: ReadingProgress? {
+        let candidates = readingProgressService.mergedProgress(with: syncedProgress.map { [$0] } ?? [])
+            .filter { $0.novelId == novel.id }
+            + [readingProgressService.queuedProgress(for: novel.id)].compactMap { $0 }
+        return candidates.max { ($0.lastReadAt ?? .distantPast) < ($1.lastReadAt ?? .distantPast) }
+    }
+
     /// The chapter the reader last had open for this novel, if any.
     private var currentChapterId: String? {
-        if let current = readingProgressService.currentProgress, current.novelId == novel.id {
-            return current.chapterId
-        }
-        return readingProgressService.localProgress.first(where: { $0.novelId == novel.id })?.chapterId
+        currentProgress?.chapterId
     }
 
     init(novel: Novel, allChapters: [Chapter], totalCount: Int) {
@@ -115,6 +126,9 @@ struct ChaptersView: View {
         .toolbarVisibility(.hidden, for: .navigationBar)
         .toolbarVisibility(.hidden, for: .tabBar)
         .task { await openAtCurrentChapter() }
+        .onChange(of: currentChapterId) { _, _ in
+            Task { await resolveCurrentChapterNumber() }
+        }
         .onAppear { tabBarState.isVisible = false }
         .onDisappear { tabBarState.isVisible = true }
         .debounceSearch(text: $search, debouncedText: $debouncedSearch)
@@ -224,7 +238,7 @@ struct ChaptersView: View {
     private func rangeLabel(for index: Int) -> String {
         let start = index * perPage + 1
         let end = max(start, min((index + 1) * perPage, activeResultCount))
-        return "\(start.formatted())–\(end.formatted())"
+        return String(start) + "–" + String(end)
     }
 
     private var rangeNoun: String { searchResultCount == nil ? "Chapters" : "Matches" }
@@ -261,10 +275,10 @@ struct ChaptersView: View {
 
             Spacer(minLength: 8)
 
-            Text("\(page + 1) of \(totalPages)")
+            Text(verbatim: String(page + 1) + " of " + String(totalPages))
                 .font(.asterionMono(11.5, weight: .medium))
                 .foregroundStyle(Color.asterionFaint)
-                .accessibilityLabel("Page \(page + 1) of \(totalPages)")
+                .accessibilityLabel("Page " + String(page + 1) + " of " + String(totalPages))
 
             pageButton(systemName: "chevron.left", label: "Previous") {
                 page = max(0, page - 1)
@@ -335,7 +349,14 @@ struct ChaptersView: View {
                             .frame(height: 1)
                             .padding(.leading, 16)
                     }
-                    chapterRow(chapter, isCurrent: chapter.id == currentId)
+                    chapterRow(
+                        chapter,
+                        isCurrent: chapter.id == currentId,
+                        isRead: chapter.id != currentId && ChapterReadState.isRead(
+                            chapterNumber: chapter.chapterNumber,
+                            readingChapterNumber: currentChapterNumber
+                        )
+                    )
                         .background(
                             chapter.id == targetChapterId ? Color.white.opacity(0.07) : Color.clear
                         )
@@ -347,7 +368,7 @@ struct ChaptersView: View {
         }
     }
 
-    private func chapterRow(_ chapter: Chapter, isCurrent: Bool) -> some View {
+    private func chapterRow(_ chapter: Chapter, isCurrent: Bool, isRead: Bool) -> some View {
         HStack(alignment: .center, spacing: 0) {
             NavigationLink {
                 ReaderView(
@@ -358,14 +379,11 @@ struct ChaptersView: View {
                 )
             } label: {
                 HStack(spacing: 14) {
-                    Text(chapter.chapterNumber > 0 ? String(chapter.chapterNumber) : "–")
-                        .font(.asterionMono(12, weight: .medium))
-                        .foregroundStyle(isCurrent ? Color.asterionText : Color.asterionFaint)
-                        .frame(minWidth: 40, alignment: .leading)
+                    ChapterNumberLabel(number: chapter.chapterNumber, isCurrent: isCurrent, isRead: isRead)
 
                     Text(chapter.displayTitle.isEmpty ? chapter.labeledTitle : chapter.displayTitle)
                         .font(.asterionReading(14.5, weight: isCurrent ? .semibold : .regular))
-                        .foregroundStyle(Color.asterionText.opacity(isCurrent ? 1 : 0.88))
+                        .foregroundStyle(Color.asterionText.opacity(isCurrent ? 1 : (isRead ? 0.55 : 0.88)))
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -388,8 +406,8 @@ struct ChaptersView: View {
             }
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityLabel("Chapter \(chapter.chapterNumber), \(chapter.displayTitle)")
-            .accessibilityValue(isCurrent ? "Reading" : "")
+            .accessibilityLabel("Chapter " + String(chapter.chapterNumber) + ", " + chapter.displayTitle)
+            .accessibilityValue(isCurrent ? "Reading" : (isRead ? "Read" : ""))
 
             downloadButton(for: chapter)
                 .padding(.trailing, 4)
@@ -419,7 +437,7 @@ struct ChaptersView: View {
         }
         .buttonStyle(.plain)
         .disabled(exportingChapterId != nil || downloaded)
-        .accessibilityLabel(downloaded ? "Downloaded" : "Download chapter \(chapter.chapterNumber)")
+        .accessibilityLabel(downloaded ? "Downloaded" : "Download chapter " + String(chapter.chapterNumber))
     }
 
     @ViewBuilder
@@ -516,26 +534,40 @@ struct ChaptersView: View {
         loadTask = Task { await work() }
     }
 
-    /// Opens on the page holding the chapter being read, not chapter 1.
+    /// Opens on the page holding the chapter being read, not chapter 1. The
+    /// synced position is fetched first so reading on another device counts.
     private func openAtCurrentChapter() async {
-        guard let currentId = currentChapterId else {
+        if let remote = try? await apiClient.fetchReadingProgress(novelId: novel.id) {
+            syncedProgress = remote
+        }
+        guard currentChapterId != nil else {
             await loadChapters(pg: 0)
             return
         }
-        var number = (allChapters.first { $0.id == currentId }
-            ?? chapters.first { $0.id == currentId })?.chapterNumber
-        if number == nil {
-            number = await OfflineChapterStore.shared.loadChapterList(novelId: novel.id)
-                .first { $0.id == currentId }?.chapterNumber
-        }
-        if number == nil {
-            number = await OfflineChapterStore.shared.chapter(id: currentId)?.chapterNumber
-        }
+        let number = await resolveCurrentChapterNumber()
         if let number, number > 0 {
             await jump(toChapter: number, highlight: false)
         } else {
             await loadChapters(pg: 0)
         }
+    }
+
+    /// Finds the number of the chapter being read: from the chapters already
+    /// at hand, the cache, then the network.
+    @discardableResult
+    private func resolveCurrentChapterNumber() async -> Int? {
+        guard let currentId = currentChapterId else {
+            currentChapterNumber = nil
+            return nil
+        }
+        var number = (allChapters.first { $0.id == currentId }
+            ?? chapters.first { $0.id == currentId })?.chapterNumber
+        if number == nil {
+            number = await ReadingPositionResolver.chapter(id: currentId, novelId: novel.id, apiClient: apiClient)?
+                .chapterNumber
+        }
+        if currentChapterId == currentId { currentChapterNumber = number }
+        return number
     }
 
     /// Loads the page holding chapter `number`. Chapter numbers mostly track

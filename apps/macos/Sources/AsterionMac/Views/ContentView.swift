@@ -11,6 +11,7 @@ struct ContentView: View {
     @SceneStorage("selectedMovieSection") private var selectedMovieSectionRaw = MovieSection.discover.rawValue
     @SceneStorage("selectedFootballSection") private var selectedFootballSectionRaw = FootballSection.live.rawValue
     @SceneStorage("selectedNovelID") private var selectedNovelID = ""
+    @SceneStorage("selectedNovelGenre") private var selectedNovelGenre = ""
 
     @StateObject private var animeStore = AnimeStore()
     @StateObject private var movieStore = MovieStore()
@@ -228,6 +229,7 @@ struct ContentView: View {
                     movieStore: movieStore,
                     destination: destination.wrappedValue,
                     novelSection: section,
+                    novelGenre: $selectedNovelGenre,
                     animeSection: animeSection,
                     movieSection: movieSection,
                     footballSection: footballSection
@@ -283,16 +285,18 @@ struct ContentView: View {
                 selectNovel: selectNovelDetail,
                 selectAnime: selectAnimeDetail,
                 selectMovie: selectMovieDetail,
-                selectFootball: selectFootballDetail
+                selectFootball: selectFootballDetail,
+                showNovels: { showNovels(.discover, genre: nil) }
             )
 
         case .novels:
             EditorialCatalogView(
                 section: section.wrappedValue,
-                novels: model.novels(for: section.wrappedValue, search: searchText),
-                isSearching: !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                query: searchText,
+                genre: $selectedNovelGenre,
                 selectedNovelID: $selectedNovelID,
-                selectNovel: selectNovelDetail
+                selectNovel: selectNovelDetail,
+                showSection: { showNovels($0, genre: $1) }
             )
             .id(section.wrappedValue)
 
@@ -415,6 +419,17 @@ struct ContentView: View {
         }
     }
 
+    /// Opens a novels section, choosing a genre for the Genres section.
+    private func showNovels(_ newSection: AppSection, genre: String?) {
+        if let genre {
+            selectedNovelGenre = genre
+        } else if newSection == .genres {
+            selectedNovelGenre = ""
+        }
+        destination.wrappedValue = .novels
+        section.wrappedValue = newSection
+    }
+
     private func selectNovelDetail(_ novel: Novel) {
         detailSelection = .novel(novel.id)
     }
@@ -522,25 +537,27 @@ struct ContentView: View {
         }
     }
 
+    private func visibleNovels(in section: AppSection) -> [Novel] {
+        model.novels(for: section, genre: selectedNovelGenre, search: searchText)
+    }
+
     private func selectFirstNovel(in section: AppSection) {
         if section == .discover, searchText.isEmpty {
-            selectedNovelID = model.featuredNovels.first?.id ?? ""
+            selectedNovelID = model.heroNovels.first?.id ?? ""
         } else {
-            selectedNovelID = model.novels(for: section, search: searchText).first?.id ?? ""
+            selectedNovelID = visibleNovels(in: section).first?.id ?? ""
         }
     }
 
     private func ensureNovelSelection() {
-        let visible = model.novels(for: section.wrappedValue, search: searchText)
         let visibleIDs: Set<String>
         if section.wrappedValue == .discover, searchText.isEmpty {
             visibleIDs = Set(
-                model.featuredNovels.map(\.id)
-                    + model.trendingNovels.map(\.id)
+                model.novelDiscover.allNovelIDs
                     + model.continueReadingEntries.map(\.novel.id)
             )
         } else {
-            visibleIDs = Set(visible.map(\.id))
+            visibleIDs = Set(visibleNovels(in: section.wrappedValue).map(\.id))
         }
 
         if !visibleIDs.contains(selectedNovelID) {

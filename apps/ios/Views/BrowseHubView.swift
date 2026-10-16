@@ -14,7 +14,7 @@ struct BrowseHubView: View {
     private var selectedContent: some View {
         switch selection {
         case .novels:
-            HomeView(mode: .browse)
+            NovelCatalogView()
         case .anime:
             AnimeCatalogView()
         case .moviesTV:
@@ -412,6 +412,310 @@ struct MovieCatalogView: View {
     }
 }
 
+// MARK: - Novel catalog
+
+enum NovelBrowseSection: String, CaseIterable, Hashable {
+    case discover = "Discover"
+    case ranking = "Ranking"
+    case ongoing = "Ongoing"
+    case completed = "Completed"
+    case genres = "Genres"
+}
+
+/// Browse → Novels, built like the anime and film catalogs: section tabs, a
+/// featured spotlight in its artwork's glow, shelves, genre chips, and the
+/// whole catalog in a grid. The catalog is small, so it loads once (cached
+/// copy first) and every section sorts and filters it on the device.
+struct NovelCatalogView: View {
+    @EnvironmentObject private var apiClient: APIClient
+    @AppStorage("asterion.onboarding.genres") private var preferredGenres = ""
+    @State private var section: NovelBrowseSection = .discover
+    @State private var novels: [Novel] = []
+    @State private var selectedGenre: String?
+    @State private var query = ""
+    @State private var isLoading = true
+    @State private var error: String?
+    @State private var refreshedAt: Date?
+
+    private var trimmedQuery: String {
+        query.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var isSearching: Bool { !trimmedQuery.isEmpty }
+
+    private var preferredGenreList: [String] {
+        preferredGenres
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .sorted()
+    }
+
+    private var spotlight: Novel? {
+        guard section == .discover, !isSearching else { return nil }
+        return NovelCatalog.featured(novels, preferredGenres: Set(preferredGenreList), limit: 1).first
+    }
+
+    private var genres: [String] { NovelCatalog.genres(in: novels) }
+
+    private var activeGenre: String? {
+        if let selectedGenre { return selectedGenre }
+        return NovelCatalog.shelfGenres(novels, preferred: preferredGenreList, count: 1, minimumTitles: 1).first
+            ?? genres.first
+    }
+
+    private var searchResults: [Novel] { NovelCatalog.search(novels, query: trimmedQuery) }
+
+    var body: some View {
+        NavigationStack {
+            BrowseCatalogChrome {
+                VStack(spacing: 0) {
+                    AsterionIndexTabs(
+                        items: NovelBrowseSection.allCases,
+                        title: { $0.rawValue },
+                        rank: .subheader,
+                        selection: $section
+                    )
+
+                    CatalogScrollView(
+                        query: $query,
+                        noun: "novels",
+                        glowURL: spotlight?.imageUrl.flatMap(URL.init(string:)),
+                        isLoading: isLoading,
+                        error: error,
+                        isEmpty: novels.isEmpty || (isSearching && searchResults.isEmpty),
+                        retry: { await load(force: true) }
+                    ) {
+                        content
+                    }
+                }
+                .navigationDestination(for: Novel.self) { novel in
+                    NovelDetailView(novel: novel)
+                }
+                .toolbar(.hidden, for: .navigationBar)
+                .task { await load() }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if isSearching {
+            MediaSectionHeader(title: "Results", count: String(searchResults.count))
+            novelGrid(searchResults)
+        } else {
+            switch section {
+            case .discover:
+                discover
+            case .ranking:
+                RankingView(novels: novels)
+            case .ongoing:
+                let ongoing = NovelCatalog.ongoing(novels)
+                MediaSectionHeader(title: "Still publishing", count: String(ongoing.count))
+                novelGrid(ongoing)
+            case .completed:
+                let completed = NovelCatalog.completed(novels)
+                MediaSectionHeader(title: "Complete stories", count: String(completed.count))
+                novelGrid(completed)
+            case .genres:
+                if let activeGenre {
+                    CatalogFilterChips(
+                        items: genres,
+                        title: { $0 },
+                        selection: Binding(
+                            get: { activeGenre },
+                            set: { selectedGenre = $0 }
+                        )
+                    )
+                    let matches = NovelCatalog.filter(novels, genre: activeGenre)
+                    MediaSectionHeader(title: activeGenre, count: String(matches.count))
+                    novelGrid(matches)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var discover: some View {
+        if let spotlight {
+            NovelSpotlight(novel: spotlight)
+        }
+
+        let shelfGenres = NovelCatalog.shelfGenres(novels, preferred: preferredGenreList)
+
+        NovelShelf(title: "Top rated", novels: Array(NovelCatalog.topRated(novels).prefix(12))) {
+            section = .ranking
+        }
+        NovelShelf(title: "Most read", novels: Array(NovelCatalog.byPopularity(novels).prefix(12)))
+        if let genre = shelfGenres.first {
+            genreShelf(genre)
+        }
+        NovelShelf(title: "Ongoing", novels: Array(NovelCatalog.ongoing(novels).prefix(12))) {
+            section = .ongoing
+        }
+        if shelfGenres.count > 1 {
+            genreShelf(shelfGenres[1])
+        }
+        NovelShelf(title: "Completed", novels: Array(NovelCatalog.completed(novels).prefix(12))) {
+            section = .completed
+        }
+
+        MediaSectionHeader(title: "All novels", count: String(novels.count))
+            .padding(.top, 8)
+        novelGrid(Novel.ranked(novels))
+    }
+
+    private func genreShelf(_ genre: String) -> some View {
+        NovelShelf(title: genre, novels: Array(NovelCatalog.filter(novels, genre: genre).prefix(12))) {
+            selectedGenre = genre
+            section = .genres
+        }
+    }
+
+    private func novelGrid(_ items: [Novel]) -> some View {
+        CatalogPosterGrid {
+            ForEach(items) { novel in
+                NavigationLink(value: novel) {
+                    NovelTileCard(novel: novel)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    /// Cached catalog first, then the network at most every ten minutes
+    /// (the task re-runs each time the page appears).
+    private func load(force: Bool = false) async {
+        if novels.isEmpty {
+            let cached = await OfflineChapterStore.shared.loadCatalog()
+            if !cached.isEmpty {
+                novels = cached
+                isLoading = false
+            }
+        }
+        if !force, let refreshedAt, Date().timeIntervalSince(refreshedAt) < 600 {
+            isLoading = false
+            return
+        }
+        isLoading = novels.isEmpty
+        defer { isLoading = false }
+        do {
+            let fetched = try await apiClient.fetchAllNovels()
+            guard !Task.isCancelled else { return }
+            if !fetched.isEmpty {
+                novels = fetched
+                await OfflineChapterStore.shared.saveCatalog(fetched)
+            }
+            refreshedAt = Date()
+            error = nil
+        } catch {
+            guard !Task.isCancelled else { return }
+            if novels.isEmpty { self.error = error.localizedDescription }
+        }
+    }
+}
+
+/// The featured novel on Discover: cover and title card, a line of
+/// synopsis, and the read action straight into the reader.
+private struct NovelSpotlight: View {
+    let novel: Novel
+
+    private var summary: String? {
+        let trimmed = novel.summary?
+            .replacingOccurrences(of: "*", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    private var metadata: String {
+        [
+            novel.ratingLabel,
+            novel.catalogChapterCount.map { String($0) + " chapters" },
+            novel.statusTitle,
+        ]
+        .compactMap { $0 }
+        .joined(separator: " · ")
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            CatalogSpotlightLayout(
+                eyebrow: novel.genres?.first.map { "Featured novel · " + $0 } ?? "Featured novel",
+                title: novel.title,
+                metadata: metadata,
+                subtitle: novel.author
+            ) {
+                NovelPosterArt(novel: novel)
+            } actions: {
+                EmptyView()
+            }
+
+            if let summary {
+                Text(summary)
+                    .font(.asterionReading(14))
+                    .foregroundStyle(Color.asterionSynopsis)
+                    .lineSpacing(3)
+                    .lineLimit(3)
+                    .frame(maxWidth: 620, alignment: .leading)
+            }
+
+            HStack(spacing: 10) {
+                NovelReadButton(novel: novel, compact: true)
+                NovelDetailsButton(novel: novel, compact: true)
+                Spacer(minLength: 0)
+            }
+        }
+        .padding(.bottom, 6)
+    }
+}
+
+/// A titled horizontal shelf of novel posters, with "See all" when a
+/// section holds the rest.
+private struct NovelShelf: View {
+    let title: String
+    let novels: [Novel]
+    var seeAll: (() -> Void)? = nil
+
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    var body: some View {
+        if !novels.isEmpty {
+            let inset = AsterionLayout.pagePadding(horizontalSizeClass)
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text(title)
+                        .font(.asterionTitle(17, weight: .bold))
+                        .foregroundStyle(Color.asterionText)
+                        .lineLimit(1)
+                        .accessibilityAddTraits(.isHeader)
+                    Spacer(minLength: 8)
+                    if let seeAll {
+                        Button("See all", action: seeAll)
+                            .font(.asterionReading(13, weight: .semibold))
+                            .foregroundStyle(Color.asterionMuted)
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("See all \(title)")
+                    }
+                }
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(alignment: .top, spacing: 13) {
+                        ForEach(novels) { novel in
+                            NavigationLink(value: novel) {
+                                HomeNovelCard(novel: novel)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, inset)
+                }
+                .padding(.horizontal, -inset)
+            }
+            .padding(.top, 6)
+        }
+    }
+}
+
 // MARK: - Catalog scaffolding
 
 private enum CatalogPlaceholder {
@@ -591,7 +895,7 @@ private struct CatalogSpotlight<Value: Hashable>: View {
     let value: Value
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 16) {
+        CatalogSpotlightLayout(eyebrow: eyebrow, title: title, metadata: metadata) {
             AsyncImage(url: imageURL, transaction: Transaction(animation: .easeOut(duration: 0.25))) { phase in
                 if let image = phase.image {
                     image.resizable().scaledToFill()
@@ -599,14 +903,41 @@ private struct CatalogSpotlight<Value: Hashable>: View {
                     Color.asterionSurface
                 }
             }
-            .frame(width: 118, height: 177)
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.1))
+        } actions: {
+            NavigationLink(value: value) {
+                Label(actionTitle, systemImage: "play.fill")
+                    .font(.asterionReading(14, weight: .semibold))
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 11)
             }
-            .shadow(color: .black.opacity(0.45), radius: 20, y: 10)
-            .accessibilityHidden(true)
+            .buttonStyle(AsterionFilledButtonStyle())
+            .padding(.top, 4)
+        }
+        .padding(.top, 6)
+        .padding(.bottom, 4)
+    }
+}
+
+/// The spotlight's poster-beside-title-card layout, shared by every catalog.
+private struct CatalogSpotlightLayout<Poster: View, Actions: View>: View {
+    let eyebrow: String
+    let title: String
+    let metadata: String
+    var subtitle: String? = nil
+    @ViewBuilder var poster: () -> Poster
+    @ViewBuilder var actions: () -> Actions
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: 16) {
+            poster()
+                .frame(width: 118, height: 177)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.1))
+                }
+                .shadow(color: .black.opacity(0.45), radius: 20, y: 10)
+                .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 8) {
                 AsterionEyebrow(text: eyebrow, color: .white.opacity(0.7))
@@ -618,26 +949,25 @@ private struct CatalogSpotlight<Value: Hashable>: View {
                     .minimumScaleFactor(0.7)
                     .accessibilityAddTraits(.isHeader)
 
+                if let subtitle, !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.asterionReading(13.5, weight: .medium))
+                        .foregroundStyle(Color.white.opacity(0.72))
+                        .lineLimit(1)
+                }
+
                 if !metadata.isEmpty {
                     Text(metadata)
                         .font(.asterionReading(13, weight: .medium))
                         .foregroundStyle(Color.asterionMuted)
-                        .lineLimit(1)
+                        .lineLimit(2)
                 }
 
-                NavigationLink(value: value) {
-                    Label(actionTitle, systemImage: "play.fill")
-                        .font(.asterionReading(14, weight: .semibold))
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 11)
-                }
-                .buttonStyle(AsterionFilledButtonStyle())
-                .padding(.top, 4)
+                actions()
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.top, 6)
-        .padding(.bottom, 4)
     }
 }
 
@@ -694,7 +1024,7 @@ private struct EntertainmentPosterCard: View {
     }
 }
 
-private struct CatalogFilterChips<Item: Hashable>: View {
+struct CatalogFilterChips<Item: Hashable>: View {
     let items: [Item]
     let title: (Item) -> String
     @Binding var selection: Item

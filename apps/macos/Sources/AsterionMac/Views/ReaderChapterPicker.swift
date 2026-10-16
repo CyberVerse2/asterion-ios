@@ -32,7 +32,7 @@ struct ReaderChapterPicker: View {
                         .foregroundStyle(palette.text)
                         .accessibilityAddTraits(.isHeader)
                     Spacer()
-                    Text(chapters.count.formatted())
+                    Text(verbatim: String(chapters.count))
                         .font(.asterionMono(11, weight: .medium))
                         .foregroundStyle(palette.faint)
                         .accessibilityLabel("\(chapters.count) chapters")

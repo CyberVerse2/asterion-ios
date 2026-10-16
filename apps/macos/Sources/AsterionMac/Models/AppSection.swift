@@ -121,14 +121,27 @@ enum MovieSection: String, CaseIterable, Codable, Hashable, Sendable {
     }
 }
 
+/// The novels catalog's sections.
 enum AppSection: String, CaseIterable, Codable, Hashable, Sendable {
     case discover
     case rankings
+    case topRated
+    case mostRead
+    case ongoing
+    case completed
+    case all
+    case genres
 
     var title: String {
         switch self {
         case .discover: "Discover"
         case .rankings: "Rankings"
+        case .topRated: "Top Rated"
+        case .mostRead: "Most Read"
+        case .ongoing: "Ongoing"
+        case .completed: "Completed"
+        case .all: "All Novels"
+        case .genres: "Genres"
         }
     }
 
@@ -136,6 +149,64 @@ enum AppSection: String, CaseIterable, Codable, Hashable, Sendable {
         switch self {
         case .discover: "sparkles"
         case .rankings: "crown"
+        case .topRated: "star"
+        case .mostRead: "eye"
+        case .ongoing: "dot.radiowaves.left.and.right"
+        case .completed: "checkmark.circle"
+        case .all: "books.vertical"
+        case .genres: "square.grid.2x2"
+        }
+    }
+
+    var catalogTitle: String {
+        switch self {
+        case .discover: "Discover"
+        case .rankings: "Rankings"
+        case .topRated: "Top rated"
+        case .mostRead: "Most read"
+        case .ongoing: "Ongoing"
+        case .completed: "Completed"
+        case .all: "All novels"
+        case .genres: "Browse by genre"
+        }
+    }
+
+    var catalogDescription: String {
+        switch self {
+        case .discover: "Stories worth starting tonight."
+        case .rankings: "The most-read novels on Asterion, in order."
+        case .topRated: "The novels readers rate highest."
+        case .mostRead: "The books with the biggest readership."
+        case .ongoing: "Still publishing new chapters."
+        case .completed: "Finished stories to read straight through."
+        case .all: "The whole novel catalog."
+        case .genres: "Choose a genre to shape your next read."
+        }
+    }
+
+    /// The order a section lists novels in before anyone picks another.
+    var defaultSort: NovelSort {
+        switch self {
+        case .discover, .rankings, .ongoing, .completed, .genres: .popular
+        case .topRated: .rating
+        case .mostRead: .views
+        case .all: .title
+        }
+    }
+
+    /// Sections whose order is the point of the page offer no sort menu.
+    var hasFixedOrder: Bool {
+        switch self {
+        case .discover, .rankings, .topRated, .mostRead: true
+        case .ongoing, .completed, .all, .genres: false
+        }
+    }
+
+    /// Sections that number their novels.
+    var showsRank: Bool {
+        switch self {
+        case .rankings, .topRated, .mostRead: true
+        default: false
         }
     }
 }

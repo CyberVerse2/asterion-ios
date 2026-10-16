@@ -1,10 +1,12 @@
 import SwiftUI
 
 struct CatalogContextBar: View {
+    @EnvironmentObject private var model: AppModel
     @ObservedObject var animeStore: AnimeStore
     @ObservedObject var movieStore: MovieStore
     let destination: AppDestination
     @Binding var novelSection: AppSection
+    @Binding var novelGenre: String
     @Binding var animeSection: AnimeSection
     @Binding var movieSection: MovieSection
     @Binding var footballSection: FootballSection
@@ -19,6 +21,11 @@ struct CatalogContextBar: View {
                     case .novels:
                         sectionButton("Discover", value: AppSection.discover, selection: $novelSection)
                         sectionButton("Rankings", value: AppSection.rankings, selection: $novelSection)
+                        sectionButton("Top Rated", value: AppSection.topRated, selection: $novelSection)
+                        sectionButton("Most Read", value: AppSection.mostRead, selection: $novelSection)
+                        sectionButton("Ongoing", value: AppSection.ongoing, selection: $novelSection)
+                        sectionButton("Completed", value: AppSection.completed, selection: $novelSection)
+                        sectionButton("All Novels", value: AppSection.all, selection: $novelSection)
 
                     case .anime:
                         sectionButton("Discover", value: AnimeSection.discover, selection: $animeSection)
@@ -49,6 +56,8 @@ struct CatalogContextBar: View {
                 .glassEffect(.regular, in: Capsule())
 
                 switch destination {
+                case .novels:
+                    novelGenreMenu
                 case .anime:
                     animeFilterMenus
                 case .movies:
@@ -67,7 +76,7 @@ struct CatalogContextBar: View {
 
     private var selectionKey: String {
         switch destination {
-        case .novels: novelSection.rawValue
+        case .novels: novelSection.rawValue + novelGenre
         case .anime: animeSection.rawValue
         case .movies: movieSection.rawValue
         case .football: footballSection.rawValue
@@ -127,6 +136,52 @@ struct CatalogContextBar: View {
         .buttonBorderShape(.capsule)
         .fixedSize()
         .help("Filter anime by type")
+    }
+
+    private var novelGenreMenu: some View {
+        Menu {
+            Button("Browse Genres") {
+                novelGenre = ""
+                novelSection = .genres
+            }
+            if model.novelGenres.isEmpty {
+                Divider()
+                Button(model.isLoadingCatalog ? "Loading Genres…" : "No Genres Yet") {}
+                    .disabled(true)
+            } else {
+                Divider()
+                ForEach(novelGenresByName) { entry in
+                    Button {
+                        novelGenre = entry.genre
+                        novelSection = .genres
+                    } label: {
+                        if novelSection == .genres,
+                           entry.genre.caseInsensitiveCompare(novelGenre) == .orderedSame {
+                            Label(entry.genre, systemImage: "checkmark")
+                        } else {
+                            Text(entry.genre)
+                        }
+                    }
+                }
+            }
+        } label: {
+            Label(novelGenreMenuTitle, systemImage: "square.grid.2x2")
+                .font(.system(size: 12.5, weight: .semibold))
+        }
+        .menuStyle(.button)
+        .buttonStyle(.glass)
+        .buttonBorderShape(.capsule)
+        .fixedSize()
+        .help("Filter novels by genre")
+    }
+
+    private var novelGenresByName: [NovelGenreCount] {
+        model.novelGenres.sorted { $0.genre.localizedStandardCompare($1.genre) == .orderedAscending }
+    }
+
+    private var novelGenreMenuTitle: String {
+        guard novelSection == .genres, !novelGenre.isEmpty else { return "Genres" }
+        return novelGenre
     }
 
     private var movieGenreMenu: some View {

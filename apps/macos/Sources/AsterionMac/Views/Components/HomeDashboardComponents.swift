@@ -153,11 +153,19 @@ enum HomeCatalogItem: Identifiable {
 
     var subtitle: String {
         switch self {
-        case .novel(let novel): novel.authorDisplayName
+        case .novel(let novel): novel.catalogMetadata
         case .anime(let title): title.episodeLabel ?? title.type ?? "Anime"
         case .movie(let title): [title.isSeries ? "TV Series" : "Movie", title.year]
                 .compactMap { $0 }
                 .joined(separator: " · ")
+        }
+    }
+
+    /// A rating shown at the end of the caption line.
+    var detail: String? {
+        switch self {
+        case .novel(let novel): novel.ratingLabel
+        case .anime, .movie: nil
         }
     }
 
@@ -538,6 +546,8 @@ struct HomePosterCard: View {
             badge: showsKind ? item.badge : nil,
             title: item.title,
             subtitle: item.subtitle,
+            detail: item.detail,
+            detailSystemImage: item.detail == nil ? nil : "star.fill",
             fallbackSystemImage: item.systemImage,
             action: action
         )
@@ -577,6 +587,10 @@ struct AsterionPosterCard: View {
     var badge: String?
     let title: String
     let subtitle: String
+    /// A short figure set in mono at the end of the caption line, such as a
+    /// rating.
+    var detail: String?
+    var detailSystemImage: String?
     var rank: Int?
     var fallbackSystemImage = "photo"
     var isSelected = false
@@ -591,10 +605,25 @@ struct AsterionPosterCard: View {
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(isHovering || isSelected ? Color.asterionText : Color.asterionText.opacity(0.9))
                         .lineLimit(1)
-                    Text(subtitle)
-                        .font(.system(size: 11.5))
-                        .foregroundStyle(Color.asterionMuted)
-                        .lineLimit(1)
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(verbatim: subtitle)
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(Color.asterionMuted)
+                            .lineLimit(1)
+                        if let detail {
+                            Spacer(minLength: 0)
+                            HStack(spacing: 2) {
+                                if let detailSystemImage {
+                                    Image(systemName: detailSystemImage)
+                                        .font(.system(size: 8.5, weight: .bold))
+                                }
+                                Text(verbatim: detail)
+                                    .font(.asterionMono(10.5, weight: .medium))
+                            }
+                            .foregroundStyle(Color.asterionText.opacity(0.62))
+                            .fixedSize()
+                        }
+                    }
                 }
                 .padding(.horizontal, 2)
             }
@@ -607,8 +636,17 @@ struct AsterionPosterCard: View {
         .asterionReveal()
         .help(title)
         .accessibilityLabel([rank.map { "Number \($0)" }, title, badge].compactMap { $0 }.joined(separator: ", "))
-        .accessibilityValue(subtitle)
+        .accessibilityValue([subtitle, detailAccessibilityText].compactMap { $0 }.joined(separator: ", "))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private var detailAccessibilityText: String? {
+        guard let detail else { return nil }
+        return switch detailSystemImage {
+        case "star.fill": "rated " + detail
+        case "eye.fill": detail + " views"
+        default: detail
+        }
     }
 
     private var artwork: some View {
@@ -619,7 +657,7 @@ struct AsterionPosterCard: View {
 
             if let rank {
                 LinearGradient(colors: [.clear, .black.opacity(0.65)], startPoint: .center, endPoint: .bottom)
-                Text("\(rank)")
+                Text(verbatim: String(rank))
                     .font(.system(size: 58, weight: .black).width(.compressed))
                     .foregroundStyle(.white)
                     .shadow(color: .black.opacity(0.5), radius: 8)

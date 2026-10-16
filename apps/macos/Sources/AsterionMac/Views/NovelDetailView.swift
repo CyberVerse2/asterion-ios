@@ -50,6 +50,12 @@ struct NovelDetailView: View {
                     chapterList
                 }
 
+                if !facts.isEmpty {
+                    AsterionDetailSection(title: "Details") {
+                        detailsPanel
+                    }
+                }
+
                 if !recommendations.isEmpty {
                     AsterionDetailSection(
                         title: "More like this",
@@ -254,7 +260,7 @@ struct NovelDetailView: View {
                 } else {
                     AsterionLightLine(fraction: download.progress, height: 2)
                         .frame(maxWidth: 200)
-                    Text("\(download.completedChapters)/\(download.totalChapters) · \(download.progress, format: .percent.precision(.fractionLength(0)))")
+                    Text(verbatim: String(download.completedChapters) + "/" + String(download.totalChapters) + " · " + download.progress.formatted(.percent.precision(.fractionLength(0))))
                         .font(.asterionMono(11.5, weight: .medium))
                 }
             }
@@ -483,7 +489,7 @@ struct NovelDetailView: View {
     }
 
     private var chapterCountLabel: String? {
-        totalChapterCount == 0 ? nil : "\(totalChapterCount) chapters"
+        totalChapterCount == 0 ? nil : String(totalChapterCount) + " chapters"
     }
 
     private func load() async {
@@ -623,21 +629,80 @@ struct NovelDetailView: View {
             spacing: 18,
             height: AsterionCardMetrics.posterShelfHeight
         ) { recommendation in
-            AsterionPosterCard(
-                imageURL: recommendation.imageURL.flatMap(URL.init(string:)),
-                title: recommendation.title,
-                subtitle: recommendation.authorDisplayName,
-                fallbackSystemImage: "book.closed"
-            ) {
+            EditorialBookTile(novel: recommendation, isSelected: false, rank: nil) {
                 selectNovel(recommendation)
             }
         }
     }
 
+    /// Novels sharing the most (and rarest) genres, then the best rated.
     private var recommendations: [Novel] {
-        Array(model.novels.lazy.filter { $0.id != novel.id }.prefix(10))
+        NovelCatalog.recommendations(for: novel, in: model.novels, limit: 12)
     }
 
+    // MARK: Details
+
+    private var facts: [NovelDetailFact] {
+        // The loaded chapter list is authoritative; the catalog count can lag.
+        let chapters = NovelProgress.totalChapters(
+            loaded: totalChapterCount,
+            catalog: novel.totalChapters
+        )
+        let genres = novel.displayGenres
+        return [
+            NovelDetailFact(label: "Author", value: novel.authorDisplayName),
+            (novel.catalogStatus?.title ?? trimmed(novel.status)?.capitalized)
+                .map { NovelDetailFact(label: "Status", value: $0) },
+            chapters.map { NovelDetailFact(label: "Chapters", value: String($0)) },
+            genres.isEmpty ? nil : NovelDetailFact(label: "Genres", value: genres.joined(separator: " · ")),
+            novel.ratingLabel.map { NovelDetailFact(label: "Rating", value: $0 + " / 5") },
+            trimmed(novel.views).map { NovelDetailFact(label: "Views", value: $0) },
+            trimmed(novel.bookmarks).map { NovelDetailFact(label: "Bookmarks", value: $0) },
+            novel.numericRank == .max
+                ? nil
+                : NovelDetailFact(label: "Ranking", value: "#" + String(novel.numericRank)),
+        ].compactMap { $0 }
+    }
+
+    private func trimmed(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+        return value
+    }
+
+    private var detailsPanel: some View {
+        let facts = facts
+        return LazyVGrid(
+            columns: [
+                GridItem(.flexible(), spacing: 0, alignment: .leading),
+                GridItem(.flexible(), spacing: 0, alignment: .leading),
+            ],
+            alignment: .leading,
+            spacing: 0
+        ) {
+            ForEach(Array(facts.enumerated()), id: \.element.id) { index, fact in
+                AsterionDetailFactRow(label: fact.label, value: fact.value)
+                    .overlay(alignment: .top) {
+                        if index >= 2 {
+                            Rectangle()
+                                .fill(Color.asterionHairline)
+                                .frame(height: 1)
+                        }
+                    }
+            }
+        }
+        .padding(.vertical, 4)
+        .asterionPanel(cornerRadius: 14)
+    }
+
+}
+
+private struct NovelDetailFact: Identifiable {
+    let label: String
+    let value: String
+
+    var id: String { label }
 }
 
 /// One chapter in the chapter panel: mono number, title, and its state.
@@ -653,7 +718,7 @@ private struct NovelChapterRow: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 16) {
-                Text(String(chapter.chapterNumber))
+                Text(verbatim: String(chapter.chapterNumber))
                     .font(.asterionMono(12, weight: .medium))
                     .foregroundStyle(isCurrent ? Color.asterionText : Color.asterionFaint)
                     .frame(minWidth: 44, alignment: .leading)
@@ -698,7 +763,7 @@ private struct NovelChapterRow: View {
         .onHover { isHovering = $0 }
         .animation(reduceMotion ? nil : AsterionMotion.hover, value: isHovering)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Chapter \(chapter.chapterNumber), \(chapter.displayTitle)")
+        .accessibilityLabel(Text(verbatim: "Chapter " + String(chapter.chapterNumber) + ", " + chapter.displayTitle))
         .accessibilityValue(
             [isCurrent ? "Reading" : nil, isDownloaded ? "Available offline" : nil]
                 .compactMap { $0 }

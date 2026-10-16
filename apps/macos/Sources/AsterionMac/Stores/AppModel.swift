@@ -59,7 +59,17 @@ final class AppModel: ObservableObject {
         let expiresAt: Date
     }
 
-    @Published private(set) var novels: [Novel] = []
+    @Published private(set) var novels: [Novel] = [] {
+        didSet {
+            guard novels != oldValue else { return }
+            novelDiscover = NovelCatalog.discover(novels, seed: NovelCatalog.weekSeed(for: .now))
+            novelGenres = NovelCatalog.genreCounts(novels)
+        }
+    }
+    /// The novels Discover page, rebuilt whenever the catalog changes.
+    private(set) var novelDiscover = NovelDiscoverLayout.empty
+    /// Every catalog genre with its novel count, most common first.
+    private(set) var novelGenres: [NovelGenreCount] = []
     @Published private(set) var libraryNovelIDs: Set<String> = []
     @Published private(set) var progressByNovelID: [String: ReadingProgress] = [:] {
         didSet { scheduleReadingPositionRefresh() }
@@ -181,29 +191,25 @@ final class AppModel: ObservableObject {
         }
     }
 
-    var featuredNovels: [Novel] {
-        Array(
-            novels
-                .sorted {
-                    if $0.numericRank == $1.numericRank {
-                        return ($0.rating ?? 0) > ($1.rating ?? 0)
-                    }
-                    return $0.numericRank < $1.numericRank
-                }
-                .prefix(4)
-        )
-    }
+    /// Discover's hero novels: the most popular, covers first.
+    var heroNovels: [Novel] { novelDiscover.hero }
 
-    var trendingNovels: [Novel] {
-        Array(
-            novels
-                .sorted {
-                    if ($0.rating ?? 0) == ($1.rating ?? 0) {
-                        return $0.numericRank < $1.numericRank
-                    }
-                    return ($0.rating ?? 0) > ($1.rating ?? 0)
-                }
-                .prefix(8)
+    /// This week's picks among well-rated novels; never repeats the hero.
+    var featuredNovels: [Novel] { novelDiscover.featured }
+
+    /// Popular novels after the hero and Featured.
+    var trendingNovels: [Novel] { novelDiscover.trending }
+
+    /// Home's novel shelf: novels in the genres someone saves and reads,
+    /// alternating with top-rated ones, leaving out what they already have.
+    var novelPicks: NovelPicks {
+        let readingIDs = Set(progressByNovelID.keys)
+        let readerIDs = libraryNovelIDs.union(readingIDs)
+        let readerNovels = novels.filter { readerIDs.contains($0.id) }
+        return NovelCatalog.picks(
+            catalog: novels,
+            basedOn: readerNovels,
+            excluding: readerIDs
         )
     }
 
@@ -339,27 +345,53 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func novels(for section: AppSection, search: String) -> [Novel] {
-        let source: [Novel]
-        switch section {
-        case .discover:
-            source = novels.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
-        case .rankings:
-            source = novels.sorted {
-                if $0.numericRank == $1.numericRank {
-                    return $0.title.localizedStandardCompare($1.title) == .orderedAscending
-                }
-                return $0.numericRank < $1.numericRank
-            }
+    /// Retries the catalog when the last load failed or fell back to the
+    /// offline library. The first load belongs to `start()`.
+    func loadCatalogIfNeeded() async {
+        switch catalogState {
+        case .idle:
+            return
+        case .remote, .remoteWithOfflineError:
+            guard novels.isEmpty else { return }
+        case .offline, .failed:
+            break
         }
+        await loadCatalog()
+    }
 
+    /// The novels a section lists. A search ranks the whole catalog by
+    /// relevance instead.
+    func novels(
+        for section: AppSection,
+        genre: String? = nil,
+        sort: NovelSort? = nil,
+        search: String = ""
+    ) -> [Novel] {
         let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return source }
-        return source.filter { novel in
-            novel.title.localizedCaseInsensitiveContains(query)
-                || novel.authorDisplayName.localizedCaseInsensitiveContains(query)
-                || novel.genres?.contains(where: { $0.localizedCaseInsensitiveContains(query) }) == true
+        guard query.isEmpty else { return NovelCatalog.search(novels, query: query) }
+        return NovelCatalog.novels(novels, in: section, genre: genre, sort: sort)
+    }
+
+    /// The chapter "Read" opens: the saved chapter while a novel is being
+    /// read, otherwise its first chapter (a finished novel reads again).
+    func readingStartChapterID(for novel: Novel) async -> String? {
+        let saved = progressByNovelID[novel.id]
+        let progress: ReadingProgress?
+        if let saved {
+            progress = saved
+        } else {
+            progress = try? await fetchProgress(novelID: novel.id)
         }
+        if let progress, !novelProgress(for: novel, progress: progress).isFinished {
+            return progress.chapterId
+        }
+        if let page = try? await chapterPage(for: novel.id, offset: 0),
+           let first = page.chapters.min(by: { $0.chapterNumber < $1.chapterNumber }) {
+            return first.id
+        }
+        return try? await chapters(for: novel.id)
+            .min(by: { $0.chapterNumber < $1.chapterNumber })?
+            .id
     }
 
     func novel(id: String) -> Novel? {

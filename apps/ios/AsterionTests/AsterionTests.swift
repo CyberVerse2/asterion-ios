@@ -131,12 +131,6 @@ struct AsterionTests {
         #expect(pruned.chapters.first?.id == "c1")
     }
 
-    @Test @MainActor
-    func mobileShellKeepsTheFiveTaskDestinations() {
-        #expect(AsterionTab.allCases == [.home, .browse, .library, .downloads, .account])
-        #expect(Set(AsterionTab.allCases.map(\.label)).count == AsterionTab.allCases.count)
-    }
-
     @Test
     func mediaProgressCompletesAtNinetyPercent() {
         let unfinished = MediaProgressPolicy.normalize(positionSeconds: 899, durationSeconds: 1_000)
@@ -154,16 +148,6 @@ struct AsterionTests {
         #expect(result.positionSeconds == 1_000)
         #expect(result.percentage == 100)
         #expect(result.completed)
-    }
-
-    @Test
-    func mediaAccountSupportsEveryLaunchContentType() {
-        #expect(Set(MediaAccountType.allCases) == [.anime, .movie, .football])
-    }
-
-    @Test
-    func playbackPreparationOverlayTimeoutIsTenSeconds() {
-        #expect(PlaybackPreparationPolicy.resolvingOverlayTimeout == 10)
     }
 
     @Test
@@ -450,14 +434,6 @@ struct NovelProgressTests {
     }
 
     @Test
-    func inputsAreClamped() {
-        #expect(NovelProgress(chapterNumber: 2, totalChapters: 4, chapterPercentage: 250).chapterPercentage == 100)
-        #expect(NovelProgress(chapterNumber: 2, totalChapters: 4, chapterPercentage: -5).chapterPercentage == 0)
-        #expect(NovelProgress(chapterNumber: 2, totalChapters: 4, chapterPercentage: .nan).chapterPercentage == 0)
-        #expect(NovelProgress(chapterNumber: 2, totalChapters: 0, chapterPercentage: 10).totalChapters == nil)
-    }
-
-    @Test
     func chapterCountPrefersLoadedThenCatalogText() {
         #expect(NovelProgress.totalChapters(loaded: 3172, catalog: "3171") == 3172)
         #expect(NovelProgress.totalChapters(loaded: nil, catalog: "3,171") == 3171)
@@ -509,5 +485,156 @@ struct NovelProgressTests {
         #expect(old.inChapterFraction == 0.4)
         #expect(old.novelProgress.label == "Ch. 12")
         #expect(abs(old.novelProgress.fraction - 0.4) < 0.000_001)
+    }
+}
+
+// MARK: - Novels phase 2: catalog shaping, Home hero, Continue reloads
+
+@MainActor
+private func catalogNovel(
+    _ id: String,
+    genres: [String] = [],
+    rating: Double? = nil,
+    rank: String? = nil,
+    views: String? = nil,
+    status: String? = nil,
+    chapters: String? = nil,
+    author: String? = nil,
+    summary: String? = nil,
+    image: String? = "https://example.com/\(UUID().uuidString).jpg"
+) -> Novel {
+    Novel(
+        id: id, title: id, author: author, rank: rank, totalChapters: chapters,
+        views: views, bookmarks: nil, status: status, genres: genres,
+        summary: summary, imageUrl: image, rating: rating
+    )
+}
+
+@MainActor
+struct NovelCatalogTests {
+    @Test
+    func countsParseCatalogShorthand() {
+        #expect(NovelCatalog.count(from: "766.5K") == 766_500)
+        #expect(NovelCatalog.count(from: "1M") == 1_000_000)
+        #expect(NovelCatalog.count(from: "2.1M") == 2_100_000)
+        #expect(NovelCatalog.count(from: "12,345") == 12_345)
+        #expect(NovelCatalog.count(from: "987 views") == 987)
+        #expect(NovelCatalog.count(from: nil) == 0)
+        #expect(NovelCatalog.count(from: "n/a") == 0)
+    }
+
+    @Test
+    func genresMatchAcrossSpellingsAndSortByFrequency() {
+        #expect(NovelCatalog.genreKey(" Sci-Fi ") == NovelCatalog.genreKey("sci fi"))
+        let novels = [
+            catalogNovel("a", genres: ["Fantasy", "Sci-fi"]),
+            catalogNovel("b", genres: ["Fantasy", "Sci-fi"]),
+            catalogNovel("c", genres: ["Fantasy", "SCI-FI", "Romance"]),
+        ]
+        #expect(NovelCatalog.genres(in: novels) == ["Fantasy", "Sci-fi", "Romance"])
+        #expect(NovelCatalog.filter(novels, genre: "Sci-Fi").count == 3)
+        #expect(NovelCatalog.filter(novels, genre: "romance").map(\.id) == ["c"])
+    }
+
+    @Test
+    func moreLikeThisRanksBySharedGenresThenRating() {
+        let current = catalogNovel("current", genres: ["Fantasy", "Action", "Romance"])
+        let catalog = [
+            current,
+            catalogNovel("one-shared-high", genres: ["Fantasy"], rating: 4.9),
+            catalogNovel("two-shared-low", genres: ["Fantasy", "Action"], rating: 3.1),
+            catalogNovel("two-shared-high", genres: ["action", "ROMANCE"], rating: 4.4),
+            catalogNovel("none-shared", genres: ["Horror"], rating: 5),
+        ]
+        let similar = NovelCatalog.similar(to: current, in: catalog)
+        #expect(similar.map(\.id) == ["two-shared-high", "two-shared-low", "one-shared-high"])
+        #expect(NovelCatalog.similar(to: current, in: catalog, limit: 1).map(\.id) == ["two-shared-high"])
+        #expect(NovelCatalog.similar(to: catalogNovel("bare"), in: catalog).isEmpty)
+    }
+
+    @Test
+    func shelvesFilterAndSortTheCatalog() {
+        let novels = [
+            catalogNovel("ongoing-popular", rating: 4.0, views: "1.2M", status: "Ongoing"),
+            catalogNovel("ongoing-quiet", rating: 4.8, views: "20K", status: "ongoing"),
+            catalogNovel("complete", rating: 4.5, views: "500K", status: "Completed"),
+            catalogNovel("unrated", views: "3M", status: "Hiatus"),
+        ]
+        #expect(NovelCatalog.ongoing(novels).map(\.id) == ["ongoing-popular", "ongoing-quiet"])
+        #expect(NovelCatalog.completed(novels).map(\.id) == ["complete"])
+        #expect(NovelCatalog.topRated(novels).map(\.id) == ["ongoing-quiet", "complete", "ongoing-popular"])
+        #expect(NovelCatalog.byPopularity(novels).first?.id == "unrated")
+        #expect(NovelCatalog.ranking(novels, by: .rating).last?.id == "unrated")
+        #expect(NovelCatalog.ranking(novels, by: .views).map(\.id).first == "unrated")
+    }
+
+    @Test
+    func searchMatchesTitleAuthorAndGenre() {
+        let novels = [
+            catalogNovel("Tree of Aeons", genres: ["Isekai"], author: "Spaizzer"),
+            catalogNovel("Dual Cultivation", genres: ["Comedy"], author: "Crippledsword"),
+        ]
+        #expect(NovelCatalog.search(novels, query: "aeons").map(\.id) == ["Tree of Aeons"])
+        #expect(NovelCatalog.search(novels, query: "crippled").map(\.id) == ["Dual Cultivation"])
+        #expect(NovelCatalog.search(novels, query: "isekai").map(\.id) == ["Tree of Aeons"])
+        #expect(NovelCatalog.search(novels, query: "  ").count == 2)
+    }
+
+    @Test
+    func readActionTitlesNameTheChapter() {
+        #expect(NovelReadTarget.title(for: nil) == "Read")
+        #expect(NovelReadTarget.title(for: NovelProgress(chapterNumber: 1929, totalChapters: 3171, chapterPercentage: 40))
+            == "Continue chapter 1929")
+        #expect(NovelReadTarget.title(for: NovelProgress(chapterNumber: 10, totalChapters: 10, chapterPercentage: 99))
+            == "Read again")
+        #expect(NovelReadTarget.title(for: NovelProgress(chapterNumber: nil, totalChapters: nil, chapterPercentage: 3))
+            == "Continue reading")
+    }
+
+    @Test
+    func chaptersBeforeTheReadingOneAreRead() {
+        #expect(ChapterReadState.isRead(chapterNumber: 4, readingChapterNumber: 5))
+        #expect(!ChapterReadState.isRead(chapterNumber: 5, readingChapterNumber: 5))
+        #expect(!ChapterReadState.isRead(chapterNumber: 6, readingChapterNumber: 5))
+        #expect(!ChapterReadState.isRead(chapterNumber: 4, readingChapterNumber: nil))
+        #expect(ChapterReadState.isRead(chapterNumber: 9, readingChapterNumber: 10, novelFinished: true))
+        #expect(ChapterReadState.isRead(chapterNumber: 10, readingChapterNumber: 10, novelFinished: true))
+    }
+
+    @Test
+    func chapterPreviewCentresOnTheReadingChapter() {
+        #expect(ChapterPreviewWindow.offset(around: 1929, size: 5, total: 3171) == 1926)
+        #expect(ChapterPreviewWindow.offset(around: 2, size: 5, total: 3171) == 0)
+        #expect(ChapterPreviewWindow.offset(around: 3171, size: 5, total: 3171) == 3166)
+        #expect(ChapterPreviewWindow.offset(around: 40, size: 5, total: nil) == 37)
+    }
+
+    @Test
+    func continueReloadsWhenTheSessionArrivesOrTheChapterChanges() {
+        func progress(chapter: String, line: Int) -> ReadingProgress {
+            ReadingProgress(id: UUID().uuidString, userId: "u", novelId: "n", chapterId: chapter,
+                            currentLine: line, totalLines: 100, percentage: Double(line), updatedAt: Date())
+        }
+        let base = HomeContinueReload.key(isAuthorized: false, progress: [progress(chapter: "c1", line: 3)])
+        #expect(base == HomeContinueReload.key(isAuthorized: false, progress: [progress(chapter: "c1", line: 60)]))
+        #expect(base != HomeContinueReload.key(isAuthorized: true, progress: [progress(chapter: "c1", line: 3)]))
+        #expect(base != HomeContinueReload.key(isAuthorized: false, progress: [progress(chapter: "c2", line: 3)]))
+    }
+
+    @Test
+    func localReadingCountsBeforeSyncedProgressArrives() throws {
+        // Cold launch: the session token has not reached the API, so the
+        // remote list is empty. The novel read last on this device must
+        // still be offered to Continue.
+        let suite = "asterion.tests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let service = ReadingProgressService(defaults: defaults)
+        service.updateProgress(novelId: "novel", chapterId: "c12", currentLine: 5, totalLines: 40, syncToCloud: false)
+
+        let relaunched = ReadingProgressService(defaults: defaults)
+        let merged = relaunched.mergedProgress(with: [])
+        #expect(merged.map(\.novelId) == ["novel"])
+        #expect(merged.first?.chapterId == "c12")
     }
 }

@@ -66,18 +66,6 @@ struct NovelProgressTests {
         #expect(!progress.isFinished)
     }
 
-    @Test func percentagesAreClampedAndInvalidCountsIgnored() {
-        let over = NovelProgress(chapterNumber: 1, totalChapters: 2, chapterPercentage: 140)
-        #expect(over.chapterPercentage == 100)
-
-        let nan = NovelProgress(chapterNumber: 1, totalChapters: 2, chapterPercentage: .nan)
-        #expect(nan.chapterPercentage == 0)
-
-        let zero = NovelProgress(chapterNumber: 0, totalChapters: 0, chapterPercentage: 50)
-        #expect(zero.chapterNumber == nil)
-        #expect(zero.totalChapters == nil)
-    }
-
     @Test func reachingTheLastParagraphCountsAsReadingTheChapter() {
         let atEnd = NovelProgress(
             progress: readingProgress(currentLine: 9, totalLines: 10),

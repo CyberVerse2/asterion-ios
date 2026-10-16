@@ -31,6 +31,9 @@ struct NovelDetailView: View {
     @State private var downloadTotalCount = 0
     @State private var isNovelAvailableOffline = false
     @State private var downloadedChapterIds = Set<String>()
+    /// Chapters around the one being read; nil shows the first chapters.
+    @State private var previewChapters: [Chapter]?
+    @State private var isResolvingPreview = true
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     private let previewCount = 5
@@ -48,11 +51,22 @@ struct NovelDetailView: View {
     private var heroTopPadding: CGFloat { topBarTopPadding + 52 }
     private var coverURL: URL? { novel.imageUrl.flatMap(URL.init(string:)) }
 
+    /// Ranked by how many genres they share with this novel, then rating.
     private var similarNovels: [Novel] {
-        allNovels
-            .filter { $0.id != novel.id && $0.genres?.contains(where: { novel.genres?.contains($0) == true }) == true }
-            .prefix(12)
-            .map { $0 }
+        NovelCatalog.similar(to: novel, in: allNovels)
+    }
+
+    /// The preview rows: around the chapter being read, else the first ones.
+    private var displayedPreview: [Chapter] {
+        previewChapters ?? Array(chapters.prefix(previewCount))
+    }
+
+    /// Every chapter this page knows, in order, for the reader's neighbours.
+    private var knownChapters: [Chapter] {
+        var seen = Set<String>()
+        return (chapters + (previewChapters ?? []) + (continueChapter.map { [$0] } ?? []))
+            .filter { seen.insert($0.id).inserted }
+            .sorted { $0.chapterNumber < $1.chapterNumber }
     }
 
     var body: some View {
@@ -62,6 +76,7 @@ struct NovelDetailView: View {
                     .padding(.horizontal, pagePadding)
                     .padding(.top, heroTopPadding)
                 chaptersSection
+                detailsSection
                 moreLikeThisSection
             }
             .padding(.bottom, 100)
@@ -208,7 +223,7 @@ struct NovelDetailView: View {
     private var metadataLine: String {
         let status = novel.status?.trimmingCharacters(in: .whitespacesAndNewlines).capitalized
         return [
-            chapterCount > 0 ? (chapterCount == 1 ? "1 chapter" : "\(chapterCount.formatted()) chapters") : nil,
+            chapterCount > 0 ? (chapterCount == 1 ? "1 chapter" : String(chapterCount) + " chapters") : nil,
             status.flatMap { $0.isEmpty ? nil : $0 },
             novel.rating.map { String(format: "★ %.1f", $0) },
             novel.rank.flatMap { $0.isEmpty ? nil : "Rank #\($0.filter(\.isNumber))" },
@@ -387,7 +402,7 @@ struct NovelDetailView: View {
                 } else {
                     AsterionLightLine(fraction: Double(downloadProgress), height: 2)
                         .frame(maxWidth: 200)
-                    Text("\(effectivePreparedCount)/\(effectiveTotalCount) · \(Int((downloadProgress * 100).rounded()))%")
+                    Text(verbatim: String(effectivePreparedCount) + "/" + String(effectiveTotalCount) + " · " + String(Int((downloadProgress * 100).rounded())) + "%")
                         .font(.asterionMono(11.5, weight: .medium))
                 }
             }
@@ -481,7 +496,7 @@ struct NovelDetailView: View {
         VStack(alignment: .leading, spacing: 14) {
             DetailSectionHeader(
                 title: "Chapters",
-                count: chapterCount > 0 ? chapterCount.formatted() : nil
+                count: chapterCount > 0 ? String(chapterCount) : nil
             )
             chapterList
         }
@@ -490,7 +505,7 @@ struct NovelDetailView: View {
 
     @ViewBuilder
     private var chapterList: some View {
-        if loadingChapters && chapters.isEmpty {
+        if (loadingChapters && chapters.isEmpty) || (isResolvingPreview && chapterError == nil) {
             DetailChapterRowsSkeleton(rows: previewCount)
         } else if let error = chapterError {
             VStack(spacing: 0) {
@@ -509,7 +524,7 @@ struct NovelDetailView: View {
             }
             .frame(maxWidth: .infinity)
             .asterionPanel(cornerRadius: 14)
-        } else if chapters.isEmpty {
+        } else if displayedPreview.isEmpty {
             AsterionEmptyState(
                 symbol: "text.page",
                 title: "No chapters yet",
@@ -517,7 +532,9 @@ struct NovelDetailView: View {
             )
             .asterionPanel(cornerRadius: 14)
         } else {
-            let preview = Array(chapters.prefix(previewCount))
+            let preview = displayedPreview
+            let readingNumber = continueChapter?.chapterNumber
+            let readerContext = knownChapters
             VStack(spacing: 0) {
                 ForEach(Array(preview.enumerated()), id: \.element.id) { index, chapter in
                     if index > 0 {
@@ -527,13 +544,18 @@ struct NovelDetailView: View {
                         ReaderView(
                             initialChapter: chapter,
                             novel: novel,
-                            allChapters: chapters,
+                            allChapters: readerContext,
                             shouldAutoResumeFromSavedProgress: false
                         )
                     } label: {
                         DetailChapterRow(
                             chapter: chapter,
-                            isCurrent: readingProgress?.chapterId == chapter.id,
+                            isCurrent: !isFinished && readingProgress?.chapterId == chapter.id,
+                            isRead: ChapterReadState.isRead(
+                                chapterNumber: chapter.chapterNumber,
+                                readingChapterNumber: readingNumber,
+                                novelFinished: isFinished
+                            ),
                             isDownloaded: isNovelAvailableOffline || downloadedChapterIds.contains(chapter.id)
                         )
                     }
@@ -551,7 +573,7 @@ struct NovelDetailView: View {
                             .foregroundStyle(Color.asterionText)
                         Spacer(minLength: 8)
                         if chapterCount > 0 {
-                            Text(chapterCount.formatted())
+                            Text(verbatim: String(chapterCount))
                                 .font(.asterionMono(11.5, weight: .medium))
                                 .foregroundStyle(Color.asterionFaint)
                         }
@@ -570,14 +592,60 @@ struct NovelDetailView: View {
         }
     }
 
+    // MARK: - Details
+
+    private var detailFacts: [(label: String, value: String)] {
+        let genres = (novel.genres ?? [])
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        let views = novel.views?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let bookmarks = novel.bookmarks?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let rank = novel.rankPosition == .max ? nil : "#" + String(novel.rankPosition)
+        let facts: [(String, String?)] = [
+            ("Author", novel.author?.trimmingCharacters(in: .whitespacesAndNewlines)),
+            ("Status", novel.statusTitle),
+            ("Chapters", chapterCount > 0 ? String(chapterCount) : nil),
+            ("Genres", genres.isEmpty ? nil : genres.joined(separator: ", ")),
+            ("Rating", novel.rating.map { String(format: "%.1f", $0) + " / 5" }),
+            ("Views", views.isEmpty ? nil : views),
+            ("Bookmarks", bookmarks.isEmpty ? nil : bookmarks),
+            ("Rank", rank),
+        ]
+        return facts.compactMap { label, value in
+            guard let value, !value.isEmpty else { return nil }
+            return (label, value)
+        }
+    }
+
+    @ViewBuilder
+    private var detailsSection: some View {
+        let facts = detailFacts
+        if !facts.isEmpty {
+            VStack(alignment: .leading, spacing: 14) {
+                DetailSectionHeader(title: "Details")
+                VStack(spacing: 0) {
+                    ForEach(Array(facts.enumerated()), id: \.offset) { index, fact in
+                        DetailFactRow(
+                            label: fact.label,
+                            value: fact.value,
+                            showsDivider: index < facts.count - 1
+                        )
+                    }
+                }
+                .asterionPanel(cornerRadius: 14)
+            }
+            .frame(maxWidth: isWide ? 760 : .infinity, alignment: .leading)
+            .padding(.horizontal, pagePadding)
+        }
+    }
+
     // MARK: - More like this
 
     @ViewBuilder
     private var moreLikeThisSection: some View {
         if !similarNovels.isEmpty {
-            let posterSize = AsterionLayout.shelfPosterSize(horizontalSizeClass)
             VStack(alignment: .leading, spacing: 14) {
-                DetailSectionHeader(title: "More like this", count: "\(similarNovels.count)")
+                DetailSectionHeader(title: "More like this", count: String(similarNovels.count))
                     .padding(.horizontal, pagePadding)
 
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -586,14 +654,7 @@ struct NovelDetailView: View {
                             NavigationLink {
                                 NovelDetailView(novel: similar)
                             } label: {
-                                HomePosterCaption(
-                                    title: similar.title,
-                                    subtitle: similar.author ?? "Unknown author",
-                                    width: posterSize.width
-                                ) {
-                                    NovelPosterArt(novel: similar)
-                                        .frame(width: posterSize.width, height: posterSize.height)
-                                }
+                                HomeNovelCard(novel: similar)
                             }
                             .buttonStyle(.plain)
                         }
@@ -606,7 +667,7 @@ struct NovelDetailView: View {
 
     private func refreshDownloadedPreviewChapters() async {
         var downloaded = Set<String>()
-        for chapter in chapters.prefix(previewCount) {
+        for chapter in displayedPreview {
             let exists = await OfflineChapterStore.shared.isChapterDownloaded(
                 novelTitle: novel.title,
                 chapterNumber: chapter.chapterNumber,
@@ -627,6 +688,7 @@ struct NovelDetailView: View {
         async let progressTask: () = loadProgress()
         async let libraryTask: () = loadLibraryState()
         _ = await (chaptersTask, novelsTask, progressTask, libraryTask)
+        await loadPreviewAroundCurrent()
         await refreshOfflineAvailability()
         await refreshDownloadedPreviewChapters()
     }
@@ -660,12 +722,62 @@ struct NovelDetailView: View {
         }
     }
 
+    /// The catalog for "More like this". The cached copy (which Home and
+    /// Browse keep fresh) is enough; the network is only asked without one.
     private func loadAllNovels() async {
-        do {
-            allNovels = try await apiClient.fetchAllNovels()
-            await OfflineChapterStore.shared.saveCatalog(allNovels)
-        } catch {
-            allNovels = await OfflineChapterStore.shared.loadCatalog()
+        let cached = await OfflineChapterStore.shared.loadCatalog()
+        if !cached.isEmpty {
+            allNovels = cached
+            return
+        }
+        if let fetched = try? await apiClient.fetchAllNovels(), !fetched.isEmpty {
+            allNovels = fetched
+            await OfflineChapterStore.shared.saveCatalog(fetched)
+        }
+    }
+
+    /// Loads the chapters around the one being read, so the preview shows
+    /// where the reader is rather than chapters 1–5. Chapter numbers mostly
+    /// track list position, so the page is guessed from the number and
+    /// corrected once by the gap; offline, the cached list stands in.
+    private func loadPreviewAroundCurrent() async {
+        defer { isResolvingPreview = false }
+        guard !isFinished, let current = continueChapter, current.chapterNumber > 0 else {
+            previewChapters = nil
+            return
+        }
+        // Already among the first rows: the first page shows it well.
+        if let index = chapters.firstIndex(where: { $0.id == current.id }), index < previewCount / 2 + 1 {
+            previewChapters = nil
+            return
+        }
+
+        let number = current.chapterNumber
+        var offset = ChapterPreviewWindow.offset(
+            around: number,
+            size: previewCount,
+            total: chapterCount > 0 ? chapterCount : nil
+        )
+        for _ in 0..<2 {
+            guard let page = try? await apiClient.fetchChapters(novelId: novel.id, limit: previewCount, offset: offset),
+                  let first = page.data.first else { break }
+            if page.data.contains(where: { $0.id == current.id || $0.chapterNumber == number }) {
+                await OfflineChapterStore.shared.saveChapterList(novelId: novel.id, chapters: page.data, mergeWithExisting: true)
+                previewChapters = page.data
+                return
+            }
+            let corrected = max(0, offset + (number - first.chapterNumber) - previewCount / 2)
+            guard corrected != offset else { break }
+            offset = corrected
+        }
+
+        let cached = await OfflineChapterStore.shared.loadChapterList(novelId: novel.id)
+            .sorted { $0.chapterNumber < $1.chapterNumber }
+        if let index = cached.firstIndex(where: { $0.id == current.id }) {
+            let start = max(0, min(index - previewCount / 2, cached.count - previewCount))
+            previewChapters = Array(cached[start..<min(start + previewCount, cached.count)])
+        } else {
+            previewChapters = [current]
         }
     }
 
@@ -990,18 +1102,16 @@ private struct DetailRowDivider: View {
 private struct DetailChapterRow: View {
     let chapter: Chapter
     let isCurrent: Bool
+    var isRead = false
     let isDownloaded: Bool
 
     var body: some View {
         HStack(spacing: 14) {
-            Text(chapter.chapterNumber > 0 ? String(chapter.chapterNumber) : "–")
-                .font(.asterionMono(12, weight: .medium))
-                .foregroundStyle(isCurrent ? Color.asterionText : Color.asterionFaint)
-                .frame(minWidth: 36, alignment: .leading)
+            ChapterNumberLabel(number: chapter.chapterNumber, isCurrent: isCurrent, isRead: isRead, minWidth: 36)
 
             Text(chapter.displayTitle.isEmpty ? chapter.labeledTitle : chapter.displayTitle)
                 .font(.asterionReading(14.5, weight: isCurrent ? .semibold : .regular))
-                .foregroundStyle(Color.asterionText.opacity(isCurrent ? 1 : 0.88))
+                .foregroundStyle(Color.asterionText.opacity(isCurrent ? 1 : (isRead ? 0.55 : 0.88)))
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -1032,9 +1142,9 @@ private struct DetailChapterRow: View {
         .background(isCurrent ? Color.white.opacity(0.06) : .clear)
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Chapter \(chapter.chapterNumber), \(chapter.displayTitle)")
+        .accessibilityLabel("Chapter " + String(chapter.chapterNumber) + ", " + chapter.displayTitle)
         .accessibilityValue(
-            [isCurrent ? "Reading" : nil, isDownloaded ? "Available offline" : nil]
+            [isCurrent ? "Reading" : nil, isRead ? "Read" : nil, isDownloaded ? "Available offline" : nil]
                 .compactMap { $0 }
                 .joined(separator: ", ")
         )
@@ -1065,5 +1175,84 @@ private struct DetailChapterRowsSkeleton: View {
         .asterionPanel(cornerRadius: 14)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Loading chapters")
+    }
+}
+
+/// One fact in the Details panel: label on the leading edge, value trailing.
+private struct DetailFactRow: View {
+    let label: String
+    let value: String
+    let showsDivider: Bool
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(label)
+                .font(.asterionReading(13.5))
+                .foregroundStyle(Color.asterionMuted)
+            Spacer(minLength: 12)
+            Text(value)
+                .font(.asterionReading(13.5, weight: .medium))
+                .foregroundStyle(Color.asterionText)
+                .multilineTextAlignment(.trailing)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 13)
+        .overlay(alignment: .bottom) {
+            if showsDivider {
+                Rectangle()
+                    .fill(Color.asterionHairline)
+                    .frame(height: 1)
+                    .padding(.leading, 16)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// A chapter's mono number, with a small check once it has been read
+/// (the chapters before the one being read), like an episode's watched tick.
+struct ChapterNumberLabel: View {
+    let number: Int
+    let isCurrent: Bool
+    let isRead: Bool
+    var minWidth: CGFloat = 40
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(verbatim: number > 0 ? String(number) : "–")
+                .font(.asterionMono(12, weight: .medium))
+                .foregroundStyle(isCurrent ? Color.asterionText : Color.asterionFaint)
+            if isRead {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 7.5, weight: .heavy))
+                    .foregroundStyle(Color.asterionSuccess)
+                    .frame(width: 15, height: 15)
+                    .background(Circle().fill(Color.black.opacity(0.6)))
+                    .overlay(Circle().strokeBorder(Color.asterionSuccess.opacity(0.45)))
+                    .accessibilityHidden(true)
+            }
+        }
+        .frame(minWidth: minWidth, alignment: .leading)
+    }
+}
+
+/// Read state for chapter lists.
+enum ChapterReadState {
+    /// A chapter counts as read when it comes before the chapter being read,
+    /// or when the whole novel is finished.
+    static func isRead(chapterNumber: Int, readingChapterNumber: Int?, novelFinished: Bool = false) -> Bool {
+        guard chapterNumber > 0 else { return false }
+        if novelFinished { return true }
+        guard let readingChapterNumber, readingChapterNumber > 0 else { return false }
+        return chapterNumber < readingChapterNumber
+    }
+}
+
+/// Where a short chapter preview starts so `number` sits in its middle.
+enum ChapterPreviewWindow {
+    static func offset(around number: Int, size: Int, total: Int?) -> Int {
+        let centered = max(0, number - 1 - size / 2)
+        guard let total, total > 0 else { return centered }
+        return max(0, min(centered, total - size))
     }
 }

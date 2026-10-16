@@ -271,7 +271,7 @@ struct RootTabView: View {
     private var appTabView: some View {
         TabView(selection: $tabBarState.selectedTab) {
             Tab(AsterionTab.home.label, systemImage: AsterionTab.home.systemImage, value: .home) {
-                HomeView(mode: .home)
+                HomeView()
             }
 
             Tab(AsterionTab.browse.label, systemImage: AsterionTab.browse.systemImage, value: .browse) {

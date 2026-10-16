@@ -212,10 +212,10 @@ struct LibraryView: View {
                                     allChapters: position.allChapters
                                 )
                             } label: {
-                                AsterionReadingContinueCard(
+                                AsterionContinueCard(
                                     title: item.novel.title,
                                     progress: position.progress,
-                                    coverURL: item.novel.imageUrl.flatMap(URL.init(string:))
+                                    fallbackSubtitle: position.chapter.title
                                 ) {
                                     NovelPosterArt(novel: item.novel)
                                 }

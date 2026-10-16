@@ -13,6 +13,7 @@ struct HomeDashboardView: View {
     let selectAnime: (AnimeTitle) -> Void
     let selectMovie: (MovieTitle) -> Void
     let selectFootball: (FootballMatch) -> Void
+    let showNovels: () -> Void
     @State private var featuredIndex = 0
 
     private var normalizedQuery: String {
@@ -39,12 +40,13 @@ struct HomeDashboardView: View {
     private var freshItems: [HomeCatalogItem] {
         let anime = Array(animeStore.newReleaseTitles.prefix(8)).map(HomeCatalogItem.anime)
         let movies = Array(movieStore.titles.prefix(8)).map(HomeCatalogItem.movie)
-        let novels = Array(model.featuredNovels.prefix(6)).map(HomeCatalogItem.novel)
+        let novels = Array(model.heroNovels.prefix(6)).map(HomeCatalogItem.novel)
         return interleaved(anime, movies, novels)
     }
 
     private var searchItems: [HomeCatalogItem] {
-        let novels = model.novels(for: .discover, search: normalizedQuery).map(HomeCatalogItem.novel)
+        // Ranked by relevance: title prefix, title, author, then genre.
+        let novels = NovelCatalog.search(model.novels, query: normalizedQuery).map(HomeCatalogItem.novel)
         let anime = animeStore.titles.map(HomeCatalogItem.anime)
         let movies = movieStore.titles.map(HomeCatalogItem.movie)
         return interleaved(anime, movies, novels)
@@ -96,6 +98,8 @@ struct HomeDashboardView: View {
                     continueShelf
                 }
 
+                novelShelf
+
                 if !footballMatches.isEmpty {
                     footballShelf
                 }
@@ -114,15 +118,6 @@ struct HomeDashboardView: View {
                         title: "Films and series",
                         subtitle: "Trending now",
                         items: Array(movieStore.titles.prefix(16)).map(HomeCatalogItem.movie),
-                        showsKind: false
-                    )
-                }
-
-                if !model.trendingNovels.isEmpty {
-                    posterShelf(
-                        title: "Novels",
-                        subtitle: "What readers are returning to",
-                        items: Array(model.trendingNovels.prefix(16)).map(HomeCatalogItem.novel),
                         showsKind: false
                     )
                 }
@@ -192,6 +187,46 @@ struct HomeDashboardView: View {
         }
     }
 
+    @ViewBuilder
+    private var novelShelf: some View {
+        let picks = model.novelPicks
+        if model.isLoadingCatalog, picks.novels.isEmpty {
+            HomeSection(title: "Novels", subtitle: "Finding your next read") {
+                AsterionSkeletonShelf()
+            }
+        } else if !picks.novels.isEmpty {
+            HomeSection(title: "Novels", subtitle: novelShelfSubtitle(picks)) {
+                Button(action: showNovels) {
+                    HStack(spacing: 4) {
+                        Text("See all")
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 9.5, weight: .bold))
+                    }
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(Color.asterionMuted)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Open Novels")
+            } content: {
+                HomeHorizontalShelf(
+                    items: picks.novels.map(HomeCatalogItem.novel),
+                    itemWidth: AsterionCardMetrics.posterWidth,
+                    spacing: 18,
+                    height: AsterionCardMetrics.posterShelfHeight,
+                    card: { item in
+                        HomePosterCard(item: item, showsKind: false) { select(item) }
+                    }
+                )
+            }
+        }
+    }
+
+    private func novelShelfSubtitle(_ picks: NovelPicks) -> String {
+        guard !picks.genres.isEmpty else { return "Top rated by readers" }
+        return "Top rated, and more " + picks.genres.joined(separator: " and ").lowercased() + " for you"
+    }
+
     private var footballShelf: some View {
         HomeSection(title: "Football", subtitle: "Live and upcoming") {
             HomeHorizontalShelf(
@@ -255,7 +290,7 @@ struct HomeDashboardView: View {
 
     private var searchResults: some View {
         Group {
-            if (animeStore.isLoadingCatalog || movieStore.isLoadingCatalog), searchItems.isEmpty {
+            if isSearchPending, searchItems.isEmpty {
                 AsterionEmptyState(
                     systemImage: "magnifyingglass",
                     title: "Searching",
@@ -314,6 +349,15 @@ struct HomeDashboardView: View {
         }
     }
 
+    /// Results are still on their way from at least one catalog. Novels
+    /// filter locally but still need the catalog itself to have loaded.
+    private var isSearchPending: Bool {
+        animeStore.isLoadingCatalog
+            || movieStore.isLoadingCatalog
+            || model.isLoadingCatalog
+            || (model.novels.isEmpty && model.catalogState == .idle)
+    }
+
     private func loadContent() async {
         if normalizedQuery.isEmpty {
             footballStore.updateSearch("")
@@ -330,7 +374,8 @@ struct HomeDashboardView: View {
                 selectsInitialTitle: false
             )
             async let football: Void = footballStore.load(section: .popular)
-            _ = await (anime, season, releases, movies, football)
+            async let novels: Void = model.loadCatalogIfNeeded()
+            _ = await (anime, season, releases, movies, football, novels)
             return
         }
 
@@ -349,7 +394,8 @@ struct HomeDashboardView: View {
             query: normalizedQuery,
             selectsInitialTitle: false
         )
-        _ = await (anime, movies)
+        async let novels: Void = model.novels.isEmpty ? model.loadCatalogIfNeeded() : ()
+        _ = await (anime, movies, novels)
     }
 
     private func resume(_ item: HomeResumeItem) {
