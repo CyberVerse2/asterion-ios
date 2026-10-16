@@ -167,7 +167,7 @@ struct ReaderView: View {
     }
 
     private var totalChapterCountHint: Int? {
-        Int(novel.totalChapters?.filter(\.isNumber) ?? "")
+        novel.catalogChapterCount
     }
 
     private var shouldShowPrevButton: Bool {
@@ -284,6 +284,11 @@ struct ReaderView: View {
                 .overlay(alignment: .bottom) {
                     bottomControlBar
                 }
+                .overlay(alignment: .top) {
+                    ReaderIslandProgress(fraction: chapterFraction, ink: readerForeground)
+                        .ignoresSafeArea()
+                        .allowsHitTesting(false)
+                }
             }
 
             if loadingChapter {
@@ -397,7 +402,7 @@ struct ReaderView: View {
             AsterionEyebrow(text: novel.title, color: readerForeground.opacity(0.5))
 
             if currentChapter.chapterNumber > 0 {
-                Text("Chapter \(currentChapter.chapterNumber)")
+                Text(verbatim: "Chapter \(currentChapter.chapterNumber)")
                     .font(.asterionMono(12, weight: .medium))
                     .tracking(0.6)
                     .foregroundStyle(readerForeground.opacity(0.55))
@@ -526,9 +531,9 @@ struct ReaderView: View {
 
     private var chapterPositionLabel: String {
         if let totalChapterCountHint, totalChapterCountHint > 0 {
-            return "\(currentChapter.chapterNumber.formatted()) of \(totalChapterCountHint.formatted())"
+            return String(currentChapter.chapterNumber) + " of " + String(totalChapterCountHint)
         }
-        return "Chapter \(currentChapter.chapterNumber.formatted())"
+        return "Chapter " + String(currentChapter.chapterNumber)
     }
 
     // MARK: - Loading
@@ -658,68 +663,81 @@ struct ReaderView: View {
 
     // MARK: - Bottom Control Bar
 
-    /// Floating dock: smoked controls with white icons, legible on any page.
-    private var bottomControlBar: some View {
+    /// How far through the current chapter the reader is, 0...1.
+    private var chapterFraction: Double {
         let lineCount = paragraphs.count
-        let fraction = lineCount > 1 ? min(1, max(0, Double(currentLine) / Double(lineCount - 1))) : 0
-        let percent = Int((fraction * 100).rounded())
-        let chapterLabel = currentChapter.chapterNumber > 0
-            ? "Ch. \(currentChapter.chapterNumber) · \(percent)%"
-            : "\(percent)%"
+        return lineCount > 1 ? min(1, max(0, Double(currentLine) / Double(lineCount - 1))) : 0
+    }
+
+    /// One smoked capsule: previous, the chapter (tap to choose another),
+    /// next. Progress lives on the line around the Dynamic Island instead.
+    private var bottomControlBar: some View {
+        let percent = Int((chapterFraction * 100).rounded())
+        let number = currentChapter.chapterNumber
 
         return VStack(spacing: 12) {
             if speech.isActive {
                 listeningControls
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
-            HStack(spacing: 10) {
+            HStack(spacing: 0) {
                 Button { navigateChapter(direction: -1) } label: {
                     Image(systemName: "chevron.left")
-                        .font(.system(size: 14, weight: .semibold))
-                        .modifier(ReaderChromeCircle(size: 46))
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(width: 50, height: 50)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(ReaderFloatingButtonStyle())
                 .disabled(!canNavigatePrev || !shouldShowPrevButton)
-                .opacity(shouldShowPrevButton ? 1 : 0)
-                .accessibilityHidden(!shouldShowPrevButton)
                 .accessibilityLabel("Previous chapter")
+
+                ReaderBarDivider()
 
                 Button {
                     showChapterPicker = true
                 } label: {
-                    VStack(spacing: 7) {
-                        Text(chapterLabel)
-                            .font(.asterionMono(11.5, weight: .medium))
-                            .foregroundStyle(Color.white.opacity(0.88))
-                            .lineLimit(1)
+                    VStack(spacing: 2) {
+                        Text(verbatim: number > 0 ? "CHAPTER \(number)" : "CHAPTER")
+                            .font(.asterionMono(9.5, weight: .semibold))
+                            .tracking(1.1)
+                            .foregroundStyle(Color.white.opacity(0.5))
                             .contentTransition(.numericText())
-                        AsterionLightLine(fraction: fraction, height: 2)
-                            .frame(width: 128)
-                            .accessibilityHidden(true)
+                        Text(currentChapter.displayTitle)
+                            .font(.system(size: 13.5, weight: .semibold))
+                            .foregroundStyle(Color.white.opacity(0.95))
+                            .lineLimit(1)
                     }
-                    .padding(.horizontal, 20)
-                    .frame(height: 46)
-                    .modifier(ReaderSmokedBackground(shape: Capsule()))
-                    .contentShape(Capsule())
+                    .padding(.horizontal, 14)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 50)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(ReaderFloatingButtonStyle())
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Choose chapter")
                 .accessibilityValue(
-                    currentChapter.chapterNumber > 0
-                        ? "Chapter \(currentChapter.chapterNumber), \(percent) percent read"
+                    number > 0
+                        ? "Chapter \(number), \(currentChapter.displayTitle), \(percent) percent read"
                         : "\(percent) percent read"
                 )
 
+                ReaderBarDivider()
+
                 Button { navigateChapter(direction: 1) } label: {
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 14, weight: .semibold))
-                        .modifier(ReaderChromeCircle(size: 46))
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(width: 50, height: 50)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(ReaderFloatingButtonStyle())
                 .disabled(!canNavigateNext)
                 .accessibilityLabel("Next chapter")
             }
+            .foregroundStyle(Color.white)
+            .frame(maxWidth: 360)
+            .modifier(ReaderSmokedBackground(shape: Capsule()))
+            .shadow(color: .black.opacity(0.25), radius: 18, y: 8)
+            .padding(.horizontal, 28)
         }
         .animation(.easeInOut(duration: 0.25), value: speech.isActive)
         .padding(.bottom, bottomBarBottomPadding)
@@ -1315,6 +1333,15 @@ struct ReaderView: View {
             syncToCloud: !novel.id.hasPrefix("offline-") && !currentChapter.id.hasPrefix("offline-")
         )
 
+        let novelProgress = NovelProgress(
+            chapterNumber: currentChapter.chapterNumber,
+            totalChapters: totalChapterCountHint,
+            chapterPercentage: NovelProgress.chapterPercentage(
+                currentLine: currentLine,
+                totalLines: totalLines,
+                saved: percentage * 100
+            )
+        )
         ContinueReadingStore.saveSnapshot(
             ContinueReadingSnapshot(
                 novelId: novel.id,
@@ -1322,7 +1349,9 @@ struct ReaderView: View {
                 chapterId: currentChapter.id,
                 chapterTitle: currentChapter.title,
                 chapterNumber: currentChapter.chapterNumber,
-                progress: percentage,
+                progress: novelProgress.fraction,
+                chapterProgress: novelProgress.chapterFraction,
+                totalChapters: totalChapterCountHint,
                 updatedAt: Date(),
                 coverURL: novel.imageUrl
             )
@@ -2254,5 +2283,101 @@ private struct ParagraphOffsetPreferenceKey: PreferenceKey {
 
     static func reduce(value: inout [Int: CGFloat], nextValue: () -> [Int: CGFloat]) {
         value.merge(nextValue(), uniquingKeysWith: { _, new in new })
+    }
+}
+
+
+/// Hairline between the segments of the reader's chapter capsule.
+private struct ReaderBarDivider: View {
+    var body: some View {
+        Rectangle()
+            .fill(Color.white.opacity(0.14))
+            .frame(width: 1, height: 22)
+            .accessibilityHidden(true)
+    }
+}
+
+/// Chapter progress drawn as a line of light tracing the Dynamic Island.
+/// iOS hides the app's own Live Activity while the app is open, so the
+/// reader draws it itself. Without an island it is a hairline under the
+/// status bar.
+private struct ReaderIslandProgress: View {
+    let fraction: Double
+    let ink: Color
+
+    var body: some View {
+        GeometryReader { proxy in
+            let topInset = Self.windowTopInset
+            let isPortrait = proxy.size.height > proxy.size.width
+            if UIDevice.current.userInterfaceIdiom == .phone, isPortrait, topInset >= 54 {
+                let rect = Self.islandOutline(width: proxy.size.width, topInset: topInset)
+                ZStack {
+                    IslandTrace(rect: rect)
+                        .stroke(ink.opacity(0.12), lineWidth: 2)
+                    IslandTrace(rect: rect)
+                        .trim(from: 0, to: max(0.002, fraction))
+                        .stroke(ink, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                        .shadow(color: ink.opacity(0.55), radius: 4)
+                }
+            } else {
+                Capsule()
+                    .fill(ink.opacity(0.85))
+                    .frame(width: proxy.size.width * fraction, height: 2)
+                    .shadow(color: ink.opacity(0.5), radius: 3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, max(0, topInset - 2))
+            }
+        }
+        .animation(.easeOut(duration: 0.35), value: fraction)
+        .accessibilityHidden(true)
+    }
+
+    private static var windowTopInset: CGFloat {
+        UIApplication.shared.connectedScenes
+            .compactMap { ($0 as? UIWindowScene)?.keyWindow }
+            .first?.safeAreaInsets.top ?? 0
+    }
+
+    /// The island is about 126 x 37 pt, centred in the top safe area; the
+    /// line runs 3 pt outside it.
+    private static func islandOutline(width: CGFloat, topInset: CGFloat) -> CGRect {
+        let size = CGSize(width: 126 + 6, height: 37 + 6)
+        let centerY = topInset * 0.508
+        return CGRect(
+            x: (width - size.width) / 2,
+            y: centerY - size.height / 2,
+            width: size.width,
+            height: size.height
+        )
+    }
+}
+
+/// A capsule path that starts at the bottom centre and runs clockwise, so
+/// progress grows from beneath the island, up the right and across the top.
+private struct IslandTrace: Shape {
+    let rect: CGRect
+
+    func path(in _: CGRect) -> Path {
+        let radius = rect.height / 2
+        var path = Path()
+        path.move(to: CGPoint(x: rect.midX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.maxX - radius, y: rect.maxY))
+        path.addArc(
+            center: CGPoint(x: rect.maxX - radius, y: rect.midY),
+            radius: radius,
+            startAngle: .degrees(90),
+            endAngle: .degrees(-90),
+            clockwise: true
+        )
+        path.addLine(to: CGPoint(x: rect.minX + radius, y: rect.minY))
+        path.addArc(
+            center: CGPoint(x: rect.minX + radius, y: rect.midY),
+            radius: radius,
+            startAngle: .degrees(-90),
+            endAngle: .degrees(90),
+            clockwise: true
+        )
+        path.closeSubpath()
+        return path
     }
 }

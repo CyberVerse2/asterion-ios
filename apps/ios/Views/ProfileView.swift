@@ -30,6 +30,8 @@ struct ProfileView: View {
     @State private var isApplyingServerPreferences = false
     @State private var startedNovelIds: Set<String> = []
     @State private var completedNovelIds: Set<String> = []
+    /// Chapter numbers of saved reading positions, keyed by chapter id.
+    @State private var chapterNumbersByID: [String: Int] = [:]
     @AppStorage(DownloadAheadCoordinator.enabledKey) private var downloadAheadEnabled = true
     private var isDesktop: Bool {
         #if targetEnvironment(macCatalyst)
@@ -48,12 +50,27 @@ struct ProfileView: View {
         let libraryIds = Set(libraryNovels.map(\.id))
         return startedNovelIds
             .intersection(libraryIds)
-            .subtracting(completedNovelIds)
+            .subtracting(finishedNovelIds)
             .count
     }
     private var completed: Int {
         let libraryIds = Set(libraryNovels.map(\.id))
-        return completedNovelIds.intersection(libraryIds).count
+        return finishedNovelIds.intersection(libraryIds).count
+    }
+    /// Finished means the reader finished the novel: every chapter appears in
+    /// their history, or their saved place is the end of the last chapter.
+    private var finishedNovelIds: Set<String> {
+        let novelsByID = Dictionary(libraryNovels.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let fromProgress = readingProgressService.mergedProgress(with: readingProgress).compactMap { entry -> String? in
+            guard let novel = novelsByID[entry.novelId] else { return nil }
+            let progress = NovelProgress(
+                progress: entry,
+                chapterNumber: chapterNumbersByID[entry.chapterId],
+                totalChapters: novel.catalogChapterCount
+            )
+            return progress.isFinished ? entry.novelId : nil
+        }
+        return completedNovelIds.union(fromProgress)
     }
     private var unreadInLibrary: Int {
         max(libraryNovels.count - ongoing - completed, 0)
@@ -346,22 +363,29 @@ struct ProfileView: View {
         for progress in readingProgressService.mergedProgress(with: readingProgress) {
             guard let novel = novelsByID[progress.novelId], let date = progress.lastReadAt else { continue }
             let id = "novel-\(novel.id)"
+            let place = NovelProgress(
+                progress: progress,
+                chapterNumber: chapterNumbersByID[progress.chapterId],
+                totalChapters: novel.catalogChapterCount
+            )
             activityByID[id] = RecentActivity(
                 id: id, title: novel.title, imageURL: novel.imageUrl.flatMap(URL.init(string:)),
-                caption: "\(Int(progress.percentage))% read · \(date.formatted(.relative(presentation: .named)))",
+                caption: readingCaption(for: place, fallback: "Reading", date: date),
                 date: date,
-                progress: progress.percentage / 100
+                progress: place.knowsWholeNovel ? place.fraction : nil
             )
         }
         // Preserve the latest reading session saved by earlier app versions, too.
         if let snapshot = ContinueReadingStore.loadSnapshot() {
             let id = "novel-\(snapshot.novelId)"
             if snapshot.updatedAt > (activityByID[id]?.date ?? .distantPast) {
+                let place = snapshot.novelProgress
                 activityByID[id] = RecentActivity(
                     id: id, title: snapshot.novelTitle,
                     imageURL: novelsByID[snapshot.novelId]?.imageUrl.flatMap(URL.init(string:)),
-                    caption: "\(snapshot.chapterTitle) · \(snapshot.updatedAt.formatted(.relative(presentation: .named)))",
-                    date: snapshot.updatedAt
+                    caption: readingCaption(for: place, fallback: snapshot.chapterTitle, date: snapshot.updatedAt),
+                    date: snapshot.updatedAt,
+                    progress: place.knowsWholeNovel ? place.fraction : nil
                 )
             }
         }
@@ -417,6 +441,12 @@ struct ProfileView: View {
         }
     }
 
+    /// "Ch. 1929 of 3171 · Yesterday", or "Finished · Yesterday".
+    private func readingCaption(for place: NovelProgress, fallback: String, date: Date) -> String {
+        let lead = place.isFinished ? "Finished" : (place.label ?? fallback)
+        return lead + " · " + date.formatted(.relative(presentation: .named))
+    }
+
     private func activityCaption(for entry: MediaHistoryEntry) -> String {
         let unit = entry.unitTitle ?? (entry.completed ? "Finished" : "Watched")
         let when = entry.lastViewedAt.formatted(.relative(presentation: .named))
@@ -424,6 +454,33 @@ struct ProfileView: View {
     }
 
     private func loadCloudProfileData() async {
+        await loadCloudProfileRecords()
+        await resolveReadingChapterNumbers()
+    }
+
+    /// Looks up the chapter number of the saved reading positions that show
+    /// here (library novels and the most recent few), cache first, so the
+    /// captions and the Finished count use whole-novel progress.
+    private func resolveReadingChapterNumbers() async {
+        let libraryIds = Set(libraryNovels.map(\.id))
+        let entries = readingProgressService.mergedProgress(with: readingProgress)
+        let wanted = entries.enumerated().filter { index, entry in
+            index < 8 || libraryIds.contains(entry.novelId)
+        }.map(\.element)
+        var numbers = chapterNumbersByID
+        for entry in wanted where numbers[entry.chapterId] == nil {
+            if let chapter = await ReadingPositionResolver.chapter(
+                id: entry.chapterId,
+                novelId: entry.novelId,
+                apiClient: apiClient
+            ), chapter.chapterNumber > 0 {
+                numbers[entry.chapterId] = chapter.chapterNumber
+            }
+        }
+        chapterNumbersByID = numbers
+    }
+
+    private func loadCloudProfileRecords() async {
         guard authService.isSignedIn else {
             cloudProfile = nil
             cloudBookmarkCount = 0

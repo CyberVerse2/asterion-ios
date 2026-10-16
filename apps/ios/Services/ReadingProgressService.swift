@@ -219,3 +219,16 @@ final class ReadingProgressService: ObservableObject {
         }
     }
 }
+
+/// Finds the chapter a saved reading position points at: the cached chapter,
+/// then the cached chapter list, then the network (cached for next time).
+enum ReadingPositionResolver {
+    static func chapter(id chapterId: String, novelId: String, apiClient: APIClient) async -> Chapter? {
+        if let cached = await OfflineChapterStore.shared.chapter(id: chapterId) { return cached }
+        let listed = await OfflineChapterStore.shared.loadChapterList(novelId: novelId)
+        if let match = listed.first(where: { $0.id == chapterId }) { return match }
+        guard let fetched = try? await apiClient.fetchChapter(id: chapterId) else { return nil }
+        await OfflineChapterStore.shared.cacheChapter(fetched)
+        return fetched
+    }
+}

@@ -3,6 +3,7 @@ import SwiftUI
 struct EditorialCatalogView: View {
     @Environment(\.asterionTopInset) private var topInset
     @EnvironmentObject private var model: AppModel
+    @Environment(\.openWindow) private var openWindow
     let section: AppSection
     let novels: [Novel]
     let isSearching: Bool
@@ -188,9 +189,21 @@ struct EditorialCatalogView: View {
                     isSelected: selectedNovelID == entry.novel.id
                 ) {
                     selectedNovelID = entry.novel.id
-                    selectNovel(entry.novel)
+                    openWindow(
+                        value: ReaderRoute(
+                            novelID: entry.novel.id,
+                            chapterID: entry.progress.chapterId
+                        )
+                    )
                 }
-                .contextMenu { libraryContextMenu(for: entry.novel) }
+                .contextMenu {
+                    Button("Show Details") {
+                        selectedNovelID = entry.novel.id
+                        selectNovel(entry.novel)
+                    }
+                    Divider()
+                    libraryContextMenu(for: entry.novel)
+                }
             }
         }
     }

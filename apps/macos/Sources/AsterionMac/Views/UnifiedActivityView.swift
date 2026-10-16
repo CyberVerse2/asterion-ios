@@ -35,7 +35,11 @@ struct UnifiedActivityView: View {
     }
 
     private var items: [UnifiedActivityItem] {
-        let reading = model.continueReadingEntries.map(UnifiedActivityItem.reading)
+        // Finished novels leave Continue, as finished shows do, but stay in History.
+        let readingEntries = mode == .continueActivity
+            ? model.continueReadingEntries
+            : model.readingEntries
+        let reading = readingEntries.map(UnifiedActivityItem.reading)
         let media: [UnifiedActivityItem] = switch mode {
         case .continueActivity:
             model.continueWatching.map(UnifiedActivityItem.progress)
@@ -157,6 +161,8 @@ struct UnifiedActivityView: View {
                                 detail: item.detail,
                                 timestamp: timestamp(for: item, in: group),
                                 fraction: item.fraction,
+                                actionTitle: item.actionTitle,
+                                actionSystemImage: item.actionSystemImage,
                                 isPrimaryAction: item.id == leadID,
                                 canAct: item.canResume,
                                 select: { select(item) },
@@ -222,6 +228,12 @@ struct UnifiedActivityView: View {
 
     private func resume(_ item: UnifiedActivityItem) {
         switch item {
+        case .reading(let entry) where entry.novelProgress.isFinished:
+            // Read again from the first chapter.
+            Task {
+                guard let first = try? await model.chapter(novelID: entry.novel.id, number: 1) else { return }
+                openWindow(value: ReaderRoute(novelID: entry.novel.id, chapterID: first.id))
+            }
         case .reading(let entry):
             openWindow(
                 value: ReaderRoute(
@@ -372,11 +384,11 @@ private enum UnifiedActivityItem: Identifiable {
         }
     }
 
-    /// "Current chapter · 68%" or "S1 E3 · 12 min left".
+    /// "Ch. 1929 of 3171 · 61%" or "S1 E3 · 12 min left".
     var detail: String {
         switch self {
         case .reading(let entry):
-            return "Current chapter · \(Int(min(100, max(0, entry.progress.percentage)).rounded()))%"
+            return ActivityDetail.reading(entry.novelProgress)
         case .progress(let progress):
             return ActivityDetail.playback(
                 title: progress.title,
@@ -437,16 +449,28 @@ private enum UnifiedActivityItem: Identifiable {
         }
     }
 
-    var percentage: Double {
+    /// Novels measure the whole novel, so their line waits for the chapter
+    /// number rather than showing the in-chapter position.
+    var fraction: Double? {
         switch self {
-        case .reading(let entry): entry.progress.percentage
-        case .progress(let progress): progress.percentage
-        case .history(let history): history.percentage
+        case .reading(let entry): entry.novelProgress.fraction
+        case .progress(let progress): min(1, max(0, progress.percentage / 100))
+        case .history(let history): min(1, max(0, history.percentage / 100))
         }
     }
 
-    var fraction: Double {
-        min(1, max(0, percentage / 100))
+    var actionTitle: String {
+        switch self {
+        case .reading(let entry): entry.novelProgress.isFinished ? "Read again" : "Continue"
+        case .progress, .history: "Resume"
+        }
+    }
+
+    var actionSystemImage: String {
+        switch self {
+        case .reading(let entry): entry.novelProgress.isFinished ? "arrow.counterclockwise" : "book.fill"
+        case .progress, .history: "play.fill"
+        }
     }
 
     var updatedAt: Date {
@@ -466,6 +490,15 @@ private enum UnifiedActivityItem: Identifiable {
 
 /// Builds the muted detail line for an activity row.
 enum ActivityDetail {
+    /// "Ch. 1929 of 3171 · 61%", "Ch. 3171 of 3171 · Finished", or
+    /// "Reading" until the current chapter is known.
+    static func reading(_ progress: NovelProgress) -> String {
+        guard let label = progress.label else { return "Reading" }
+        if progress.isFinished { return label + " · Finished" }
+        guard let percent = progress.displayPercentage else { return label }
+        return label + " · " + String(percent) + "%"
+    }
+
     static func playback(
         title: String,
         unitTitle: String?,

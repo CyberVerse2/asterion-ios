@@ -28,3 +28,18 @@ struct ReadingProgress: Identifiable, Codable, Hashable {
         }
     }
 }
+
+extension NovelProgress {
+    /// Builds progress from saved reading progress.
+    init(progress: ReadingProgress, chapterNumber: Int?, totalChapters: Int?) {
+        self.init(
+            chapterNumber: chapterNumber,
+            totalChapters: totalChapters,
+            chapterPercentage: Self.chapterPercentage(
+                currentLine: progress.currentLine,
+                totalLines: progress.totalLines,
+                saved: progress.percentage
+            )
+        )
+    }
+}

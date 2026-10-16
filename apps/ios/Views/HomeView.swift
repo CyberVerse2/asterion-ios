@@ -99,20 +99,27 @@ struct HomeView: View {
             .sorted { $0.updatedAt > $1.updatedAt }
     }
 
+    /// Reading and watching merged by recency: whatever was opened last
+    /// leads, whichever kind it is.
     private var continueItems: [HomeContinueItem] {
-        let novels = continueReadingItems.map { HomeContinueItem.novel($0) }
+        let novels = continueReadingItems
+            .filter { !$0.progress.isFinished }
+            .map { HomeContinueItem.novel($0) }
         let watching = continueWatchingItems.map { HomeContinueItem.watching($0) }
-        let novelSlots = min(novels.count, 4)
-        let watchSlots = min(watching.count, 8 - novelSlots)
-        return (Array(novels.prefix(novelSlots)) + Array(watching.prefix(watchSlots)))
-            .sorted { $0.updatedAt > $1.updatedAt }
+        return Array(
+            (novels + watching)
+                .sorted { $0.updatedAt > $1.updatedAt }
+                .prefix(Self.continueSlots)
+        )
     }
+
+    private static let continueSlots = 8
 
     private struct ContinueReadingItem: Identifiable {
         let novel: Novel
         let chapter: Chapter
         let allChapters: [Chapter]
-        let percentage: Double
+        let progress: NovelProgress
         let updatedAt: Date
         var id: String { novel.id }
     }
@@ -452,12 +459,10 @@ struct HomeView: View {
                     allChapters: reading.allChapters
                 )
             } label: {
-                AsterionContinueCard(
+                AsterionReadingContinueCard(
                     title: reading.novel.title,
-                    subtitle: reading.chapter.chapterNumber > 0
-                        ? "Chapter \(reading.chapter.chapterNumber)"
-                        : reading.chapter.title,
-                    percentage: reading.percentage
+                    progress: reading.progress,
+                    coverURL: reading.novel.imageUrl.flatMap(URL.init(string:))
                 ) {
                     NovelPosterArt(novel: reading.novel)
                 }
@@ -606,7 +611,7 @@ struct HomeView: View {
                 chapterId: snapshot.chapterId,
                 currentLine: 0,
                 totalLines: 1,
-                percentage: snapshot.progress * 100,
+                percentage: snapshot.inChapterFraction * 100,
                 updatedAt: snapshot.updatedAt
             )
         }
@@ -631,29 +636,30 @@ struct HomeView: View {
             ) else { continue }
             orderedEntries.append((novel: novel, progress: p))
         }
-        let topEntries = Array(orderedEntries.prefix(6))
+        // Finished novels drop out, so look a little past the visible slots.
+        let candidates = Array(orderedEntries.prefix(Self.continueSlots + 4))
 
         var built: [ContinueReadingItem] = []
-        for entry in topEntries {
+        for entry in candidates where built.count < Self.continueSlots {
             let novel = entry.novel
             let p = entry.progress
 
-            let chapter: Chapter?
-            if let cached = await OfflineChapterStore.shared.chapter(id: p.chapterId) {
-                chapter = cached
-            } else {
-                do {
-                    let fetched = try await apiClient.fetchChapter(id: p.chapterId)
-                    await OfflineChapterStore.shared.cacheChapter(fetched)
-                    chapter = fetched
-                } catch {
-                    let listed = await OfflineChapterStore.shared.loadChapterList(novelId: novel.id)
-                    chapter = listed.first(where: { $0.id == p.chapterId })
-                }
-            }
-            guard let chapter else { continue }
+            guard let chapter = await ReadingPositionResolver.chapter(
+                id: p.chapterId,
+                novelId: novel.id,
+                apiClient: apiClient
+            ) else { continue }
+
+            // A finished novel by the catalog's count skips the chapter list.
+            let catalogProgress = NovelProgress(
+                progress: p,
+                chapterNumber: chapter.chapterNumber,
+                totalChapters: novel.catalogChapterCount
+            )
+            if catalogProgress.isFinished { continue }
 
             let chapterList: [Chapter]
+            var loadedChapterCount: Int?
             do {
                 let fetchedChapters = try await apiClient.fetchAllChapters(novelId: novel.id)
                 await OfflineChapterStore.shared.saveChapterList(
@@ -662,6 +668,7 @@ struct HomeView: View {
                     mergeWithExisting: true
                 )
                 chapterList = fetchedChapters
+                loadedChapterCount = fetchedChapters.count
             } catch {
                 let cached = await OfflineChapterStore.shared.loadChapterList(novelId: novel.id)
                 chapterList = cached.isEmpty ? [chapter] : cached
@@ -669,17 +676,22 @@ struct HomeView: View {
             let containsCurrent = chapterList.contains(where: { $0.id == chapter.id })
             let allChapters = containsCurrent ? chapterList : ([chapter] + chapterList)
 
-            let totalChapterCount = max(allChapters.count, 1)
-            let chapterIndex = Double(max(chapter.chapterNumber - 1, 0))
-            let withinChapterFraction = p.percentage / 100.0
-            let novelPercentage = min(100, ((chapterIndex + withinChapterFraction) / Double(totalChapterCount)) * 100)
+            let progress = NovelProgress(
+                progress: p,
+                chapterNumber: chapter.chapterNumber,
+                totalChapters: NovelProgress.totalChapters(
+                    loaded: loadedChapterCount,
+                    catalog: novel.totalChapters
+                )
+            )
+            if progress.isFinished { continue }
 
             built.append(
                 ContinueReadingItem(
                     novel: novel,
                     chapter: chapter,
                     allChapters: allChapters,
-                    percentage: novelPercentage,
+                    progress: progress,
                     updatedAt: p.lastReadAt ?? .distantPast
                 )
             )

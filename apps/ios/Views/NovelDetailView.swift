@@ -185,7 +185,24 @@ struct NovelDetailView: View {
 
     private var chapterCount: Int {
         if totalChapters > 0 { return totalChapters }
-        return Int(novel.totalChapters?.filter(\.isNumber) ?? "") ?? 0
+        return novel.catalogChapterCount ?? 0
+    }
+
+    /// Where the reader is in the whole novel, once the saved chapter is known.
+    private var novelProgress: NovelProgress? {
+        guard let readingProgress else { return nil }
+        return NovelProgress(
+            progress: readingProgress,
+            chapterNumber: continueChapter?.chapterNumber,
+            totalChapters: chapterCount > 0 ? chapterCount : nil
+        )
+    }
+
+    private var isFinished: Bool { novelProgress?.isFinished == true }
+
+    /// Chapter 1 (or the first listed chapter) for reading a finished novel again.
+    private var firstChapter: Chapter? {
+        chapters.first(where: { $0.chapterNumber == 1 }) ?? chapters.first
     }
 
     private var metadataLine: String {
@@ -261,7 +278,7 @@ struct NovelDetailView: View {
 
     @ViewBuilder
     private var startReadingButton: some View {
-        if let targetChapter = continueChapter ?? chapters.first {
+        if let targetChapter = isFinished ? firstChapter : (continueChapter ?? firstChapter) {
             let chapterListForReader: [Chapter] = {
                 if chapters.contains(where: { $0.id == targetChapter.id }) {
                     return chapters
@@ -272,10 +289,12 @@ struct NovelDetailView: View {
                 ReaderView(
                     initialChapter: targetChapter,
                     novel: novel,
-                    allChapters: chapterListForReader
+                    allChapters: chapterListForReader,
+                    // Reading again starts at chapter 1, not the saved last page.
+                    shouldAutoResumeFromSavedProgress: !isFinished
                 )
             } label: {
-                Label(readingButtonTitle, systemImage: readingProgress == nil ? "book.pages.fill" : "play.fill")
+                Label(readingButtonTitle, systemImage: isFinished ? "book.closed.fill" : "book.fill")
                     .font(.asterionReading(15, weight: .semibold))
                     .lineLimit(1)
                     .padding(.horizontal, 22)
@@ -291,8 +310,9 @@ struct NovelDetailView: View {
 
     private var readingButtonTitle: String {
         guard readingProgress != nil else { return "Start reading" }
+        if isFinished { return "Finished · Read again" }
         if let chapterNumber = continueChapter?.chapterNumber, chapterNumber > 0 {
-            return "Continue chapter \(chapterNumber)"
+            return "Continue chapter " + String(chapterNumber)
         }
         return "Continue reading"
     }
@@ -385,28 +405,28 @@ struct NovelDetailView: View {
 
     @ViewBuilder
     private var readingProgressLine: some View {
-        if let readingProgress, let chapter = continueChapter, chapter.chapterNumber > 0, chapterCount > 0 {
-            let fraction = min(
-                1,
-                max(0, (Double(chapter.chapterNumber - 1) + readingProgress.percentage / 100) / Double(chapterCount))
-            )
+        if let progress = novelProgress, progress.knowsWholeNovel, let label = progress.label {
             VStack(alignment: .leading, spacing: 7) {
                 HStack(spacing: 12) {
-                    AsterionLightLine(fraction: fraction, height: 3)
+                    AsterionLightLine(fraction: progress.fraction, height: 3)
                         .frame(maxWidth: 320)
-                    Text("\(Int((fraction * 100).rounded()))%")
+                    Text(verbatim: "\(progress.displayPercentage)%")
                         .font(.asterionMono(11.5, weight: .medium))
                         .foregroundStyle(Color.asterionMuted)
                         .accessibilityHidden(true)
                 }
-                Text("Chapter \(chapter.chapterNumber) of \(chapterCount.formatted())")
+                Text(progress.isFinished ? "Finished · " + label : label)
                     .font(.asterionMono(11.5, weight: .medium))
                     .foregroundStyle(Color.asterionMuted)
             }
             .frame(maxWidth: 380, alignment: .leading)
             .accessibilityElement(children: .combine)
             .accessibilityLabel("Reading progress")
-            .accessibilityValue("Chapter \(chapter.chapterNumber) of \(chapterCount)")
+            .accessibilityValue(
+                [progress.isFinished ? "Finished" : nil, progress.longLabel, "\(progress.displayPercentage) percent"]
+                    .compactMap { $0 }
+                    .joined(separator: ", ")
+            )
         }
     }
 
@@ -625,13 +645,14 @@ struct NovelDetailView: View {
             chapters = response.data
             totalChapters = response.meta?.total
                 ?? response.meta?.count
-                ?? Int(novel.totalChapters?.filter(\.isNumber) ?? "")
+                ?? novel.catalogChapterCount
                 ?? response.data.count
         } catch {
             let cached = await OfflineChapterStore.shared.loadChapterList(novelId: novel.id)
             if !cached.isEmpty {
                 chapters = Array(cached.prefix(previewCount))
-                totalChapters = cached.count
+                // The cached list may hold only the chapters opened so far.
+                totalChapters = max(cached.count, novel.catalogChapterCount ?? 0)
                 chapterError = nil
             } else {
                 chapterError = error.localizedDescription

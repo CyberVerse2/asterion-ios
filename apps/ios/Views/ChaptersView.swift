@@ -20,6 +20,13 @@ struct ChaptersView: View {
     @State private var debouncedSearch = ""
     @State private var resolvedTotalCount: Int
     @State private var searchResultCount: Int?
+    /// Only the latest load may update the list; typing, searching and paging
+    /// used to race and leave one page's chapters under another page's label.
+    @State private var loadTask: Task<Void, Never>?
+    /// A page set by a jump, already loaded; don't load it again.
+    @State private var skipNextPageLoad = false
+    /// Chapter a number search jumped to; highlighted and scrolled into view.
+    @State private var targetChapterId: String?
     @State private var exportingChapterId: String?
     @State private var downloadedChapterIds = Set<String>()
     @State private var showDownloadAlert = false
@@ -85,8 +92,17 @@ struct ChaptersView: View {
             }
             .scrollDismissesKeyboard(.interactively)
             .onChange(of: page) { _, _ in
+                guard targetChapterId == nil else { return }
                 withAnimation(.snappy) {
                     proxy.scrollTo("chapters-top", anchor: .top)
+                }
+            }
+            .onChange(of: targetChapterId) { _, id in
+                guard let id else { return }
+                Task {
+                    // Let the new page lay out first.
+                    try? await Task.sleep(for: .milliseconds(120))
+                    withAnimation(.snappy) { proxy.scrollTo(id, anchor: .center) }
                 }
             }
         }
@@ -98,16 +114,26 @@ struct ChaptersView: View {
         .background { AsterionBackdrop() }
         .toolbarVisibility(.hidden, for: .navigationBar)
         .toolbarVisibility(.hidden, for: .tabBar)
-        .task { await loadChapters(pg: 0) }
+        .task { await openAtCurrentChapter() }
         .onAppear { tabBarState.isVisible = false }
         .onDisappear { tabBarState.isVisible = true }
         .debounceSearch(text: $search, debouncedText: $debouncedSearch)
-        .onChange(of: debouncedSearch) { _, _ in
-            page = 0
-            Task { await loadChapters(pg: 0, searchTerm: debouncedSearch) }
+        .onChange(of: debouncedSearch) { _, query in
+            targetChapterId = nil
+            if let number = Self.chapterNumber(in: query) {
+                startLoad { await jump(toChapter: number) }
+            } else {
+                if page != 0 { skipNextPageLoad = true; page = 0 }
+                startLoad { await loadChapters(pg: 0, searchTerm: titleSearchTerm) }
+            }
         }
         .onChange(of: page) { _, newPage in
-            Task { await loadChapters(pg: newPage, searchTerm: debouncedSearch) }
+            if skipNextPageLoad {
+                skipNextPageLoad = false
+                return
+            }
+            targetChapterId = nil
+            startLoad { await loadChapters(pg: newPage, searchTerm: titleSearchTerm) }
         }
         .alert("Chapter download", isPresented: $showDownloadAlert) {
             Button("OK", role: .cancel) {}
@@ -310,6 +336,9 @@ struct ChaptersView: View {
                             .padding(.leading, 16)
                     }
                     chapterRow(chapter, isCurrent: chapter.id == currentId)
+                        .background(
+                            chapter.id == targetChapterId ? Color.white.opacity(0.07) : Color.clear
+                        )
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -413,6 +442,7 @@ struct ChaptersView: View {
                 let filtered = allChapters.filter {
                     $0.title.lowercased().contains(q) || String($0.chapterNumber).contains(q)
                 }
+                guard !Task.isCancelled else { return }
                 searchResultCount = filtered.count
                 let start = min(pg * perPage, filtered.count)
                 let end = min(start + perPage, filtered.count)
@@ -427,6 +457,7 @@ struct ChaptersView: View {
                 offset: pg * perPage
             )
             await OfflineChapterStore.shared.saveChapterList(novelId: novel.id, chapters: response.data, mergeWithExisting: true)
+            guard !Task.isCancelled else { return }
             resolvedTotalCount = response.meta?.total
                 ?? (resolvedTotalCount > 0 ? resolvedTotalCount : max(totalCount, response.data.count))
             searchResultCount = nil
@@ -440,6 +471,7 @@ struct ChaptersView: View {
             }
             await refreshDownloadedChapterState()
         } catch {
+            guard !Task.isCancelled else { return }
             let cachedAll = await OfflineChapterStore.shared.loadChapterList(novelId: novel.id)
             if !cachedAll.isEmpty {
                 if searchTerm.isEmpty {
@@ -465,6 +497,105 @@ struct ChaptersView: View {
                 self.error = error.localizedDescription
             }
         }
+    }
+
+    /// A number in the search box is a jump, not a filter.
+    private var titleSearchTerm: String {
+        Self.chapterNumber(in: debouncedSearch) == nil ? debouncedSearch : ""
+    }
+
+    static func chapterNumber(in query: String) -> Int? {
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+            .replacingOccurrences(of: #"^(?i)(chapter|ch\.?)\s*"#, with: "", options: .regularExpression)
+        guard let number = Int(trimmed), number > 0 else { return nil }
+        return number
+    }
+
+    private func startLoad(_ work: @escaping @MainActor () async -> Void) {
+        loadTask?.cancel()
+        loadTask = Task { await work() }
+    }
+
+    /// Opens on the page holding the chapter being read, not chapter 1.
+    private func openAtCurrentChapter() async {
+        guard let currentId = currentChapterId else {
+            await loadChapters(pg: 0)
+            return
+        }
+        var number = (allChapters.first { $0.id == currentId }
+            ?? chapters.first { $0.id == currentId })?.chapterNumber
+        if number == nil {
+            number = await OfflineChapterStore.shared.loadChapterList(novelId: novel.id)
+                .first { $0.id == currentId }?.chapterNumber
+        }
+        if number == nil {
+            number = await OfflineChapterStore.shared.chapter(id: currentId)?.chapterNumber
+        }
+        if let number, number > 0 {
+            await jump(toChapter: number, highlight: false)
+        } else {
+            await loadChapters(pg: 0)
+        }
+    }
+
+    /// Loads the page holding chapter `number`. Chapter numbers mostly track
+    /// list position, so start there and correct by the gap a few times.
+    private func jump(toChapter number: Int, highlight: Bool = true) async {
+        loading = true
+        error = nil
+        defer { loading = false }
+        var guess = max(0, (number - 1) / perPage)
+        var loaded: [Chapter] = []
+        do {
+            for _ in 0..<4 {
+                let response = try await apiClient.fetchChapters(
+                    novelId: novel.id,
+                    limit: perPage,
+                    offset: guess * perPage
+                )
+                guard !Task.isCancelled else { return }
+                if let total = response.meta?.total { resolvedTotalCount = total }
+                loaded = response.data
+                guard let first = loaded.first?.chapterNumber, let last = loaded.last?.chapterNumber else { break }
+                let lastPage = max(0, totalPages - 1)
+                if number < first, guess > 0 {
+                    guess = max(0, guess - max(1, (first - number + perPage - 1) / perPage))
+                } else if number > last, guess < lastPage {
+                    guess = min(lastPage, guess + max(1, (number - last + perPage - 1) / perPage))
+                } else {
+                    break
+                }
+            }
+            await OfflineChapterStore.shared.saveChapterList(novelId: novel.id, chapters: loaded, mergeWithExisting: true)
+        } catch {
+            guard !Task.isCancelled else { return }
+            let cached = await OfflineChapterStore.shared.loadChapterList(novelId: novel.id)
+            guard let index = cached.firstIndex(where: { $0.chapterNumber >= number }) else {
+                self.error = error.localizedDescription
+                return
+            }
+            guess = index / perPage
+            let start = guess * perPage
+            loaded = Array(cached[start..<min(start + perPage, cached.count)])
+        }
+        guard !Task.isCancelled else { return }
+        searchResultCount = nil
+        chapters = loaded
+        let match = loaded.first { $0.chapterNumber == number }
+        targetChapterId = highlight ? match?.id : nil
+        if page != guess {
+            skipNextPageLoad = true
+            page = guess
+        }
+        if !highlight, let match {
+            // Opening on the reading chapter: bring it into view, unhighlighted.
+            targetChapterId = match.id
+            Task {
+                try? await Task.sleep(for: .milliseconds(900))
+                if targetChapterId == match.id { targetChapterId = nil }
+            }
+        }
+        await refreshDownloadedChapterState()
     }
 
     private func fetchAllChaptersForSearch() async throws -> [Chapter] {

@@ -33,8 +33,18 @@ final class AppModel: ObservableObject {
     struct ContinueReadingEntry: Identifiable {
         let novel: Novel
         let progress: ReadingProgress
+        /// Whole-novel position; the chapter and count fill in once resolved.
+        let novelProgress: NovelProgress
+        /// The current chapter's title, once its chapter has been resolved.
+        let chapterTitle: String?
 
         var id: String { novel.id }
+    }
+
+    /// The number and title of a chapter someone has reading progress in.
+    struct ProgressChapterMarker: Equatable, Sendable {
+        let number: Int
+        let title: String
     }
 
     struct SignedInUser: Equatable {
@@ -51,7 +61,15 @@ final class AppModel: ObservableObject {
 
     @Published private(set) var novels: [Novel] = []
     @Published private(set) var libraryNovelIDs: Set<String> = []
-    @Published private(set) var progressByNovelID: [String: ReadingProgress] = [:]
+    @Published private(set) var progressByNovelID: [String: ReadingProgress] = [:] {
+        didSet { scheduleReadingPositionRefresh() }
+    }
+    /// Chapter numbers for saved progress, keyed by chapter ID. Progress only
+    /// stores a chapter ID, so cards resolve the number here.
+    @Published private(set) var progressChapterByID: [String: ProgressChapterMarker] = [:]
+    /// Chapter counts reported by the chapter list, which can be ahead of the
+    /// catalog's `totalChapters`.
+    @Published private(set) var chapterCountByNovelID: [String: Int] = [:]
     @Published private(set) var downloadedNovelIDs: Set<String> = []
     @Published private(set) var signedInUser: SignedInUser?
     @Published private(set) var isRestoringAccountSession = true
@@ -82,6 +100,9 @@ final class AppModel: ObservableObject {
     private var chapterListTaskByNovelID: [String: Task<[Chapter], Error>] = [:]
     private var chapterTaskByID: [String: Task<Chapter, Error>] = [:]
     private var remoteNovelIDs: Set<String> = []
+    private var readingPositionTask: Task<Void, Never>?
+    private var readingPositionRefreshPending = false
+    private var requestedChapterCountNovelIDs: Set<String> = []
     private var progressSaveGenerationByKey: [String: UInt] = [:]
     private var accountErrors: [AccountErrorSource: String] = [:]
     private var retryableAccountErrorReasons: [AccountErrorSource: String] = [:]
@@ -186,14 +207,39 @@ final class AppModel: ObservableObject {
         )
     }
 
-    var continueReadingEntries: [ContinueReadingEntry] {
+    /// Every novel with reading progress, finished or not, newest first.
+    var readingEntries: [ContinueReadingEntry] {
         progressByNovelID.values
             .sorted { ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast) }
             .compactMap { progress in
-                novel(id: progress.novelId).map {
-                    ContinueReadingEntry(novel: $0, progress: progress)
+                novel(id: progress.novelId).map { novel in
+                    let marker = progressChapterByID[progress.chapterId]
+                    return ContinueReadingEntry(
+                        novel: novel,
+                        progress: progress,
+                        novelProgress: novelProgress(for: novel, progress: progress),
+                        chapterTitle: marker?.title
+                    )
                 }
             }
+    }
+
+    /// Novels still being read. Finished novels drop out, like finished shows.
+    var continueReadingEntries: [ContinueReadingEntry] {
+        readingEntries.filter { !$0.novelProgress.isFinished }
+    }
+
+    /// Whole-novel progress for saved reading progress, using the resolved
+    /// chapter number and the best known chapter count.
+    func novelProgress(for novel: Novel, progress: ReadingProgress) -> NovelProgress {
+        NovelProgress(
+            progress: progress,
+            chapterNumber: progressChapterByID[progress.chapterId]?.number,
+            totalChapters: NovelProgress.totalChapters(
+                loaded: chapterCountByNovelID[novel.id],
+                catalog: novel.totalChapters
+            )
+        )
     }
 
     func start() async {
@@ -345,6 +391,7 @@ final class AppModel: ObservableObject {
                 expiresAt: Date().addingTimeInterval(300)
             )
             chapterListStateByNovelID[novelID] = .remote
+            recordChapterCount(chapters.count, novelID: novelID)
             return chapters
         } catch let remoteError {
             chapterListTaskByNovelID.removeValue(forKey: novelID)
@@ -386,6 +433,9 @@ final class AppModel: ObservableObject {
         )
         cacheChapterContent(page.chapters)
         chapterListStateByNovelID[novelID] = .remote
+        if search?.isEmpty != false {
+            recordChapterCount(page.total, novelID: novelID)
+        }
         return page
     }
 
@@ -1528,6 +1578,89 @@ final class AppModel: ObservableObject {
             result.append(novel)
         }
         return result
+    }
+
+    // MARK: Reading positions
+
+    private func recordChapterCount(_ count: Int, novelID: String) {
+        guard count > 0, chapterCountByNovelID[novelID] != count else { return }
+        chapterCountByNovelID[novelID] = count
+    }
+
+    private func recordProgressChapter(_ chapter: Chapter) {
+        let marker = ProgressChapterMarker(number: chapter.chapterNumber, title: chapter.displayTitle)
+        guard progressChapterByID[chapter.id] != marker else { return }
+        progressChapterByID[chapter.id] = marker
+    }
+
+    /// Resolves the chapter number and chapter count behind each saved
+    /// progress. Cached chapters resolve at once so a card never flickers
+    /// when the reader moves to the next chapter; the rest load in the
+    /// background, coalescing bursts of progress saves.
+    private func scheduleReadingPositionRefresh() {
+        for progress in progressByNovelID.values where progressChapterByID[progress.chapterId] == nil {
+            if let cached = chapterByID[progress.chapterId] {
+                recordProgressChapter(cached)
+            }
+        }
+        guard hasUnresolvedReadingPositions else { return }
+        guard readingPositionTask == nil else {
+            readingPositionRefreshPending = true
+            return
+        }
+        readingPositionTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            repeat {
+                readingPositionRefreshPending = false
+                await refreshReadingPositions()
+            } while readingPositionRefreshPending
+            readingPositionTask = nil
+        }
+    }
+
+    private var hasUnresolvedReadingPositions: Bool {
+        progressByNovelID.values.contains { progress in
+            progressChapterByID[progress.chapterId] == nil
+                || (chapterCountByNovelID[progress.novelId] == nil
+                    && !requestedChapterCountNovelIDs.contains(progress.novelId))
+        }
+    }
+
+    private func refreshReadingPositions() async {
+        let progresses = progressByNovelID.values
+            .sorted { ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast) }
+        let missingChapterIDs = Array(Set(
+            progresses.map(\.chapterId).filter { progressChapterByID[$0] == nil }
+        ))
+        let missingCountNovelIDs = progresses.map(\.novelId).filter {
+            chapterCountByNovelID[$0] == nil && !requestedChapterCountNovelIDs.contains($0)
+        }
+        requestedChapterCountNovelIDs.formUnion(missingCountNovelIDs)
+
+        let api = api
+        let offlineLibrary = offlineLibrary
+        let chapters = await ConcurrentBatch.run(missingChapterIDs, maximumConcurrentTasks: 4) { id -> Chapter? in
+            if let offline = try? await offlineLibrary.chapter(id: id) { return offline }
+            return try? await api.fetchChapter(id: id)
+        }
+        for chapter in chapters.compactMap({ $0 }) {
+            if chapter.content?.isEmpty == false, chapterByID[chapter.id] == nil {
+                chapterByID[chapter.id] = chapter
+            }
+            recordProgressChapter(chapter)
+        }
+
+        let counts = await ConcurrentBatch.run(missingCountNovelIDs, maximumConcurrentTasks: 4) { novelID -> (String, Int?) in
+            let total = try? await api.fetchChapterPage(novelID: novelID, limit: 1, offset: 0).total
+            return (novelID, total)
+        }
+        for (novelID, total) in counts {
+            if let total, total > 0 {
+                recordChapterCount(total, novelID: novelID)
+            } else if let offline = offlineDownloadByNovelID[novelID], offline.totalChapters > 0 {
+                recordChapterCount(offline.totalChapters, novelID: novelID)
+            }
+        }
     }
 
     private func cacheChapterContent(_ chapters: [Chapter]) {

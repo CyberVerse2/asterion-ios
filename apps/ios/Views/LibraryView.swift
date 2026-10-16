@@ -18,6 +18,7 @@ struct LibraryView: View {
     @State private var filter: LibraryFilter = .all
     @State private var sortOption: SortOption = .lastRead
     @State private var navigationPath = NavigationPath()
+    @State private var readingPositions: [String: ReadingPosition] = [:]
 
     private var pageHorizontalPadding: CGFloat { AsterionLayout.pagePadding(horizontalSizeClass) }
 
@@ -40,8 +41,29 @@ struct LibraryView: View {
         let addedAt: Date?
         let updatedAt: Date?
         let lastReadAt: Date?
-        var percentage: Double? = nil
+        var progress: ReadingProgress? = nil
         var id: String { novel.id }
+    }
+
+    /// A saved novel's place: the chapter to reopen and the whole-novel progress.
+    struct ReadingPosition {
+        let chapter: Chapter
+        let allChapters: [Chapter]
+        let progress: NovelProgress
+    }
+
+    /// Saved novels started and not yet finished, most recently read first.
+    private var continueReading: [LibraryItem] {
+        filteredNovels
+            .filter { item in
+                guard let position = readingPositions[item.id] else { return false }
+                return !position.progress.isFinished
+            }
+            .sorted {
+                let lhs = readingProgressService.lastReadAt(for: $0.id, remote: $0.lastReadAt) ?? .distantPast
+                let rhs = readingProgressService.lastReadAt(for: $1.id, remote: $1.lastReadAt) ?? .distantPast
+                return lhs > rhs
+            }
     }
 
     private var filteredNovels: [LibraryItem] {
@@ -84,6 +106,7 @@ struct LibraryView: View {
 
     private var hasVisibleContent: Bool {
         !filteredNovels.isEmpty || !filteredBookmarks.isEmpty || !continueWatching.isEmpty
+            || !continueReading.isEmpty
     }
 
     private var isLoadingFirstPage: Bool {
@@ -95,7 +118,7 @@ struct LibraryView: View {
         let saved = novels.count + mediaAccountService.snapshot.bookmarks.count
         let readingNow = novels.filter { item in
             let started = readingProgressService.lastReadAt(for: item.id, remote: item.lastReadAt) != nil
-            return started && (item.percentage ?? 0) < 100
+            return started && readingPositions[item.id]?.progress.isFinished != true
         }.count
         let watchingNow = mediaAccountService.snapshot.progress.filter { !$0.completed && $0.positionSeconds > 0 }.count
         let inProgress = readingNow + watchingNow
@@ -115,6 +138,10 @@ struct LibraryView: View {
                     }
 
                     filterPicker
+
+                    if !continueReading.isEmpty {
+                        continueReadingSection
+                    }
 
                     if !continueWatching.isEmpty {
                         continueWatchingSection
@@ -169,6 +196,39 @@ struct LibraryView: View {
     }
 
     // MARK: - Continue
+
+    private var continueReadingSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            AsterionSectionLabel(title: "Continue reading", detail: "\(continueReading.count)")
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 14) {
+                    ForEach(continueReading) { item in
+                        if let position = readingPositions[item.id] {
+                            NavigationLink {
+                                // Resumes at the saved chapter and line.
+                                ReaderView(
+                                    initialChapter: position.chapter,
+                                    novel: item.novel,
+                                    allChapters: position.allChapters
+                                )
+                            } label: {
+                                AsterionReadingContinueCard(
+                                    title: item.novel.title,
+                                    progress: position.progress,
+                                    coverURL: item.novel.imageUrl.flatMap(URL.init(string:))
+                                ) {
+                                    NovelPosterArt(novel: item.novel)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .padding(.horizontal, pageHorizontalPadding)
+            }
+            .padding(.horizontal, -pageHorizontalPadding)
+        }
+    }
 
     private var continueWatchingSection: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -231,7 +291,7 @@ struct LibraryView: View {
                             LibraryPosterTile(
                                 title: item.novel.title,
                                 subtitle: item.novel.author ?? "Unknown author",
-                                progress: item.percentage.map { $0 / 100 }
+                                progress: readingPositions[item.id]?.progress.fraction
                             ) {
                                 NovelPosterArt(novel: item.novel)
                             }
@@ -480,6 +540,7 @@ struct LibraryView: View {
         defer { loadingNovels = false }
         guard authService.isSignedIn else {
             novels = []
+            readingPositions = [:]
             failedNovels = false
             return
         }
@@ -498,7 +559,7 @@ struct LibraryView: View {
                     addedAt: entry.createdAt,
                     updatedAt: entry.updatedAt,
                     lastReadAt: progressByNovel[entry.novelId]?.updatedAt,
-                    percentage: progressByNovel[entry.novelId]?.percentage
+                    progress: progressByNovel[entry.novelId]
                 )
             }
             await OfflineChapterStore.shared.saveLibrarySnapshot(
@@ -516,7 +577,7 @@ struct LibraryView: View {
             let cached = await OfflineChapterStore.shared.loadLibrarySnapshot()
             if !cached.isEmpty {
                 let local = Dictionary(
-                    readingProgressService.localProgress.map { ($0.novelId, $0.percentage) },
+                    readingProgressService.localProgress.map { ($0.novelId, $0) },
                     uniquingKeysWith: { first, _ in first }
                 )
                 novels = cached.map {
@@ -525,7 +586,7 @@ struct LibraryView: View {
                         addedAt: $0.addedAt,
                         updatedAt: $0.updatedAt,
                         lastReadAt: $0.lastReadAt,
-                        percentage: local[$0.novel.id]
+                        progress: local[$0.novel.id]
                     )
                 }
                 failedNovels = false
@@ -533,6 +594,39 @@ struct LibraryView: View {
                 failedNovels = true
             }
         }
+        await resolveReadingPositions()
+    }
+
+    /// Looks up the saved chapter of every started novel (cache first) so the
+    /// shelves can show whole-novel progress and reopen the right chapter.
+    private func resolveReadingPositions() async {
+        var resolved: [String: ReadingPosition] = [:]
+        for item in novels {
+            guard let saved = item.progress else { continue }
+            let chapter: Chapter?
+            if let known = readingPositions[item.id]?.chapter, known.id == saved.chapterId {
+                chapter = known
+            } else {
+                chapter = await ReadingPositionResolver.chapter(
+                    id: saved.chapterId,
+                    novelId: item.novel.id,
+                    apiClient: apiClient
+                )
+            }
+            guard let chapter else { continue }
+            let cachedList = await OfflineChapterStore.shared.loadChapterList(novelId: item.novel.id)
+            let allChapters = cachedList.contains(where: { $0.id == chapter.id }) ? cachedList : [chapter] + cachedList
+            resolved[item.id] = ReadingPosition(
+                chapter: chapter,
+                allChapters: allChapters,
+                progress: NovelProgress(
+                    progress: saved,
+                    chapterNumber: chapter.chapterNumber,
+                    totalChapters: item.novel.catalogChapterCount
+                )
+            )
+        }
+        readingPositions = resolved
     }
 
     private func popNavigation() {

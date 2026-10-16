@@ -37,3 +37,10 @@ struct Novel: Identifiable, Codable, Hashable {
         Int(raw?.filter(\.isNumber) ?? "") ?? .max
     }
 }
+
+extension Novel {
+    /// The catalog's chapter count ("3172", "3,172"), when it has one.
+    var catalogChapterCount: Int? {
+        NovelProgress.totalChapters(catalog: totalChapters)
+    }
+}

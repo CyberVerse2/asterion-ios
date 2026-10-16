@@ -280,7 +280,7 @@ struct ReadingWidgetEntryView: View {
     private var circularLayout: some View {
         ZStack {
             AccessoryWidgetBackground()
-            WidgetProgressRing(fraction: entry.snapshot?.progress ?? 0, lineWidth: 4) {
+            WidgetProgressRing(fraction: entry.snapshot?.novelProgress.fraction ?? 0, lineWidth: 4) {
                 Image(systemName: entry.snapshot == nil ? "book.closed" : "book.pages.fill")
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(WidgetPalette.text)
@@ -306,7 +306,7 @@ struct ReadingWidgetEntryView: View {
                     .foregroundStyle(WidgetPalette.muted)
                     .lineLimit(1)
                 HStack(spacing: 6) {
-                    WidgetLightLine(fraction: snapshot.progress, height: 3)
+                    WidgetLightLine(fraction: snapshot.novelProgress.fraction, height: 3)
                     Text("\(percent(for: snapshot))%")
                         .font(WidgetPalette.mono(11, weight: .semibold))
                         .foregroundStyle(WidgetPalette.text)
@@ -364,23 +364,28 @@ struct ReadingWidgetEntryView: View {
 
     private func progressFooter(for snapshot: ContinueReadingSnapshot) -> some View {
         VStack(spacing: 7) {
-            WidgetLightLine(fraction: snapshot.progress)
+            WidgetLightLine(fraction: snapshot.novelProgress.fraction)
             HStack {
-                Text("\(percent(for: snapshot))%")
+                Text(verbatim: "\(percent(for: snapshot))%")
                     .font(WidgetPalette.mono(11, weight: .semibold))
                     .foregroundStyle(WidgetPalette.text)
+                    .fixedSize()
                 Spacer(minLength: 4)
-                if snapshot.chapterNumber > 0 {
-                    Text("Ch. \(snapshot.chapterNumber)")
+                // "Ch. 1929 of 3171": the whole-novel place the bar measures.
+                if let label = snapshot.novelProgress.label {
+                    Text(label)
                         .font(WidgetPalette.mono(11))
                         .foregroundStyle(WidgetPalette.muted)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
                 }
             }
         }
     }
 
+    /// Whole-novel percentage (in-chapter for snapshots without a chapter count).
     private func percent(for snapshot: ContinueReadingSnapshot) -> Int {
-        Int((min(1, max(0, snapshot.progress)) * 100).rounded())
+        snapshot.novelProgress.displayPercentage
     }
 
     /// "Ch. 12 · Shadow Slave · 42%"

@@ -35,8 +35,8 @@ enum HomeResumeItem: Identifiable {
 
     var subtitle: String {
         switch self {
-        case .reading:
-            return "Continue reading"
+        case .reading(let entry):
+            return entry.novelProgress.label ?? "Continue reading"
         case .watching(let progress):
             let unitTitle = progress.unitTitle?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -80,11 +80,46 @@ enum HomeResumeItem: Identifiable {
         }
     }
 
-    var percentage: Double {
+    /// A second line for novels: the current chapter's own title, when it
+    /// says more than its number.
+    var detail: String? {
         switch self {
-        case .reading(let entry): entry.progress.percentage
-        case .watching(let progress): progress.percentage
+        case .reading(let entry):
+            guard let title = entry.chapterTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !title.isEmpty,
+                  let number = entry.novelProgress.chapterNumber,
+                  title != "Chapter " + String(number) else { return nil }
+            return title
+        case .watching:
+            return nil
         }
+    }
+
+    /// Progress for the light line, 0–1. Novels measure the whole novel, so
+    /// this stays nil until the current chapter's number is known.
+    var fraction: Double? {
+        switch self {
+        case .reading(let entry): entry.novelProgress.fraction
+        case .watching(let progress): min(1, max(0, progress.percentage / 100))
+        }
+    }
+
+    var percentLabel: String? {
+        switch self {
+        case .reading(let entry):
+            entry.novelProgress.displayPercentage.map { String($0) + "%" }
+        case .watching(let progress):
+            String(Int(progress.percentage.rounded())) + "%"
+        }
+    }
+
+    var accessibilityValue: String {
+        let position: String = switch self {
+        case .reading(let entry): entry.novelProgress.longLabel ?? subtitle
+        case .watching: subtitle
+        }
+        guard let percentLabel else { return position }
+        return position + ", " + percentLabel
     }
 
     var updatedAt: Date {
@@ -431,21 +466,31 @@ struct HomeContinueCard: View {
                 )
 
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(item.title)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(item.title)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                        if let detail = item.detail {
+                            Text(verbatim: detail)
+                                .font(.system(size: 11.5))
+                                .foregroundStyle(.white.opacity(0.55))
+                                .lineLimit(1)
+                        }
+                    }
                     HStack(spacing: 6) {
-                        Text(item.subtitle)
+                        Text(verbatim: item.subtitle)
                             .lineLimit(1)
                         Spacer(minLength: 6)
-                        Text("\(Int(item.percentage.rounded()))%")
-                            .font(.asterionMono(11, weight: .medium))
+                        if let percentLabel = item.percentLabel {
+                            Text(verbatim: percentLabel)
+                                .font(.asterionMono(11, weight: .medium))
+                        }
                     }
                     .font(.system(size: 11.5, weight: .medium))
                     .foregroundStyle(.white.opacity(0.72))
 
-                    AsterionLightLine(fraction: item.percentage / 100, height: 3)
+                    AsterionLightLine(fraction: item.fraction ?? 0, height: 3)
                         .padding(.top, 2)
                 }
                 .padding(.horizontal, 14)
@@ -478,7 +523,7 @@ struct HomeContinueCard: View {
         .asterionReveal()
         .help("Resume \(item.title)")
         .accessibilityLabel("Resume \(item.title)")
-        .accessibilityValue("\(item.subtitle), \(Int(item.percentage.rounded())) percent")
+        .accessibilityValue(item.accessibilityValue)
     }
 }
 

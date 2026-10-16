@@ -190,7 +190,7 @@ struct AccountSummaryView: View {
                             fallbackSystemImage: "book.closed",
                             title: entry.novel.title,
                             detail: readingDetail(entry),
-                            fraction: min(1, max(0, entry.progress.percentage / 100)),
+                            fraction: entry.novelProgress.fraction,
                             actionTitle: "Continue",
                             actionSystemImage: "book.fill",
                             actionAccessibilityLabel: "Continue reading \(entry.novel.title)"
@@ -440,9 +440,7 @@ struct AccountSummaryView: View {
     // MARK: Helpers
 
     private func readingDetail(_ entry: AppModel.ContinueReadingEntry) -> String {
-        let percent = "\(Int(min(100, max(0, entry.progress.percentage)).rounded()))%"
-        let author = entry.novel.authorDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        return author.isEmpty ? "Current chapter · \(percent)" : "\(author) · \(percent)"
+        ActivityDetail.reading(entry.novelProgress)
     }
 
     private func historyDetail(_ history: MediaHistoryEntry) -> String {

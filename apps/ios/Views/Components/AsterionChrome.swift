@@ -224,6 +224,97 @@ struct AsterionContinueCard<Artwork: View>: View {
     }
 }
 
+/// Resume card for a novel. Same footprint as `AsterionContinueCard` so it
+/// sits in the same shelf as video, but the 2:3 cover stands whole on the
+/// leading side and casts its glow across the card instead of being cropped.
+struct AsterionReadingContinueCard<Cover: View>: View {
+    let title: String
+    let progress: NovelProgress
+    let coverURL: URL?
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @ViewBuilder var cover: () -> Cover
+
+    private var cardSize: CGSize {
+        AsterionLayout.continueCardSize(horizontalSizeClass)
+    }
+
+    private var coverSize: CGSize {
+        let height = cardSize.height - 24
+        return CGSize(width: (height * 2 / 3).rounded(), height: height)
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 14) {
+            cover()
+                .frame(width: coverSize.width, height: coverSize.height)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.1))
+                }
+                .shadow(color: .black.opacity(0.4), radius: 10, y: 5)
+
+            VStack(alignment: .leading, spacing: 0) {
+                AsterionEyebrow(text: "Novel", color: .white.opacity(0.55))
+
+                Text(title)
+                    .font(.asterionReading(15, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 7)
+
+                Spacer(minLength: 8)
+
+                HStack(spacing: 6) {
+                    Text(progress.label ?? "Reading")
+                        .font(.asterionMono(11, weight: .medium))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                    Spacer(minLength: 6)
+                    Text(verbatim: "\(progress.displayPercentage)%")
+                        .font(.asterionMono(11, weight: .medium))
+                }
+                .foregroundStyle(.white.opacity(0.72))
+
+                AsterionLightLine(fraction: progress.fraction, height: 3)
+                    .padding(.top, 8)
+                    .accessibilityHidden(true)
+            }
+            .padding(.vertical, 3)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+        .padding(12)
+        .frame(width: cardSize.width, height: cardSize.height)
+        .background {
+            ZStack {
+                Color.asterionCard
+                ArtworkToneReader(url: coverURL) { tone in
+                    RadialGradient(
+                        colors: [tone.opacity(0.42), tone.opacity(0.12), .clear],
+                        center: UnitPoint(x: 0.12, y: 0.35),
+                        startRadius: 6,
+                        endRadius: cardSize.width * 0.95
+                    )
+                }
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.08))
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
+        .accessibilityValue(
+            [progress.longLabel, "\(progress.displayPercentage) percent read"]
+                .compactMap { $0 }
+                .joined(separator: ", ")
+        )
+    }
+}
+
 /// Centered empty or error state: what happened and what to do next.
 struct AsterionEmptyState: View {
     let symbol: String

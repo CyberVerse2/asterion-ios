@@ -107,24 +107,32 @@ struct NovelDetailView: View {
         } footer: {
             downloadStatus
 
-            if let progress {
+            if let novelProgress, let fraction = novelProgress.fraction {
                 AsterionDetailProgress(
-                    fraction: novelFraction(progress),
-                    caption: progressChapter.map { "Chapter \($0.chapterNumber) of \(totalChapterCount)" }
+                    fraction: fraction,
+                    caption: novelProgress.longLabel
                 )
-                .animation(reduceMotion ? nil : AsterionMotion.reveal, value: progress.percentage)
+                .animation(reduceMotion ? nil : AsterionMotion.reveal, value: fraction)
             }
         }
     }
 
     /// How far through the whole novel the reader is. The saved percentage
     /// is only the position inside the current chapter.
-    private func novelFraction(_ progress: ReadingProgress) -> Double {
-        let inChapter = min(1, max(0, progress.percentage / 100))
-        guard let number = progressChapter?.chapterNumber, totalChapterCount > 0 else {
-            return inChapter
-        }
-        return min(1, max(0, (Double(number - 1) + inChapter) / Double(totalChapterCount)))
+    private var novelProgress: NovelProgress? {
+        guard let progress else { return nil }
+        return NovelProgress(
+            progress: progress,
+            chapterNumber: progressChapter?.chapterNumber,
+            totalChapters: NovelProgress.totalChapters(
+                loaded: totalChapterCount,
+                catalog: novel.totalChapters
+            )
+        )
+    }
+
+    private var isFinished: Bool {
+        novelProgress?.isFinished == true
     }
 
     private var eyebrow: String {
@@ -160,7 +168,7 @@ struct NovelDetailView: View {
         Button {
             openPreferredChapter()
         } label: {
-            Label(readButtonTitle, systemImage: progress == nil ? "book.pages.fill" : "play.fill")
+            Label(readButtonTitle, systemImage: readButtonSymbol)
                 .lineLimit(1)
         }
         .layoutPriority(1)
@@ -446,10 +454,16 @@ struct NovelDetailView: View {
 
     private var readButtonTitle: String {
         guard progress != nil else { return "Start reading" }
+        if isFinished { return "Finished · Read again" }
         guard let chapter = progressChapter else {
             return "Continue reading"
         }
-        return "Continue chapter \(chapter.chapterNumber)"
+        return "Continue chapter " + String(chapter.chapterNumber)
+    }
+
+    private var readButtonSymbol: String {
+        if progress == nil { return "book.pages.fill" }
+        return isFinished ? "book.closed.fill" : "book.fill"
     }
 
     private var downloadButtonTitle: String {
@@ -528,7 +542,8 @@ struct NovelDetailView: View {
     }
 
     private func openPreferredChapter() {
-        if let progressChapter {
+        // A finished novel reads again from the start.
+        if let progressChapter, !isFinished {
             open(progressChapter)
             return
         }
