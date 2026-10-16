@@ -80,7 +80,7 @@ export interface RunProgress {
   errors: number;
 }
 
-const GLOBAL_BLOCK_ABORT_THRESHOLD = 30;
+const GLOBAL_BLOCK_ABORT_THRESHOLD = 3;
 
 async function mapLimit<T>(items: readonly T[], limit: number, worker: (item: T) => Promise<void>): Promise<void> {
   let next = 0;
@@ -247,6 +247,19 @@ export class ScrapeRunner {
 
       const budget = { remaining: options.maxChaptersPerRun ?? (this.config.maxChaptersPerRun || Infinity) };
       const blocked = { consecutive: 0 };
+
+      // Check once that the source lets us in before touching every novel.
+      const probeUrl = novels[0] ? `${novels[0].novelUrl.replace(/\/+$/, '')}/chapters` : null;
+      if (probeUrl) {
+        const probe = await fetcher.get(probeUrl, undefined, abort.signal);
+        if (probe.kind === 'error' && (probe.status === 403 || probe.status === 429)) {
+          log.error('source refused access; not running (check PROXY_URL / source access)', {
+            status: probe.status,
+            url: probeUrl
+          });
+          abort.abort();
+        }
+      }
 
       await mapLimit(novels, this.config.novelConcurrency, async (novel) => {
         if (abort.signal.aborted) return;

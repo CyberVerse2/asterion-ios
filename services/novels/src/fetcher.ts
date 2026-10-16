@@ -17,11 +17,10 @@ export interface FetcherOptions {
   proxyUrl: string | null;
 }
 
-const USER_AGENTS = [
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 15_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36'
-];
+// One fixed browser user agent. The scraper doesn't rotate identities or
+// otherwise try to look like different clients to get past bot checks.
+const USER_AGENT =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 15_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36';
 
 const RATE_LIMIT_DEFAULT_PAUSE_MS = 30_000;
 const RATE_LIMIT_MAX_PAUSE_MS = 10 * 60_000;
@@ -39,7 +38,9 @@ function parseRetryAfterMs(value: string | null): number | null {
 }
 
 function retryable(status: number | null): boolean {
-  return status === null || status === 403 || status === 408 || status === 425 || status === 429 || status >= 500;
+  // 403 is the source refusing us (e.g. a Cloudflare challenge); retrying or
+  // working around it isn't appropriate, so it's final.
+  return status === null || status === 408 || status === 425 || status === 429 || status >= 500;
 }
 
 /** Redacts credentials from a proxy URL for logging. */
@@ -67,7 +68,6 @@ export class Fetcher {
   private successesSinceSlowdown = 0;
   private inFlight = 0;
   private readonly waiters: Array<() => void> = [];
-  private warmingUp: Promise<void> | null = null;
   requests = 0;
 
   constructor(private readonly options: FetcherOptions) {
@@ -137,9 +137,6 @@ export class Fetcher {
         this.release();
       }
 
-      if (lastStatus === 403) {
-        await this.warmUp(url);
-      }
       log.debug('request failed, retrying', { url, status: lastStatus, error: lastError, attempt: attempt + 1 });
     }
 
@@ -149,7 +146,7 @@ export class Fetcher {
   private headers(url: string, referer: string | undefined, attempt: number): Record<string, string> {
     const origin = new URL(url).origin;
     const headers: Record<string, string> = {
-      'User-Agent': USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)]!,
+      'User-Agent': USER_AGENT,
       Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
       'Accept-Language': 'en-US,en;q=0.9',
       'Cache-Control': 'no-cache',
@@ -177,34 +174,6 @@ export class Fetcher {
       if (index <= 0) continue;
       this.cookies.set(pair.slice(0, index).trim(), pair.slice(index + 1).trim());
     }
-  }
-
-  /** After a 403, load the home page once (shared across callers) to pick up session cookies. */
-  private async warmUp(url: string): Promise<void> {
-    if (!this.warmingUp) {
-      const origin = new URL(url).origin;
-      this.warmingUp = (async () => {
-        await this.acquire();
-        try {
-          const response = await fetch(`${origin}/`, {
-            dispatcher: this.dispatcher,
-            headers: this.headers(`${origin}/`, undefined, 0),
-            signal: AbortSignal.timeout(this.options.timeoutMs)
-          });
-          this.storeCookies(response.headers.getSetCookie());
-          await response.body?.cancel().catch(() => undefined);
-        } catch (error) {
-          log.debug('session warm-up failed', { error: errorMessage(error) });
-        } finally {
-          this.release();
-        }
-      })().finally(() => {
-        setTimeout(() => {
-          this.warmingUp = null;
-        }, 60_000);
-      });
-    }
-    await this.warmingUp;
   }
 
   private slowDown(retryAfterMs: number | null): void {
