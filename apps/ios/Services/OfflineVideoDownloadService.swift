@@ -265,7 +265,7 @@ final class OfflineVideoDownloadService: NSObject, ObservableObject {
             OfflineVideoRecord(
                 id: metadata.id,
                 title: metadata.title,
-                relativePath: Self.containerRelativePath(location.standardizedFileURL.path),
+                relativePath: Self.storedRelativePath(for: location),
                 playback: metadata.playback,
                 downloadedAt: Date()
             ),
@@ -331,9 +331,22 @@ final class OfflineVideoDownloadService: NSObject, ObservableObject {
     }
 
     private func localURL(for record: OfflineVideoRecord) -> URL? {
-        let url = URL(fileURLWithPath: NSHomeDirectory())
-            .appendingPathComponent(Self.containerRelativePath(record.relativePath))
-        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+        Self.existingURL(forRelativePath: Self.containerRelativePath(record.relativePath))
+    }
+
+    /// Records saved by earlier builds hold percent-encoded paths
+    /// ("Clevatess%20%C2%B7%20Episode…"); try the path as stored and decoded.
+    private static func existingURL(forRelativePath relative: String) -> URL? {
+        let home = URL(fileURLWithPath: NSHomeDirectory())
+        var candidates = [relative]
+        if let decoded = relative.removingPercentEncoding, decoded != relative {
+            candidates.append(decoded)
+        }
+        for candidate in candidates {
+            let url = home.appendingPathComponent(candidate)
+            if FileManager.default.fileExists(atPath: url.path) { return url }
+        }
+        return nil
     }
 
     private func removeMissingRecords() {
@@ -369,6 +382,14 @@ final class OfflineVideoDownloadService: NSObject, ObservableObject {
             return String(path.dropFirst(home.count + 1))
         }
         return path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+    }
+
+    /// The container-relative path of a finished package, in whichever
+    /// spelling (decoded or percent-encoded) actually exists on disk.
+    private static func storedRelativePath(for location: URL) -> String {
+        let decoded = containerRelativePath(location.path(percentEncoded: false))
+        if existingURL(forRelativePath: decoded) != nil { return decoded }
+        return containerRelativePath(location.path(percentEncoded: true))
     }
 
     private static func repairingPath(_ record: OfflineVideoRecord) -> OfflineVideoRecord {
