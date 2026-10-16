@@ -581,30 +581,43 @@ nonisolated struct NormalizedMediaProgress: Equatable, Sendable {
 }
 
 nonisolated enum MediaContinuePolicy {
-    /// Resume the latest in-progress unit, else the first unfinished unit, else the first catalog unit.
+    /// The account keeps one progress record per title: the unit watched
+    /// most recently. Resume it if unfinished, else go to the unit after it.
+    /// After the final unit the title is finished, so offer the first again.
     static func resumeUnit<Unit>(
         from units: [Unit],
         progress: [MediaPlaybackProgress],
         matches: (Unit, MediaPlaybackProgress) -> Bool
     ) -> Unit? {
-        let relevant = progress.filter { item in
-            units.contains { matches($0, item) }
+        guard let (latest, index) = latestActivity(in: units, progress: progress, matches: matches) else {
+            return units.first
         }
+        if !latest.completed { return units[index] }
+        return units.indices.contains(index + 1) ? units[index + 1] : units.first
+    }
 
-        if let latestInProgress = relevant
-            .filter({ !$0.completed && ($0.positionSeconds > 0 || $0.percentage > 0) })
-            .max(by: { $0.updatedAt < $1.updatedAt }),
-           let unit = units.first(where: { matches($0, latestInProgress) }) {
-            return unit
+    /// True once the most recent unit watched is the last one and it's done.
+    static func isFinished<Unit>(
+        _ units: [Unit],
+        progress: [MediaPlaybackProgress],
+        matches: (Unit, MediaPlaybackProgress) -> Bool
+    ) -> Bool {
+        guard let (latest, index) = latestActivity(in: units, progress: progress, matches: matches) else {
+            return false
         }
+        return latest.completed && index == units.count - 1
+    }
 
-        if let firstUnfinished = units.first(where: { unit in
-            !relevant.contains { matches(unit, $0) && $0.completed }
-        }) {
-            return firstUnfinished
-        }
-
-        return units.first
+    private static func latestActivity<Unit>(
+        in units: [Unit],
+        progress: [MediaPlaybackProgress],
+        matches: (Unit, MediaPlaybackProgress) -> Bool
+    ) -> (MediaPlaybackProgress, Int)? {
+        progress
+            .compactMap { item in units.firstIndex { matches($0, item) }.map { (item, $0) } }
+            .max { lhs, rhs in
+                lhs.0.updatedAt == rhs.0.updatedAt ? lhs.1 < rhs.1 : lhs.0.updatedAt < rhs.0.updatedAt
+            }
     }
 
     static func isInProgress<Unit>(

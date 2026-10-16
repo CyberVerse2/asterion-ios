@@ -611,6 +611,9 @@ struct NativeMediaPlayerView: View {
     }
 
     private func handlePlaybackEnded() {
+        // Record the episode as finished before anything else plays; the
+        // periodic save can be up to 15 s short of the end.
+        saveCurrentProgress()
         if canAdvance(by: 1) {
             advance(by: 1)
         } else {

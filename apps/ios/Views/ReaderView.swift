@@ -1102,12 +1102,17 @@ struct ReaderView: View {
         Task {
             defer { loadingChapter = false; lastReadingTick = .now }
 
-            let target: Chapter?
+            // The list only holds the chapters the reader was opened with plus
+            // the current one, so after reading 4 → 10 it is [4, 10]. Its
+            // neighbour by position is only trusted when it really is the next
+            // chapter number; otherwise fetch that chapter by number.
             let nextIdx = currentIndex + direction
-            if nextIdx >= 0 && nextIdx < navigationChapters.count {
-                target = navigationChapters[nextIdx]
+            let listed = navigationChapters.indices.contains(nextIdx) ? navigationChapters[nextIdx] : nil
+            let target: Chapter?
+            if let listed, Self.isAdjacent(listed, to: currentChapter, direction: direction) {
+                target = listed
             } else {
-                target = await fetchAdjacentChapterFallback(direction: direction)
+                target = await fetchAdjacentChapterFallback(direction: direction) ?? listed
             }
 
             guard let target else { speech.chapterUnavailable(); return }
@@ -1139,6 +1144,13 @@ struct ReaderView: View {
             continueListening(in: loaded)
             scheduleHideControls()
         }
+    }
+
+    /// True when `candidate` is the chapter straight after (or before) `current`.
+    /// Unnumbered chapters can't be checked, so their list order is trusted.
+    static func isAdjacent(_ candidate: Chapter, to current: Chapter, direction: Int) -> Bool {
+        guard candidate.chapterNumber > 0, current.chapterNumber > 0 else { return true }
+        return candidate.chapterNumber == current.chapterNumber + direction
     }
 
     private func fetchAdjacentChapterFallback(direction: Int) async -> Chapter? {

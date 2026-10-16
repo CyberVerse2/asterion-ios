@@ -1314,7 +1314,12 @@ struct AnimeDetailView: View {
         mediaAccountService.snapshot.progress.first { matchesAnimeProgress(episode, $0) }
     }
 
+    private var isAnimeFinished: Bool {
+        MediaContinuePolicy.isFinished(episodes, progress: mediaAccountService.snapshot.progress, matches: matchesAnimeProgress)
+    }
+
     private func animePlayTitle(for episode: AnimeEpisode) -> String {
+        if isAnimeFinished { return "Finished · Watch again" }
         if MediaContinuePolicy.isInProgress(episode, progress: mediaAccountService.snapshot.progress, matches: matchesAnimeProgress) {
             return "Resume episode \(episode.number)"
         }
@@ -1327,7 +1332,7 @@ struct AnimeDetailView: View {
         if let progress, progress.percentage > 0 {
             return "Continue · \(Int(progress.percentage.rounded()))%"
         }
-        if nextAnimeEpisode?.id == episode.id { return "Up next" }
+        if nextAnimeEpisode?.id == episode.id { return isAnimeFinished ? "Watch again" : "Up next" }
         return "Available"
     }
 
@@ -1701,8 +1706,13 @@ struct MovieDetailView: View {
         mediaAccountService.snapshot.progress.first { matchesMovieProgress(episode, $0) }
     }
 
+    private var isSeriesFinished: Bool {
+        MediaContinuePolicy.isFinished(episodes, progress: mediaAccountService.snapshot.progress, matches: matchesMovieProgress)
+    }
+
     private func moviePlayTitle(for episode: MovieEpisode) -> String {
         let unit = "S\(episode.season) E\(episode.number)"
+        if isSeriesFinished { return "Finished · Watch again" }
         if MediaContinuePolicy.isInProgress(episode, progress: mediaAccountService.snapshot.progress, matches: matchesMovieProgress) {
             return "Resume \(unit)"
         }
@@ -1715,7 +1725,7 @@ struct MovieDetailView: View {
         if let progress, progress.percentage > 0 {
             return "Continue · \(Int(progress.percentage.rounded()))%"
         }
-        if nextMovieEpisode?.id == episode.id { return "Up next" }
+        if nextMovieEpisode?.id == episode.id { return isSeriesFinished ? "Watch again" : "Up next" }
         return "Available"
     }
 

@@ -254,6 +254,34 @@ struct AsterionTests {
     }
 
     @Test
+    func continuePolicyFollowsTheEpisodeJustFinished() {
+        // The account keeps only the latest episode, so finishing 2 of 3 must
+        // lead to 3, not back to the never-recorded episode 1.
+        let episodes = [1, 2, 3]
+        let progress = [
+            playbackProgress(unitId: "2", episodeNumber: 2, completed: true, positionSeconds: 1_400, percentage: 99),
+        ]
+        let resume = MediaContinuePolicy.resumeUnit(from: episodes, progress: progress) { number, item in
+            item.episodeNumber == number
+        }
+        #expect(resume == 3)
+        #expect(!MediaContinuePolicy.isFinished(episodes, progress: progress) { $1.episodeNumber == $0 })
+    }
+
+    @Test
+    func continuePolicyMarksATitleFinishedAfterTheFinale() {
+        let episodes = [1, 2, 3]
+        let progress = [
+            playbackProgress(unitId: "3", episodeNumber: 3, completed: true, positionSeconds: 1_420, percentage: 100),
+        ]
+        #expect(MediaContinuePolicy.isFinished(episodes, progress: progress) { $1.episodeNumber == $0 })
+        let resume = MediaContinuePolicy.resumeUnit(from: episodes, progress: progress) { number, item in
+            item.episodeNumber == number
+        }
+        #expect(resume == 1)
+    }
+
+    @Test
     func chapterDisplayTitleDropsALeadingChapterNumber() {
         #expect(
             Chapter.strippedChapterPrefix(from: "Chapter 1 My Soon-To-Be Girlfriend Is Dead [1]")
@@ -313,4 +341,18 @@ struct AsterionTests {
             rating: rating
         )
     }
+}
+
+@MainActor
+@Test func readerOnlyTrustsTrulyAdjacentChapters() {
+    func chapter(_ number: Int) -> Chapter {
+        Chapter(id: "c\(number)", chapterNumber: number, title: "Chapter \(number)", content: nil, url: nil)
+    }
+    // Opened at 4, read on to 10: the list is [4, 10], so 4 must not count as "previous".
+    #expect(!ReaderView.isAdjacent(chapter(4), to: chapter(10), direction: -1))
+    #expect(ReaderView.isAdjacent(chapter(9), to: chapter(10), direction: -1))
+    #expect(ReaderView.isAdjacent(chapter(11), to: chapter(10), direction: 1))
+    #expect(!ReaderView.isAdjacent(chapter(12), to: chapter(10), direction: 1))
+    // Unnumbered chapters keep their list order.
+    #expect(ReaderView.isAdjacent(chapter(0), to: chapter(10), direction: -1))
 }
