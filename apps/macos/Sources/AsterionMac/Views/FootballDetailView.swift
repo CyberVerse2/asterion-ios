@@ -8,6 +8,9 @@ struct FootballDetailView: View {
     @State private var streams: [FootballStream] = []
     @State private var streamsMatchID: FootballMatch.ID?
     @State private var isLoadingStreams = false
+    @State private var reminderMatchID: FootballMatch.ID?
+    @State private var reminderMessage: String?
+    @State private var reminderIsError = false
 
     private let stageWidth: CGFloat = 860
 
@@ -73,6 +76,11 @@ struct FootballDetailView: View {
         .hidingScrollIndicators()
         .task(id: "\(match.id)#\(match.isLive)") {
             await loadStreams(for: match)
+        }
+        .task(id: "\(match.id)#\(match.kickoff.timeIntervalSince1970)") {
+            reminderMessage = nil
+            await KickoffReminderService.refresh(matchID: match.id, title: match.displayTitle, kickoff: match.kickoff)
+            reminderMatchID = await KickoffReminderService.isScheduled(matchID: match.id) ? match.id : nil
         }
     }
 
@@ -158,15 +166,19 @@ struct FootballDetailView: View {
     private func watchAction(_ match: FootballMatch) -> some View {
         VStack(spacing: 12) {
             HStack(spacing: 10) {
-                Button {
-                    openWindow(value: FootballPlayerRoute(match: match))
-                } label: {
-                    Label(match.isLive ? "Watch live" : "Match not live", systemImage: "play.fill")
+                if !match.isLive, KickoffReminder.fireDate(kickoff: match.kickoff) != nil {
+                    reminderButton(match)
+                } else {
+                    Button {
+                        openWindow(value: FootballPlayerRoute(match: match))
+                    } label: {
+                        Label(match.isLive ? "Watch live" : "Match not live", systemImage: "play.fill")
+                    }
+                    .buttonStyle(.asterionPrimary)
+                    .keyboardShortcut(.return, modifiers: .command)
+                    .disabled(!match.isLive || match.sources.isEmpty)
+                    .help(match.isLive ? "Open in Asterion Live" : "This match is not live yet")
                 }
-                .buttonStyle(.asterionPrimary)
-                .keyboardShortcut(.return, modifiers: .command)
-                .disabled(!match.isLive || match.sources.isEmpty)
-                .help(match.isLive ? "Open in Asterion Live" : "This match is not live yet")
 
                 mediaBookmarkButton(match)
             }
@@ -174,7 +186,56 @@ struct FootballDetailView: View {
             if let error = model.mediaBookmarkError {
                 AsterionDetailNotice(message: error)
                     .multilineTextAlignment(.center)
+            } else if let reminderMessage {
+                AsterionDetailNotice(
+                    message: reminderMessage,
+                    systemImage: reminderIsError ? "exclamationmark.triangle.fill" : "bell",
+                    color: reminderIsError ? .asterionWarning : .asterionFaint
+                )
+                .multilineTextAlignment(.center)
             }
+        }
+    }
+
+    private func reminderButton(_ match: FootballMatch) -> some View {
+        let isSet = reminderMatchID == match.id
+        return Button {
+            Task { await toggleReminder(match) }
+        } label: {
+            Label(isSet ? "Reminder on" : "Remind me", systemImage: isSet ? "bell.badge.fill" : "bell.fill")
+                .contentTransition(.symbolEffect(.replace))
+        }
+        .buttonStyle(.asterionPrimary)
+        .keyboardShortcut(.return, modifiers: .command)
+        .help(isSet ? "Cancel the kickoff reminder" : "Get a notification 15 minutes before kickoff")
+    }
+
+    private func toggleReminder(_ match: FootballMatch) async {
+        reminderIsError = false
+        if reminderMatchID == match.id {
+            KickoffReminderService.cancel(matchID: match.id)
+            reminderMatchID = nil
+            reminderMessage = "Reminder cancelled."
+            return
+        }
+        do {
+            switch try await KickoffReminderService.schedule(
+                matchID: match.id, title: match.displayTitle, kickoff: match.kickoff) {
+            case .scheduled:
+                reminderMatchID = match.id
+                reminderMessage = "You’ll get a notification 15 minutes before kickoff."
+            case .denied:
+                reminderIsError = true
+                reminderMessage = "Notifications are off for Asterion. Turn them on in System Settings › Notifications."
+            case .tooLate:
+                reminderMessage = "This match is about to start."
+            case .unavailable:
+                reminderIsError = true
+                reminderMessage = "Reminders need the installed Asterion app."
+            }
+        } catch {
+            reminderIsError = true
+            reminderMessage = "Couldn’t set the reminder. Try again in a moment."
         }
     }
 

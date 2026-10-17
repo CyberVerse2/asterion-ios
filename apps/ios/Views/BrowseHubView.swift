@@ -2432,6 +2432,8 @@ struct FootballDetailView: View {
     @State private var resolvedRequest: PlaybackRequest?
     /// Whether this match has a kickoff Live Activity running.
     @State private var isFollowing = false
+    /// Whether a kickoff reminder is pending for this match.
+    @State private var isReminderSet = false
 
     var body: some View {
         ScrollView {
@@ -2467,6 +2469,7 @@ struct FootballDetailView: View {
             tabBarState.isVisible = false
             refreshFollowState()
         }
+        .task(id: match.kickoff) { await refreshReminderState() }
         .onDisappear { tabBarState.isVisible = true }
         .edgeSwipeToDismiss { dismiss() }
         .fullScreenCover(item: $playback, onDismiss: PlaybackOrientationLock.endVideo) { request in
@@ -2502,10 +2505,14 @@ struct FootballDetailView: View {
                             Task { await watch() }
                         }
                         .disabled(isLoadingPlayback)
-                    } else {
-                        MediaPlayButton(title: "Remind me", systemImage: "bell.fill") {
-                            Task { await scheduleReminder() }
+                    } else if canRemind {
+                        MediaPlayButton(
+                            title: isReminderSet ? "Reminder on" : "Remind me",
+                            systemImage: isReminderSet ? "bell.badge.fill" : "bell.fill"
+                        ) {
+                            Task { await toggleReminder() }
                         }
+                        .accessibilityLabel(isReminderSet ? "Cancel kickoff reminder" : "Remind me before kickoff")
                     }
 
                     MediaSaveButton(item: mediaItem)
@@ -2770,38 +2777,40 @@ struct FootballDetailView: View {
         }
     }
 
-    private func scheduleReminder() async {
+    private var canRemind: Bool {
+        KickoffReminder.fireDate(kickoff: match.kickoff) != nil
+    }
+
+    private func refreshReminderState() async {
+        await KickoffReminderService.refresh(matchID: match.id, title: match.displayTitle, kickoff: match.kickoff)
+        isReminderSet = await KickoffReminderService.isScheduled(matchID: match.id)
+    }
+
+    private func toggleReminder() async {
+        if isReminderSet {
+            KickoffReminderService.cancel(matchID: match.id)
+            withAnimation(.easeOut(duration: 0.2)) { isReminderSet = false }
+            message = "Reminder cancelled."
+            messageIsError = false
+            return
+        }
         do {
-            let center = UNUserNotificationCenter.current()
-            let granted = try await center.requestAuthorization(options: [.alert, .sound])
-            guard granted else {
+            switch try await KickoffReminderService.schedule(
+                matchID: match.id, title: match.displayTitle, kickoff: match.kickoff) {
+            case .scheduled:
+                withAnimation(.easeOut(duration: 0.2)) { isReminderSet = true }
+                Haptics.success()
+                message = "We’ll remind you 15 minutes before kickoff."
+                messageIsError = false
+            case .denied:
                 message = "Notifications are off. You can turn them on in Settings."
                 messageIsError = true
-                return
+            case .tooLate:
+                message = "This match is about to start."
+                messageIsError = false
             }
-            let reminderDate = max(Date().addingTimeInterval(5), match.kickoff.addingTimeInterval(-15 * 60))
-            let content = UNMutableNotificationContent()
-            content.title = "Match starts soon"
-            content.body = match.displayTitle
-            content.sound = .default
-            let trigger = UNCalendarNotificationTrigger(
-                dateMatching: Calendar.current.dateComponents(
-                    [.year, .month, .day, .hour, .minute, .second],
-                    from: reminderDate
-                ),
-                repeats: false
-            )
-            try await center.add(
-                UNNotificationRequest(
-                    identifier: "asterion.match.\(match.id)",
-                    content: content,
-                    trigger: trigger
-                )
-            )
-            message = "Reminder set for 15 minutes before kickoff."
-            messageIsError = false
         } catch {
-            message = error.localizedDescription
+            message = "Couldn’t set the reminder. Try again in a moment."
             messageIsError = true
         }
     }

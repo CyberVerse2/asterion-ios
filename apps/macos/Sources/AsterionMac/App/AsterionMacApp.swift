@@ -2,11 +2,15 @@ import AppKit
 import ClerkKit
 import Observation
 import SwiftUI
+import UserNotifications
 
 @MainActor
-final class AsterionAppDelegate: NSObject, NSApplicationDelegate {
+final class AsterionAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
+        if KickoffReminderService.isAvailable {
+            UNUserNotificationCenter.current().delegate = self
+        }
         DispatchQueue.main.async {
             self.presentMainWindow(in: NSApp)
         }
@@ -22,6 +26,14 @@ final class AsterionAppDelegate: NSObject, NSApplicationDelegate {
             self.presentMainWindow(in: sender)
         }
         return true
+    }
+
+    /// Kickoff reminders still show while Asterion is the frontmost app.
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification
+    ) async -> UNNotificationPresentationOptions {
+        [.banner, .sound]
     }
 
     private func presentMainWindow(in application: NSApplication) {
