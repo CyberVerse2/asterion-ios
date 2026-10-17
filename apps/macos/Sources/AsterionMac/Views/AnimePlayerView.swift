@@ -404,12 +404,6 @@ struct AnimePlayerView: View {
         VStack(spacing: 0) {
             playerToolbar
             playerStage
-
-            if store.selectedPlaybackOption?.kind == .embed {
-                PlayerThirdPartyNotice(
-                    text: "The web player is supplied by a third party and may include external content."
-                )
-            }
         }
     }
 

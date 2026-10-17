@@ -39,10 +39,6 @@ struct FootballPlayerView: View {
         VStack(spacing: 0) {
             playerToolbar
             playerStage
-
-            PlayerThirdPartyNotice(
-                text: "The live player is supplied by a third party and may include external content."
-            )
         }
     }
 

@@ -1258,21 +1258,6 @@ struct PlayerEpisodeGridCell: View {
     }
 }
 
-/// Footnote under third-party web players.
-struct PlayerThirdPartyNotice: View {
-    let text: String
-
-    var body: some View {
-        Label(text, systemImage: "globe")
-            .font(.system(size: 11))
-            .foregroundStyle(Color.asterionFaint)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 18)
-            .padding(.vertical, 8)
-            .background(Color.black)
-    }
-}
-
 private struct CaptionedMediaWebView: NSViewRepresentable {
     let url: URL
     let subtitleTracks: [AnimeSubtitleTrack]

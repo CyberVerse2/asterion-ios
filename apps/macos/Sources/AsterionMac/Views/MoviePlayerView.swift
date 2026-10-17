@@ -242,12 +242,6 @@ struct MoviePlayerView: View {
         VStack(spacing: 0) {
             playerToolbar(show)
             playerStage
-
-            if store.selectedPlaybackOption?.kind == .web {
-                PlayerThirdPartyNotice(
-                    text: "This player is supplied by a third party and may include external content."
-                )
-            }
         }
     }
 
