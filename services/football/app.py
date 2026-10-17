@@ -4,6 +4,7 @@ from functools import wraps
 
 import flask
 
+import scores
 import streamed
 
 app = flask.Flask(__name__)
@@ -31,25 +32,25 @@ def add_security_headers(response):
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "scores": "on" if scores.enabled() else "off"}
 
 
 @app.get("/api/matches")
 @_football_response
 def matches():
-    return streamed.matches()
+    return scores.attach(streamed.matches())
 
 
 @app.get("/api/matches/live")
 @_football_response
 def live_matches():
-    return streamed.live_matches()
+    return scores.attach(streamed.live_matches())
 
 
 @app.get("/api/matches/popular")
 @_football_response
 def popular_matches():
-    return streamed.popular_matches()
+    return scores.attach(streamed.popular_matches())
 
 
 @app.post("/api/streams")

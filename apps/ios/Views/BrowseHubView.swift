@@ -2326,7 +2326,15 @@ struct FootballCatalogView: View {
                         FootballDetailView(match: match)
                     }
                     .toolbar(.hidden, for: .navigationBar)
-                    .task(id: section) { await load() }
+                    .task(id: section) {
+                        await load()
+                        // Keep scores moving while anything is in play.
+                        while !Task.isCancelled, matches.contains(where: \.isInPlay) {
+                            try? await Task.sleep(for: .seconds(60))
+                            guard !Task.isCancelled else { return }
+                            await load()
+                        }
+                    }
                 }
             }
         }
@@ -2344,20 +2352,50 @@ struct FootballCatalogView: View {
     }
 }
 
+/// The score between two crests: "2 – 1" over the clock ("67'", "HT", "FT").
+struct FootballScoreCenter: View {
+    let score: FootballScore
+    var size: CGFloat = 20
+
+    var body: some View {
+        VStack(spacing: 3) {
+            Text(verbatim: score.scoreline ?? "")
+                .font(.asterionMono(size, weight: .semibold))
+                .foregroundStyle(Color.asterionText)
+                .contentTransition(.numericText())
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            if let clock = score.clockLabel {
+                Text(verbatim: clock)
+                    .font(.asterionMono(max(10, size * 0.55), weight: .semibold))
+                    .foregroundStyle(score.status == .live ? Color.asterionLive : Color.asterionMuted)
+                    .lineLimit(1)
+            }
+        }
+    }
+}
+
+extension FootballMatch {
+    /// Live by the stream feed or by the score service.
+    var isInPlay: Bool { isLive || score?.isInPlay == true }
+}
+
 private struct FootballMatchCard: View {
     let match: FootballMatch
 
     var body: some View {
         VStack(spacing: 14) {
             HStack(spacing: 10) {
-                if match.isLive {
+                if match.isInPlay {
                     AsterionLiveBadge()
+                } else if match.score?.status == .finished {
+                    AsterionEyebrow(text: "Full time")
                 } else {
                     AsterionEyebrow(text: match.relativeKickoff)
                 }
                 Spacer(minLength: 8)
-                if !match.hasGenericCategory {
-                    Text(match.category.capitalized)
+                if let competition = match.hasGenericCategory ? match.score?.competition : match.category.capitalized {
+                    Text(competition)
                         .font(.asterionReading(11.5, weight: .medium))
                         .foregroundStyle(Color.asterionFaint)
                         .lineLimit(1)
@@ -2368,7 +2406,9 @@ private struct FootballMatchCard: View {
                 teamColumn(name: match.homeName, badgeURL: match.teams?.home?.badgeURL)
 
                 VStack(spacing: 3) {
-                    if match.isLive {
+                    if let score = match.score, score.scoreline != nil {
+                        FootballScoreCenter(score: score, size: 20)
+                    } else if match.isLive {
                         Text("vs")
                             .font(.asterionMono(12, weight: .semibold))
                             .foregroundStyle(Color.asterionMuted)
@@ -2394,10 +2434,11 @@ private struct FootballMatchCard: View {
         .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(
-            "\(match.displayTitle), "
-                + (match.isLive
-                    ? "live"
-                    : match.kickoff.formatted(date: .abbreviated, time: .shortened))
+            match.score?.accessibilityText(home: match.homeName, away: match.awayName)
+                ?? ("\(match.displayTitle), "
+                    + (match.isLive
+                        ? "live"
+                        : match.kickoff.formatted(date: .abbreviated, time: .shortened)))
         )
     }
 
@@ -2434,6 +2475,8 @@ struct FootballDetailView: View {
     @State private var isFollowing = false
     /// Whether a kickoff reminder is pending for this match.
     @State private var isReminderSet = false
+    /// The latest score, refreshed every minute while the match is on.
+    @State private var score: FootballScore?
 
     var body: some View {
         ScrollView {
@@ -2470,6 +2513,7 @@ struct FootballDetailView: View {
             refreshFollowState()
         }
         .task(id: match.kickoff) { await refreshReminderState() }
+        .task(id: match.id) { await followScore() }
         .onDisappear { tabBarState.isVisible = true }
         .edgeSwipeToDismiss { dismiss() }
         .fullScreenCover(item: $playback, onDismiss: PlaybackOrientationLock.endVideo) { request in
@@ -2561,7 +2605,14 @@ struct FootballDetailView: View {
     @ViewBuilder
     private var centerStatus: some View {
         VStack(spacing: 7) {
-            if match.isLive {
+            if let score, score.scoreline != nil {
+                if score.isInPlay || match.isLive {
+                    AsterionLiveBadge()
+                        .scaleEffect(1.2)
+                        .padding(.bottom, 4)
+                }
+                FootballScoreCenter(score: score, size: 30)
+            } else if match.isLive {
                 AsterionLiveBadge()
                     .scaleEffect(1.2)
                     .padding(.bottom, 4)
@@ -2724,16 +2775,27 @@ struct FootballDetailView: View {
                 value: match.kickoff.formatted(date: .abbreviated, time: .shortened),
                 showsDivider: true
             )
-            if !match.hasGenericCategory {
-                factRow(label: "Competition", value: match.category.capitalized, showsDivider: true)
+            if let competition = match.hasGenericCategory ? score?.competition : match.category.capitalized {
+                factRow(label: "Competition", value: competition, showsDivider: true)
             }
-            factRow(label: "Status", value: statusDescription, showsDivider: false)
+            factRow(label: "Status", value: statusDescription, showsDivider: score?.delayed == true)
+            if score?.delayed == true {
+                factRow(label: "Score", value: "Can run a few minutes behind", showsDivider: false)
+            }
         }
         .asterionPanel(cornerRadius: 14)
     }
 
     private var statusDescription: String {
-        if match.isLive { return "In play" }
+        switch score?.status {
+        case .halftime: return "Half time"
+        case .finished: return "Full time"
+        case .postponed: return "Postponed"
+        case .suspended: return "Suspended"
+        case .cancelled: return "Cancelled"
+        default: break
+        }
+        if match.isLive || score?.status == .live { return "In play" }
         return match.kickoff > Date() ? "Upcoming" : "Not live"
     }
 
@@ -2774,6 +2836,25 @@ struct FootballDetailView: View {
         } catch {
             message = error.localizedDescription
             messageIsError = true
+        }
+    }
+
+    /// Refreshes the score every minute from shortly before kickoff until the match ends.
+    private func followScore() async {
+        score = match.score
+        while !Task.isCancelled {
+            let now = Date()
+            let onNow = now >= match.kickoff.addingTimeInterval(-15 * 60)
+                && now <= match.kickoff.addingTimeInterval(MatchFollowTiming.matchLength)
+            guard match.isLive || score?.isInPlay == true || onNow else { return }
+            try? await Task.sleep(for: .seconds(60))
+            guard !Task.isCancelled else { return }
+            let latest = try? await EntertainmentAPI.shared.fetchFootball(section: .schedule)
+                .first { $0.id == match.id }
+            if let latest = latest?.score {
+                withAnimation(.snappy) { score = latest }
+                if latest.status == .finished { return }
+            }
         }
     }
 

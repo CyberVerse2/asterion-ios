@@ -12,7 +12,7 @@ RUN groupadd --system asterion \
 COPY requirements.txt ./
 RUN pip install --no-cache-dir --requirement requirements.txt
 
-COPY app.py streamed.py ./
+COPY app.py streamed.py scores.py ./
 
 USER asterion
 

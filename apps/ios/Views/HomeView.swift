@@ -818,10 +818,14 @@ private struct HomeMatchCard: View {
             HStack(alignment: .center, spacing: 8) {
                 teamColumn(name: homeName, badgeURL: match.teams?.home?.badgeURL)
                 VStack(spacing: 3) {
-                    Text(match.isLive ? "vs" : match.kickoff.formatted(date: .omitted, time: .shortened))
-                        .font(.asterionMono(match.isLive ? 12 : 15, weight: .semibold))
-                        .foregroundStyle(match.isLive ? Color.asterionMuted : Color.asterionText)
-                    if !match.isLive {
+                    if let score = match.score, score.scoreline != nil {
+                        FootballScoreCenter(score: score, size: 18)
+                    } else {
+                        Text(match.isLive ? "vs" : match.kickoff.formatted(date: .omitted, time: .shortened))
+                            .font(.asterionMono(match.isLive ? 12 : 15, weight: .semibold))
+                            .foregroundStyle(match.isLive ? Color.asterionMuted : Color.asterionText)
+                    }
+                    if !match.isLive, match.score?.scoreline == nil {
                         Text(match.kickoff.formatted(.dateTime.weekday(.abbreviated).day()))
                             .font(.asterionReading(10.5, weight: .medium))
                             .foregroundStyle(Color.asterionMuted)

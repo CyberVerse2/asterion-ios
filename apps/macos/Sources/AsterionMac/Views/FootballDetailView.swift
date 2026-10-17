@@ -59,8 +59,15 @@ struct FootballDetailView: View {
                         if !isGenericCategory {
                             AsterionDetailFactRow(label: "Competition", value: match.category.capitalized)
                             AsterionDetailRowDivider()
+                        } else if let competition = match.score?.competition {
+                            AsterionDetailFactRow(label: "Competition", value: competition)
+                            AsterionDetailRowDivider()
                         }
                         AsterionDetailFactRow(label: "Status", value: statusDescription(match))
+                        if match.score?.delayed == true {
+                            AsterionDetailRowDivider()
+                            AsterionDetailFactRow(label: "Score", value: "Can run a few minutes behind")
+                        }
                     }
                     .asterionPanel(cornerRadius: 14)
                 }
@@ -139,7 +146,14 @@ struct FootballDetailView: View {
     @ViewBuilder
     private func centerStatus(_ match: FootballMatch) -> some View {
         VStack(spacing: 8) {
-            if match.isLive {
+            if let score = match.score, score.scoreline != nil {
+                if match.isLive || score.isInPlay {
+                    AsterionLiveBadge()
+                        .scaleEffect(1.25)
+                        .padding(.bottom, 4)
+                }
+                FootballScoreCenter(score: score, size: 34)
+            } else if match.isLive {
                 AsterionLiveBadge()
                     .scaleEffect(1.25)
                     .padding(.bottom, 4)
@@ -420,7 +434,15 @@ struct FootballDetailView: View {
     // MARK: Text
 
     private func statusDescription(_ match: FootballMatch) -> String {
-        if match.isLive { return "Live now" }
+        switch match.score?.status {
+        case .halftime: return "Half time"
+        case .finished: return "Full time"
+        case .postponed: return "Postponed"
+        case .suspended: return "Suspended"
+        case .cancelled: return "Cancelled"
+        default: break
+        }
+        if match.isLive || match.score?.status == .live { return "Live now" }
         return "Kicks off \(match.kickoff.formatted(.relative(presentation: .named)))"
     }
 

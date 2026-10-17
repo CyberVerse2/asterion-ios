@@ -379,6 +379,8 @@ nonisolated struct FootballMatch: Identifiable, Codable, Hashable, Sendable {
     let isLive: Bool
     let teams: FootballTeams?
     let sources: [FootballStreamSource]
+    /// Big-league matches only; nil when the score service doesn't know the fixture.
+    let score: FootballScore?
 
     var displayTitle: String {
         guard let home = teams?.home?.name, let away = teams?.away?.name else { return title }
@@ -386,7 +388,7 @@ nonisolated struct FootballMatch: Identifiable, Codable, Hashable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, title, category, posterURL, popular, isLive, teams, sources
+        case id, title, category, posterURL, popular, isLive, teams, sources, score
         case kickoff = "date"
     }
 
@@ -400,6 +402,7 @@ nonisolated struct FootballMatch: Identifiable, Codable, Hashable, Sendable {
         isLive = try values.decode(Bool.self, forKey: .isLive)
         teams = try values.decodeIfPresent(FootballTeams.self, forKey: .teams)
         sources = try values.decode([FootballStreamSource].self, forKey: .sources)
+        score = try? values.decodeIfPresent(FootballScore.self, forKey: .score)
         let milliseconds = try values.decode(Int64.self, forKey: .kickoff)
         kickoff = Date(timeIntervalSince1970: TimeInterval(milliseconds) / 1_000)
     }

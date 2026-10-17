@@ -702,7 +702,31 @@ struct AsterionPosterCard: View {
     }
 }
 
-/// A fixture card: crests either side, kickoff or live state between them.
+/// The score between two crests: "2 – 1" over the clock ("67'", "HT", "FT").
+struct FootballScoreCenter: View {
+    let score: FootballScore
+    var size: CGFloat = 20
+
+    var body: some View {
+        VStack(spacing: 3) {
+            Text(verbatim: score.scoreline ?? "")
+                .font(.asterionMono(size, weight: .semibold))
+                .foregroundStyle(.white)
+                .contentTransition(.numericText())
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            if let clock = score.clockLabel {
+                Text(verbatim: clock)
+                    .font(.asterionMono(max(10, size * 0.55), weight: .semibold))
+                    .foregroundStyle(score.status == .live ? Color.asterionLive : Color.asterionMuted)
+                    .lineLimit(1)
+            }
+        }
+        .animation(.snappy, value: score)
+    }
+}
+
+/// A fixture card: crests either side, kickoff, score or live state between them.
 struct HomeMatchCard: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovering = false
@@ -730,10 +754,14 @@ struct HomeMatchCard: View {
                 HStack(alignment: .center, spacing: 10) {
                     team(match.homeTeam)
                     VStack(spacing: 3) {
-                        Text(match.isLive ? "vs" : match.kickoff.formatted(date: .omitted, time: .shortened))
-                            .font(.asterionMono(match.isLive ? 12 : 15, weight: .semibold))
-                            .foregroundStyle(match.isLive ? .white.opacity(0.6) : .white)
-                        if !match.isLive {
+                        if let score = match.score, score.scoreline != nil {
+                            FootballScoreCenter(score: score, size: 20)
+                        } else {
+                            Text(match.isLive ? "vs" : match.kickoff.formatted(date: .omitted, time: .shortened))
+                                .font(.asterionMono(match.isLive ? 12 : 15, weight: .semibold))
+                                .foregroundStyle(match.isLive ? .white.opacity(0.6) : .white)
+                        }
+                        if !match.isLive, match.score?.scoreline == nil {
                             Text(match.kickoff.formatted(.dateTime.weekday(.abbreviated).day()))
                                 .font(.system(size: 10.5, weight: .medium))
                                 .foregroundStyle(.white.opacity(0.55))
@@ -779,9 +807,12 @@ struct HomeMatchCard: View {
         .help("Open \(match.displayTitle)")
         .accessibilityLabel(match.displayTitle)
         .accessibilityValue(
-            match.isLive
+            match.score?.accessibilityText(
+                home: match.homeTeam?.name ?? "Home",
+                away: match.awayTeam?.name ?? "Away"
+            ) ?? (match.isLive
                 ? "Live, \(match.category)"
-                : "\(match.kickoff.formatted(date: .abbreviated, time: .shortened)), \(match.category)"
+                : "\(match.kickoff.formatted(date: .abbreviated, time: .shortened)), \(match.category)")
         )
     }
 
@@ -791,6 +822,7 @@ struct HomeMatchCard: View {
         let category = match.category.trimmingCharacters(in: .whitespacesAndNewlines)
         let generic = ["football", "soccer", ""]
         if generic.contains(category.lowercased()) {
+            if let competition = match.score?.competition { return competition }
             return match.isLive ? "In play" : match.kickoff.formatted(.relative(presentation: .named))
         }
         return category
@@ -798,7 +830,7 @@ struct HomeMatchCard: View {
 
     @ViewBuilder
     private var status: some View {
-        if match.isLive {
+        if match.isLive || match.score?.isInPlay == true {
             AsterionLiveBadge()
         } else if match.popular {
             Image(systemName: "flame.fill")

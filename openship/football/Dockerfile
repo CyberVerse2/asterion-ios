@@ -13,7 +13,7 @@ RUN groupadd --system asterion \
 COPY services/football/requirements.txt ./
 RUN pip install --no-cache-dir --requirement requirements.txt
 
-COPY services/football/app.py services/football/streamed.py ./
+COPY services/football/app.py services/football/streamed.py services/football/scores.py ./
 
 USER asterion
 

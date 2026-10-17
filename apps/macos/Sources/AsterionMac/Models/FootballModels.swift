@@ -65,6 +65,8 @@ struct FootballMatch: Identifiable, Codable, Hashable, Sendable {
     let isLive: Bool
     let teams: FootballTeams?
     let sources: [FootballStreamSource]
+    /// Big-league matches only; nil when the score service doesn't know the fixture.
+    let score: FootballScore?
 
     var homeTeam: FootballTeam? { teams?.home }
     var awayTeam: FootballTeam? { teams?.away }
@@ -78,7 +80,7 @@ struct FootballMatch: Identifiable, Codable, Hashable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, title, category, poster, posterURL, popular, isLive, teams, sources
+        case id, title, category, poster, posterURL, popular, isLive, teams, sources, score
         case kickoff = "date"
     }
 
@@ -92,7 +94,8 @@ struct FootballMatch: Identifiable, Codable, Hashable, Sendable {
         popular: Bool,
         isLive: Bool,
         teams: FootballTeams?,
-        sources: [FootballStreamSource]
+        sources: [FootballStreamSource],
+        score: FootballScore? = nil
     ) {
         self.id = id
         self.title = title
@@ -104,6 +107,7 @@ struct FootballMatch: Identifiable, Codable, Hashable, Sendable {
         self.isLive = isLive
         self.teams = teams
         self.sources = sources
+        self.score = score
     }
 
     init(from decoder: Decoder) throws {
@@ -117,6 +121,7 @@ struct FootballMatch: Identifiable, Codable, Hashable, Sendable {
         isLive = try container.decode(Bool.self, forKey: .isLive)
         teams = try container.decodeIfPresent(FootballTeams.self, forKey: .teams)
         sources = try container.decode([FootballStreamSource].self, forKey: .sources)
+        score = try? container.decodeIfPresent(FootballScore.self, forKey: .score)
         let milliseconds = try container.decode(Int64.self, forKey: .kickoff)
         kickoff = Date(timeIntervalSince1970: TimeInterval(milliseconds) / 1_000)
     }
@@ -132,6 +137,7 @@ struct FootballMatch: Identifiable, Codable, Hashable, Sendable {
         try container.encode(isLive, forKey: .isLive)
         try container.encodeIfPresent(teams, forKey: .teams)
         try container.encode(sources, forKey: .sources)
+        try container.encodeIfPresent(score, forKey: .score)
         try container.encode(Int64(kickoff.timeIntervalSince1970 * 1_000), forKey: .kickoff)
     }
 }
