@@ -3,6 +3,16 @@
   <channel>
     <title>Asterion</title>
     <item>
+      <title>Asterion 0.9.1</title>
+      <pubDate>Sat, 24 Oct 2026 17:17:34 GMT</pubDate>
+      <sparkle:version>901</sparkle:version>
+      <sparkle:shortVersionString>0.9.1</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <description>&lt;p&gt;Live football plays smoothly in Asterion&amp;#x27;s own player.&lt;/p&gt;
+&lt;ul&gt;&lt;li&gt;A match starts quickly on a light picture and steps up to a sharper one as your connection allows.&lt;/li&gt;&lt;li&gt;Matches play a little behind live, so a hiccup in the broadcast passes without stopping the picture.&lt;/li&gt;&lt;li&gt;Camel Live streams play in Asterion&amp;#x27;s own player, alongside StreamFree.&lt;/li&gt;&lt;li&gt;If a stream stops working, the match moves on to the next one by itself.&lt;/li&gt;&lt;li&gt;Films and episodes without extra subtitles play in Asterion&amp;#x27;s own player.&lt;/li&gt;&lt;/ul&gt;</description>
+      <enclosure url="https://github.com/CyberVerse2/asterion-ios/releases/download/v0.9.1/Asterion.dmg" length="28894388" type="application/octet-stream" sparkle:edSignature="cb25VZ6VQV/k4TjtBNdyLbYTeWMAEPXF+OVbpdHMfZ11BaFw72cvdU2j1Xi92vd16tNZ5IbPyAtBBQKGo00VBg==" />
+    </item>
+    <item>
       <title>Asterion 0.9.0</title>
       <pubDate>Sat, 24 Oct 2026 06:22:04 GMT</pubDate>
       <sparkle:version>900</sparkle:version>
@@ -91,16 +101,6 @@
       <description>&lt;p&gt;Read manga, manhwa and webtoons alongside your novels, with your place following you to every device.&lt;/p&gt;
 &lt;ul&gt;&lt;li&gt;Find manga under Popular, Latest updates and Genres, or search for a title.&lt;/li&gt;&lt;li&gt;Read in a continuous scroll or page by page, with pinch to zoom. The next chapter carries on when you reach the end of one.&lt;/li&gt;&lt;li&gt;Search a title&amp;#x27;s chapters or jump straight to a chapter number.&lt;/li&gt;&lt;li&gt;Download chapters to read offline.&lt;/li&gt;&lt;li&gt;Pick up a manga or a novel on your iPhone or iPad at the same page, and hand off between devices while you read.&lt;/li&gt;&lt;li&gt;Your place in a novel reaches your other devices within moments, and never goes back to an earlier spot.&lt;/li&gt;&lt;li&gt;Finished manga count toward Finished on your profile, and manga appear on Home.&lt;/li&gt;&lt;li&gt;Skip the intro, recap and credits on films and series.&lt;/li&gt;&lt;li&gt;Episodes start on a stream that plays, even when the usual one is down.&lt;/li&gt;&lt;li&gt;Anime show only real subtitle tracks.&lt;/li&gt;&lt;li&gt;Sign in once after this update. Asterion then stays signed in through later updates without asking for your Mac password.&lt;/li&gt;&lt;/ul&gt;</description>
       <enclosure url="https://github.com/CyberVerse2/asterion-ios/releases/download/v0.5.0/Asterion.dmg" length="14177462" type="application/octet-stream" sparkle:edSignature="+SBdg58M8A7ZxIj0+mr4AZidWi8h2ZpoN4mw4Qseparj+bOqn3F4AOxpMKpDGii0k8s4J/Rzta4xywtCxrNxAw==" />
-    </item>
-    <item>
-      <title>Asterion 0.4.0</title>
-      <pubDate>Sun, 18 Oct 2026 21:44:16 GMT</pubDate>
-      <sparkle:version>400</sparkle:version>
-      <sparkle:shortVersionString>0.4.0</sparkle:shortVersionString>
-      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
-      <description>&lt;p&gt;Pick up films, series and anime on any device at the moment you stopped, skip anime openings, watch trailers, and browse by studio.&lt;/p&gt;
-&lt;ul&gt;&lt;li&gt;Films, series and anime resume where you left off on your Mac, iPhone and Android, including episodes that play in a web player.&lt;/li&gt;&lt;li&gt;Skip an anime&amp;#x27;s intro, recap or ending with one click, or turn on Skip intros automatically under Account → Watching.&lt;/li&gt;&lt;li&gt;Each episode starts on the stream that played well for that series last time.&lt;/li&gt;&lt;li&gt;Watch trailers from anime, film and series pages.&lt;/li&gt;&lt;li&gt;Browse films and series from DC, Marvel, Netflix, Prime Video, Apple TV+ and Disney+.&lt;/li&gt;&lt;li&gt;Episode lists show what each episode is about.&lt;/li&gt;&lt;li&gt;Send feedback or report a problem from Account.&lt;/li&gt;&lt;li&gt;Asterion offers each new version when it&amp;#x27;s ready, then installs it and reopens.&lt;/li&gt;&lt;/ul&gt;</description>
-      <enclosure url="https://github.com/CyberVerse2/asterion-ios/releases/download/v0.4.0/Asterion.dmg" length="12619023" type="application/octet-stream" sparkle:edSignature="GzSTx8RUAjqsYpcwZn+tExw2lBjOIaZD8AuYH1SRug4xNWqxwh9sYnUmUNnSYkktkay9FDKwJfADx/heXWJjDQ==" />
     </item>
   </channel>
 </rss>
