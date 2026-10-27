@@ -3,6 +3,16 @@
   <channel>
     <title>Asterion</title>
     <item>
+      <title>Asterion 0.9.2</title>
+      <pubDate>Tue, 27 Oct 2026 12:55:31 GMT</pubDate>
+      <sparkle:version>902</sparkle:version>
+      <sparkle:shortVersionString>0.9.2</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <description>&lt;p&gt;Trailers behind every title, and matches that play with sound.&lt;/p&gt;
+&lt;ul&gt;&lt;li&gt;On Wi-Fi or a wired connection, film, series and anime pages play their trailer muted behind the artwork, with a button for sound. Play trailers automatically in Settings turns it off.&lt;/li&gt;&lt;li&gt;Film and series pages have a Trailer button beside Play and show how many people watched this week.&lt;/li&gt;&lt;li&gt;Home has New episodes for the series you saved or watched.&lt;/li&gt;&lt;li&gt;A match plays a stream with sound first, and more streams are on hand when one stops.&lt;/li&gt;&lt;li&gt;Football lists every league's matches from yesterday to three days ahead, each with its competition and both clubs' crests, and only streams that are on air.&lt;/li&gt;&lt;li&gt;Scores and live matches stay up to date.&lt;/li&gt;&lt;li&gt;Profile opens Settings for reading, Listen, downloads and streaming.&lt;/li&gt;&lt;li&gt;More subtitles finds subtitles for more episodes.&lt;/li&gt;&lt;li&gt;Update notes show apostrophes, quotes and ampersands as written.&lt;/li&gt;&lt;/ul&gt;</description>
+      <enclosure url="https://github.com/CyberVerse2/asterion-ios/releases/download/v0.9.2/Asterion.dmg" length="15139384" type="application/octet-stream" sparkle:edSignature="cU/ZDiXv0oV6k8F/ZthOWdWB+A9Ttm0+dLcxex0kB85JcNJlmHoE+tMaw6K54kuolK9nr9noEE7H1Q55t7gFCQ==" />
+    </item>
+    <item>
       <title>Asterion 0.9.1</title>
       <pubDate>Sat, 24 Oct 2026 17:17:34 GMT</pubDate>
       <sparkle:version>901</sparkle:version>
@@ -91,16 +101,6 @@
       <description>&lt;p&gt;Sign in and create an account from Account on any Mac.&lt;/p&gt;
 &lt;ul&gt;&lt;li&gt;Signing in and creating an account open the sign-in window as expected.&lt;/li&gt;&lt;li&gt;Everything in 0.5.0: read manga, manhwa and webtoons with your place following you to every device, and novel places that reach your other devices within moments.&lt;/li&gt;&lt;/ul&gt;</description>
       <enclosure url="https://github.com/CyberVerse2/asterion-ios/releases/download/v0.5.1/Asterion.dmg" length="25328491" type="application/octet-stream" sparkle:edSignature="/Q50v3IONtANorJPeUZI6BR3SVDDLjAwBy8OdKEAD/AN3dZvYb+CYcpGdHAAe3HnDyFqI6+z9AmbZILBo8zECg==" />
-    </item>
-    <item>
-      <title>Asterion 0.5.0</title>
-      <pubDate>Mon, 19 Oct 2026 08:37:29 GMT</pubDate>
-      <sparkle:version>500</sparkle:version>
-      <sparkle:shortVersionString>0.5.0</sparkle:shortVersionString>
-      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
-      <description>&lt;p&gt;Read manga, manhwa and webtoons alongside your novels, with your place following you to every device.&lt;/p&gt;
-&lt;ul&gt;&lt;li&gt;Find manga under Popular, Latest updates and Genres, or search for a title.&lt;/li&gt;&lt;li&gt;Read in a continuous scroll or page by page, with pinch to zoom. The next chapter carries on when you reach the end of one.&lt;/li&gt;&lt;li&gt;Search a title's chapters or jump straight to a chapter number.&lt;/li&gt;&lt;li&gt;Download chapters to read offline.&lt;/li&gt;&lt;li&gt;Pick up a manga or a novel on your iPhone or iPad at the same page, and hand off between devices while you read.&lt;/li&gt;&lt;li&gt;Your place in a novel reaches your other devices within moments, and never goes back to an earlier spot.&lt;/li&gt;&lt;li&gt;Finished manga count toward Finished on your profile, and manga appear on Home.&lt;/li&gt;&lt;li&gt;Skip the intro, recap and credits on films and series.&lt;/li&gt;&lt;li&gt;Episodes start on a stream that plays, even when the usual one is down.&lt;/li&gt;&lt;li&gt;Anime show only real subtitle tracks.&lt;/li&gt;&lt;li&gt;Sign in once after this update. Asterion then stays signed in through later updates without asking for your Mac password.&lt;/li&gt;&lt;/ul&gt;</description>
-      <enclosure url="https://github.com/CyberVerse2/asterion-ios/releases/download/v0.5.0/Asterion.dmg" length="14177462" type="application/octet-stream" sparkle:edSignature="+SBdg58M8A7ZxIj0+mr4AZidWi8h2ZpoN4mw4Qseparj+bOqn3F4AOxpMKpDGii0k8s4J/Rzta4xywtCxrNxAw==" />
     </item>
   </channel>
 </rss>
