@@ -3,6 +3,16 @@
   <channel>
     <title>Asterion</title>
     <item>
+      <title>Asterion 0.10.0</title>
+      <pubDate>Fri, 30 Oct 2026 00:56:54 GMT</pubDate>
+      <sparkle:version>1000</sparkle:version>
+      <sparkle:shortVersionString>0.10.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <description>&lt;p&gt;Share downloads with a nearby device, keep an eye on data over a hotspot, and hear narrated chapters from the narrator alone.&lt;/p&gt;
+&lt;ul&gt;&lt;li&gt;Send downloads to a nearby device, or receive them, without using any data.&lt;/li&gt;&lt;li&gt;On a hotspot, data saver shows what it saved, the player shows what an hour of video costs, and you can set a daily limit.&lt;/li&gt;&lt;li&gt;Downloads show their speed, what's left and how long it will take. Sort them, and use Free up space to make room.&lt;/li&gt;&lt;li&gt;Download tonight waits for the night to fetch big downloads, and each quality shows its size before you choose.&lt;/li&gt;&lt;li&gt;Downloads carry on after you quit Asterion.&lt;/li&gt;&lt;li&gt;Auto Download follows your account and picks the series you watch on any device. When it clears something you finished, a notice offers Undo, and your own downloads stay for a day after you finish them.&lt;/li&gt;&lt;li&gt;Narrated chapters are read by the narrator alone. When narration can't carry on, Listen pauses where you are and says why.&lt;/li&gt;&lt;li&gt;Lists and title pages open from what Asterion saved when you're offline.&lt;/li&gt;&lt;li&gt;Alerts arrive when new episodes of the series you watch air.&lt;/li&gt;&lt;/ul&gt;</description>
+      <enclosure url="https://github.com/CyberVerse2/asterion-ios/releases/download/v0.10.0/Asterion.dmg" length="15793918" type="application/octet-stream" sparkle:edSignature="w0gxu3zlFBC7QmBZgnSo4JJdaksgKn5aM2P+aBxGrAOQazprfVVM9lI5HXiCfGnZXPc/gO5hDBmUXGmxyJnPDg==" />
+    </item>
+    <item>
       <title>Asterion 0.9.2</title>
       <pubDate>Tue, 27 Oct 2026 12:55:31 GMT</pubDate>
       <sparkle:version>902</sparkle:version>
@@ -91,16 +101,6 @@
       <description>&lt;p&gt;Downloads you can count on, a fuller player, and Asterion that keeps working without a connection.&lt;/p&gt;
 &lt;ul&gt;&lt;li&gt;One Download button on every title. Pick the next few, everything unread, everything, or a season, and see the size and the free space first.&lt;/li&gt;&lt;li&gt;Pause a download and resume it whenever you like, even days later. Downloads wait out a lost connection and carry on by themselves.&lt;/li&gt;&lt;li&gt;Download all gets every chapter, even on the longest novels, and chapters download several at a time.&lt;/li&gt;&lt;li&gt;Keep it ready keeps the next few chapters downloaded and removes the ones you've read.&lt;/li&gt;&lt;li&gt;Films and series play and download at their full picture quality.&lt;/li&gt;&lt;li&gt;When one source for an episode won't play or download, another takes over.&lt;/li&gt;&lt;li&gt;The player shows Up next, lets you choose subtitles and playback speed, has a sleep timer, and works from Now Playing.&lt;/li&gt;&lt;li&gt;Without a connection, your downloads, the pages and covers you've seen, and search over what's on this Mac all still work. Library changes and feedback are kept and sent once you're back online.&lt;/li&gt;&lt;li&gt;Film and series descriptions tell you about the story and nothing else.&lt;/li&gt;&lt;li&gt;Choose whether to share how you use Asterion to help improve it. It never includes your searches or the words you read.&lt;/li&gt;&lt;/ul&gt;</description>
       <enclosure url="https://github.com/CyberVerse2/asterion-ios/releases/download/v0.6.0/Asterion.dmg" length="26836685" type="application/octet-stream" sparkle:edSignature="6MRSEYPmLxC3D29cnPetlmlkjMo1yMnuRh3K9kK39DwSCcBscwwL+ji2qIRjg4aNxrtWeaxml1WeFlmBkCN2Dw==" />
-    </item>
-    <item>
-      <title>Asterion 0.5.1</title>
-      <pubDate>Mon, 19 Oct 2026 09:35:29 GMT</pubDate>
-      <sparkle:version>501</sparkle:version>
-      <sparkle:shortVersionString>0.5.1</sparkle:shortVersionString>
-      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
-      <description>&lt;p&gt;Sign in and create an account from Account on any Mac.&lt;/p&gt;
-&lt;ul&gt;&lt;li&gt;Signing in and creating an account open the sign-in window as expected.&lt;/li&gt;&lt;li&gt;Everything in 0.5.0: read manga, manhwa and webtoons with your place following you to every device, and novel places that reach your other devices within moments.&lt;/li&gt;&lt;/ul&gt;</description>
-      <enclosure url="https://github.com/CyberVerse2/asterion-ios/releases/download/v0.5.1/Asterion.dmg" length="25328491" type="application/octet-stream" sparkle:edSignature="/Q50v3IONtANorJPeUZI6BR3SVDDLjAwBy8OdKEAD/AN3dZvYb+CYcpGdHAAe3HnDyFqI6+z9AmbZILBo8zECg==" />
     </item>
   </channel>
 </rss>
