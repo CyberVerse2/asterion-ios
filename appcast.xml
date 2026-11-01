@@ -3,6 +3,16 @@
   <channel>
     <title>Asterion</title>
     <item>
+      <title>Asterion 0.11.1</title>
+      <pubDate>Sun, 01 Nov 2026 18:20:55 GMT</pubDate>
+      <sparkle:version>1101</sparkle:version>
+      <sparkle:shortVersionString>0.11.1</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <description>&lt;p&gt;Asterion in your menu bar, Dock, widgets and Shortcuts, and a quick sign-in after you update.&lt;/p&gt;
+&lt;ul&gt;&lt;li&gt;Sign in again once after updating. Your library, reading progress and watch history are saved to your account and come straight back.&lt;/li&gt;&lt;li&gt;The menu bar shows followed matches, live ones first, what you're reading and watching, and narration controls while a chapter is read aloud. Settings can hide it.&lt;/li&gt;&lt;li&gt;The Dock icon counts new chapters and episodes, and its menu picks up your latest title and lists live matches.&lt;/li&gt;&lt;li&gt;Continue and Football widgets sit on the desktop and in Notification Center.&lt;/li&gt;&lt;li&gt;Shortcuts continue reading or watching, open a title, show followed matches, and play or pause narration. Spotlight finds the titles in your Library.&lt;/li&gt;&lt;li&gt;Films and anime play on AirPlay.&lt;/li&gt;&lt;li&gt;Downloaded episodes and films keep Skip intro and Skip credits offline.&lt;/li&gt;&lt;li&gt;Watched episodes show a small check in the player.&lt;/li&gt;&lt;li&gt;Browse opens on Films &amp;amp; series, then football, anime, manga and novels.&lt;/li&gt;&lt;/ul&gt;</description>
+      <enclosure url="https://github.com/CyberVerse2/asterion-ios/releases/download/v0.11.1/Asterion.dmg" length="17132208" type="application/octet-stream" sparkle:edSignature="MpZRDnI4aOs6z0rIBhum1fSTJx0xtvMlMByhX7/7AW3ZsAaUNaO8AI9J6a6UojRcqVADNgHOO5XhEQUV049cDQ==" />
+    </item>
+    <item>
       <title>Asterion 0.11.0</title>
       <pubDate>Sun, 01 Nov 2026 13:08:48 GMT</pubDate>
       <sparkle:version>1100</sparkle:version>
@@ -91,16 +101,6 @@
       <description>&lt;p&gt;Football with lineups and stats, alerts for the matches that matter, and your choice of picture quality.&lt;/p&gt;
 &lt;ul&gt;&lt;li&gt;Every match shows its competition and crest. Matches that haven't started show their kickoff time.&lt;/li&gt;&lt;li&gt;Lineups appear on a pitch in each team's formation, with goals, cards and substitutions marked on the players, alongside team stats and a timeline of the match.&lt;/li&gt;&lt;li&gt;Get a kickoff alert for popular matches without clicking Remind me, and updates for lineups, goals and full time on the matches you follow.&lt;/li&gt;&lt;li&gt;Choose a stream's quality from the player, or set a default in Settings.&lt;/li&gt;&lt;li&gt;Choose which kinds of content Auto Download keeps ready.&lt;/li&gt;&lt;li&gt;A reminder to pick up where you left off, and alerts when a download finishes or a new version of Asterion is ready. Each alert has its own switch in Settings.&lt;/li&gt;&lt;li&gt;Twenty studios and streaming services to browse in Movies &amp;amp; TV, including HBO Max, Hulu, A24 and Studio Ghibli.&lt;/li&gt;&lt;/ul&gt;</description>
       <enclosure url="https://github.com/CyberVerse2/asterion-ios/releases/download/v0.6.2/Asterion.dmg" length="27409802" type="application/octet-stream" sparkle:edSignature="pm8qqhrY4Pyd+JktJJkRFqUkAe2im9g3+0Zz0fYozAXdOJBoZ4ztB1t09KsnB8jRN0KfPv3DaQOAbLjCJhD1Aw==" />
-    </item>
-    <item>
-      <title>Asterion 0.6.1</title>
-      <pubDate>Wed, 21 Oct 2026 11:11:57 GMT</pubDate>
-      <sparkle:version>601</sparkle:version>
-      <sparkle:shortVersionString>0.6.1</sparkle:shortVersionString>
-      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
-      <description>&lt;p&gt;A steadier player, and downloads that keep themselves ready.&lt;/p&gt;
-&lt;ul&gt;&lt;li&gt;Films, series and episodes keep playing smoothly as you start them, switch servers and close the player.&lt;/li&gt;&lt;li&gt;Auto Download in Settings keeps the next chapters and episodes of what you're reading and watching downloaded, and clears them once you've finished. Your own downloads stay.&lt;/li&gt;&lt;li&gt;Turn Auto Download on or off for any title from that title's downloads.&lt;/li&gt;&lt;/ul&gt;</description>
-      <enclosure url="https://github.com/CyberVerse2/asterion-ios/releases/download/v0.6.1/Asterion.dmg" length="26917495" type="application/octet-stream" sparkle:edSignature="PoDI/GoaS04A49/ABPcLahEelQU3LI2sJKkN/urDvkI7MTiNC1y+z0s7n4zheH5PbcP5rCT99e0ZTWndrYGQDA==" />
     </item>
   </channel>
 </rss>
