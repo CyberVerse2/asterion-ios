@@ -3,6 +3,16 @@
   <channel>
     <title>Asterion</title>
     <item>
+      <title>Asterion 0.11.0</title>
+      <pubDate>Sun, 01 Nov 2026 13:08:48 GMT</pubDate>
+      <sparkle:version>1100</sparkle:version>
+      <sparkle:shortVersionString>0.11.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <description>&lt;p&gt;Football with favourite teams and league tables, a weekly reading goal, and title pages, search and Library laid out around what you're reading and watching.&lt;/p&gt;
+&lt;ul&gt;&lt;li&gt;Follow your favourite teams, open league tables and team pages, and follow a match from its page. Popular competitions come first, and live scores stay current while football is on screen.&lt;/li&gt;&lt;li&gt;Reading time, a weekly goal and a streak keep track of your reading.&lt;/li&gt;&lt;li&gt;The reader bookmarks, downloads and shares a chapter.&lt;/li&gt;&lt;li&gt;Novel pages show every chapter in one list with the title's stats. Manga pages lead with stats and the latest chapters, and chapters open straight away.&lt;/li&gt;&lt;li&gt;Film, series and anime pages share one layout. The player numbers its sources, offers another source when one fails, and downloads from the player.&lt;/li&gt;&lt;li&gt;Your subtitle choice carries across episodes, and downloaded films and episodes keep More subtitles to watch offline.&lt;/li&gt;&lt;li&gt;When you're caught up on an airing show, its page says so.&lt;/li&gt;&lt;li&gt;Search keeps your recent searches, starts on Popular and puts the title you typed first.&lt;/li&gt;&lt;li&gt;Library sorts your titles and shows your progress in each.&lt;/li&gt;&lt;li&gt;Alerts arrive for new chapters and seasons, and notifications group by title.&lt;/li&gt;&lt;li&gt;Getting started asks what you enjoy and shapes Home and Discover around it.&lt;/li&gt;&lt;li&gt;The download picker carries the title's Auto Download switch and Download tonight, and checks your space first. Downloads keeps Sort, Free up space and nearby devices in one row.&lt;/li&gt;&lt;li&gt;Account asks before signing you out, and offers Create account.&lt;/li&gt;&lt;li&gt;Pictures load at the size they're shown, so pages open faster and scroll smoothly.&lt;/li&gt;&lt;/ul&gt;</description>
+      <enclosure url="https://github.com/CyberVerse2/asterion-ios/releases/download/v0.11.0/Asterion.dmg" length="16737066" type="application/octet-stream" sparkle:edSignature="oXJBfDKeEu98U1PjBQr4Q9RlOCslmz0U07UqT5YiYNlopAkQ8PhOx++eXOoLQt90+05amglgHjyptJjPp3zHBA==" />
+    </item>
+    <item>
       <title>Asterion 0.10.0</title>
       <pubDate>Fri, 30 Oct 2026 00:56:54 GMT</pubDate>
       <sparkle:version>1000</sparkle:version>
@@ -91,16 +101,6 @@
       <description>&lt;p&gt;A steadier player, and downloads that keep themselves ready.&lt;/p&gt;
 &lt;ul&gt;&lt;li&gt;Films, series and episodes keep playing smoothly as you start them, switch servers and close the player.&lt;/li&gt;&lt;li&gt;Auto Download in Settings keeps the next chapters and episodes of what you're reading and watching downloaded, and clears them once you've finished. Your own downloads stay.&lt;/li&gt;&lt;li&gt;Turn Auto Download on or off for any title from that title's downloads.&lt;/li&gt;&lt;/ul&gt;</description>
       <enclosure url="https://github.com/CyberVerse2/asterion-ios/releases/download/v0.6.1/Asterion.dmg" length="26917495" type="application/octet-stream" sparkle:edSignature="PoDI/GoaS04A49/ABPcLahEelQU3LI2sJKkN/urDvkI7MTiNC1y+z0s7n4zheH5PbcP5rCT99e0ZTWndrYGQDA==" />
-    </item>
-    <item>
-      <title>Asterion 0.6.0</title>
-      <pubDate>Tue, 20 Oct 2026 21:18:33 GMT</pubDate>
-      <sparkle:version>600</sparkle:version>
-      <sparkle:shortVersionString>0.6.0</sparkle:shortVersionString>
-      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
-      <description>&lt;p&gt;Downloads you can count on, a fuller player, and Asterion that keeps working without a connection.&lt;/p&gt;
-&lt;ul&gt;&lt;li&gt;One Download button on every title. Pick the next few, everything unread, everything, or a season, and see the size and the free space first.&lt;/li&gt;&lt;li&gt;Pause a download and resume it whenever you like, even days later. Downloads wait out a lost connection and carry on by themselves.&lt;/li&gt;&lt;li&gt;Download all gets every chapter, even on the longest novels, and chapters download several at a time.&lt;/li&gt;&lt;li&gt;Keep it ready keeps the next few chapters downloaded and removes the ones you've read.&lt;/li&gt;&lt;li&gt;Films and series play and download at their full picture quality.&lt;/li&gt;&lt;li&gt;When one source for an episode won't play or download, another takes over.&lt;/li&gt;&lt;li&gt;The player shows Up next, lets you choose subtitles and playback speed, has a sleep timer, and works from Now Playing.&lt;/li&gt;&lt;li&gt;Without a connection, your downloads, the pages and covers you've seen, and search over what's on this Mac all still work. Library changes and feedback are kept and sent once you're back online.&lt;/li&gt;&lt;li&gt;Film and series descriptions tell you about the story and nothing else.&lt;/li&gt;&lt;li&gt;Choose whether to share how you use Asterion to help improve it. It never includes your searches or the words you read.&lt;/li&gt;&lt;/ul&gt;</description>
-      <enclosure url="https://github.com/CyberVerse2/asterion-ios/releases/download/v0.6.0/Asterion.dmg" length="26836685" type="application/octet-stream" sparkle:edSignature="6MRSEYPmLxC3D29cnPetlmlkjMo1yMnuRh3K9kK39DwSCcBscwwL+ji2qIRjg4aNxrtWeaxml1WeFlmBkCN2Dw==" />
     </item>
   </channel>
 </rss>
