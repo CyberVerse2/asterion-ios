@@ -1,0 +1,7 @@
+.gradle/
+build/
+dist/AppDir/
+*.AppImage
+*.sha256
+.idea/
+.kotlin/

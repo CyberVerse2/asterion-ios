@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Asterion
+Comment=Novels, anime, movies and TV, and live football
+Exec=asterion
+Icon=asterion
+Categories=AudioVideo;Video;
+Terminal=false
+StartupWMClass=asterion
