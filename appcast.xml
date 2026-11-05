@@ -3,6 +3,16 @@
   <channel>
     <title>Asterion</title>
     <item>
+      <title>Asterion 0.12.0</title>
+      <pubDate>Thu, 05 Nov 2026 14:15:32 GMT</pubDate>
+      <sparkle:version>1200</sparkle:version>
+      <sparkle:shortVersionString>0.12.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <description>&lt;p&gt;Every section opens on its own browse page, manga series gather every chapter in one place, and you can report a problem wherever you watch or read.&lt;/p&gt;
+&lt;ul&gt;&lt;li&gt;Anime, movies &amp;amp; series, manga and novels each open on featured titles and rows from the full catalogue, with a Lists bar of picks.&lt;/li&gt;&lt;li&gt;Movies &amp;amp; series show Studios &amp;amp; services, and anime shows Latest episodes and Airing today.&lt;/li&gt;&lt;li&gt;Home mixes every section, and sections sit in the order you use them most.&lt;/li&gt;&lt;li&gt;A manga series keeps all its chapters together, and search finds every series.&lt;/li&gt;&lt;li&gt;Library is one Continue row above everything you've saved, novels included.&lt;/li&gt;&lt;li&gt;Report a problem from the player or any title page: subtitles, playback, or a wrong title or cover.&lt;/li&gt;&lt;li&gt;Smart Downloads keep the next chapters and episodes ready on the Mac you use each title on, cover novels, and skip titles you only sampled or deleted.&lt;/li&gt;&lt;li&gt;Unread and Unwatched downloads start from where you are, and manga chapters download three at a time.&lt;/li&gt;&lt;li&gt;Match my other devices uses the download choices you made on your other devices. It's off until you turn it on.&lt;/li&gt;&lt;li&gt;A subtitle you chose by language shows that language's full track.&lt;/li&gt;&lt;li&gt;Back returns you to the spot you left.&lt;/li&gt;&lt;li&gt;Downloads, the reader and players keep your place through pauses and retries.&lt;/li&gt;&lt;li&gt;One button signs you in or creates an account.&lt;/li&gt;&lt;/ul&gt;</description>
+      <enclosure url="https://github.com/CyberVerse2/asterion-ios/releases/download/v0.12.0/Asterion.dmg" length="17700089" type="application/octet-stream" sparkle:edSignature="5OCBwhMjWFnQPP0zcLbXIOiamjJM/TJRgkcIxjVE7bpvuvFAYaRF/gXLdU2T1mORRf3Ib6DVoG9ObpGsdzdaCw==" />
+    </item>
+    <item>
       <title>Asterion 0.11.1</title>
       <pubDate>Sun, 01 Nov 2026 18:20:55 GMT</pubDate>
       <sparkle:version>1101</sparkle:version>
@@ -91,16 +101,6 @@
       <description>&lt;p&gt;Know when the shows you follow have new episodes.&lt;/p&gt;
 &lt;ul&gt;&lt;li&gt;Get an alert when an anime or series you've saved has new episodes, while Asterion is open. Click it to go straight to the show.&lt;/li&gt;&lt;li&gt;Turn these alerts on or off with New episodes in Account.&lt;/li&gt;&lt;/ul&gt;</description>
       <enclosure url="https://github.com/CyberVerse2/asterion-ios/releases/download/v0.7.0/Asterion.dmg" length="27433174" type="application/octet-stream" sparkle:edSignature="qjTbilR8AeZO2zWuNyji8DuCdcpVQzQOSzq+Cl0FkGYNZZ9kfoQ6sND/+n06cAU5Ly9TfqTdo2kAwHnE8JTRAQ==" />
-    </item>
-    <item>
-      <title>Asterion 0.6.2</title>
-      <pubDate>Wed, 21 Oct 2026 13:26:48 GMT</pubDate>
-      <sparkle:version>602</sparkle:version>
-      <sparkle:shortVersionString>0.6.2</sparkle:shortVersionString>
-      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
-      <description>&lt;p&gt;Football with lineups and stats, alerts for the matches that matter, and your choice of picture quality.&lt;/p&gt;
-&lt;ul&gt;&lt;li&gt;Every match shows its competition and crest. Matches that haven't started show their kickoff time.&lt;/li&gt;&lt;li&gt;Lineups appear on a pitch in each team's formation, with goals, cards and substitutions marked on the players, alongside team stats and a timeline of the match.&lt;/li&gt;&lt;li&gt;Get a kickoff alert for popular matches without clicking Remind me, and updates for lineups, goals and full time on the matches you follow.&lt;/li&gt;&lt;li&gt;Choose a stream's quality from the player, or set a default in Settings.&lt;/li&gt;&lt;li&gt;Choose which kinds of content Auto Download keeps ready.&lt;/li&gt;&lt;li&gt;A reminder to pick up where you left off, and alerts when a download finishes or a new version of Asterion is ready. Each alert has its own switch in Settings.&lt;/li&gt;&lt;li&gt;Twenty studios and streaming services to browse in Movies &amp;amp; TV, including HBO Max, Hulu, A24 and Studio Ghibli.&lt;/li&gt;&lt;/ul&gt;</description>
-      <enclosure url="https://github.com/CyberVerse2/asterion-ios/releases/download/v0.6.2/Asterion.dmg" length="27409802" type="application/octet-stream" sparkle:edSignature="pm8qqhrY4Pyd+JktJJkRFqUkAe2im9g3+0Zz0fYozAXdOJBoZ4ztB1t09KsnB8jRN0KfPv3DaQOAbLjCJhD1Aw==" />
     </item>
   </channel>
 </rss>
