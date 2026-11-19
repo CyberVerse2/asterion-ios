@@ -3,6 +3,16 @@
   <channel>
     <title>Asterion</title>
     <item>
+      <title>Asterion 0.14.0</title>
+      <pubDate>Thu, 19 Nov 2026 09:43:14 GMT</pubDate>
+      <sparkle:version>1400</sparkle:version>
+      <sparkle:shortVersionString>0.14.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <description>&lt;p&gt;Collections, Magic Sync for subtitles, a mini player, and Recap for the story so far.&lt;/p&gt;
+&lt;ul&gt;&lt;li&gt;Collections gather titles like playlists. Share one as a link, and friends can save it or suggest titles for it.&lt;/li&gt;&lt;li&gt;Magic Sync lines subtitles up with what's being said, and you can move them earlier or later yourself.&lt;/li&gt;&lt;li&gt;Foreign-language titles start with subtitles in your language, and more titles have subtitles.&lt;/li&gt;&lt;li&gt;Playback starts sooner on the sharpest copy, and Auto goes up to 1080p on fast connections.&lt;/li&gt;&lt;li&gt;A resizable mini player keeps films and episodes playing while you browse.&lt;/li&gt;&lt;li&gt;Watch next offers what to see after a film, a season or a series.&lt;/li&gt;&lt;li&gt;Playback picks up again by itself when your connection comes back.&lt;/li&gt;&lt;li&gt;Every source says whether it's sub or dub.&lt;/li&gt;&lt;li&gt;Downloads come in Low, Standard and High, carry on by themselves after a broken connection, and keep the subtitles that fit them.&lt;/li&gt;&lt;li&gt;One search covers everything, with results as you type.&lt;/li&gt;&lt;li&gt;Browse by theme, or click a genre or tag to see similar titles.&lt;/li&gt;&lt;li&gt;Posters show New episodes, New season or New chapters.&lt;/li&gt;&lt;li&gt;Recap sums up the story so far, and Last time reminds you where you were.&lt;/li&gt;&lt;li&gt;Read next suggests what to read after you finish.&lt;/li&gt;&lt;li&gt;Share a novel quote or a manga panel as a card.&lt;/li&gt;&lt;li&gt;Get a notification when something you follow has new chapters or episodes.&lt;/li&gt;&lt;li&gt;Live football plays more steadily and lets you pick the quality.&lt;/li&gt;&lt;li&gt;Title pages have a Watch trailer button, and Add to collection sits under the description.&lt;/li&gt;&lt;/ul&gt;</description>
+      <enclosure url="https://github.com/CyberVerse2/asterion-ios/releases/download/v0.14.0/Asterion.dmg" length="23457137" type="application/octet-stream" sparkle:edSignature="vIM++83w7AZmq3OjxXQBDqLXC44KgGbpjy0sh6pEofY1ixzGLAHxG8t7DFf9pGXN8vAtY/fLp84/eVqvTQFtBw==" />
+    </item>
+    <item>
       <title>Asterion 0.13.0</title>
       <pubDate>Sat, 07 Nov 2026 20:39:04 GMT</pubDate>
       <sparkle:version>1300</sparkle:version>
@@ -91,16 +101,6 @@
       <description>&lt;p&gt;More subtitles, a short welcome, and tips that show where things are.&lt;/p&gt;
 &lt;ul&gt;&lt;li&gt;More subtitles to choose from for every film and episode.&lt;/li&gt;&lt;li&gt;Match pages list the streams that play straight in Asterion's own player.&lt;/li&gt;&lt;li&gt;A short welcome on first launch asks once about notifications, so alerts for new episodes, chapters and your matches reach you.&lt;/li&gt;&lt;li&gt;Short tips point out Listen, subtitles, Continue, saving and downloads the first time you need them.&lt;/li&gt;&lt;li&gt;Every title page saves to your library with the same bookmark button.&lt;/li&gt;&lt;/ul&gt;</description>
       <enclosure url="https://github.com/CyberVerse2/asterion-ios/releases/download/v0.8.0/Asterion.dmg" length="27603319" type="application/octet-stream" sparkle:edSignature="eSLSn0ddJMqh3glE6NBmLhTEcqzwVAAljqiiVqf8jd/eQ5ZpdE04iThREVjnY6PGpSky3qzDCsYs4qk8v7EmAg==" />
-    </item>
-    <item>
-      <title>Asterion 0.7.1</title>
-      <pubDate>Wed, 21 Oct 2026 21:42:06 GMT</pubDate>
-      <sparkle:version>701</sparkle:version>
-      <sparkle:shortVersionString>0.7.1</sparkle:shortVersionString>
-      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
-      <description>&lt;p&gt;Steadier chapter downloads, and match alerts only for the matches you choose.&lt;/p&gt;
-&lt;ul&gt;&lt;li&gt;Chapters download in the background while you keep using Asterion, without it closing.&lt;/li&gt;&lt;li&gt;Match notifications come only for the matches you set a reminder for or follow.&lt;/li&gt;&lt;/ul&gt;</description>
-      <enclosure url="https://github.com/CyberVerse2/asterion-ios/releases/download/v0.7.1/Asterion.dmg" length="27392254" type="application/octet-stream" sparkle:edSignature="lDbY0O1mbLXCPyVd8vtdt6/F8q2CThiOQJSntVPO1mCsHRV71o3AkpbAXrwNoQPY28/zmikwyLo7kYJhQ7XTCQ==" />
     </item>
   </channel>
 </rss>
