@@ -3,6 +3,16 @@
   <channel>
     <title>Asterion</title>
     <item>
+      <title>Asterion 0.14.1</title>
+      <pubDate>Thu, 19 Nov 2026 13:51:35 GMT</pubDate>
+      <sparkle:version>1401</sparkle:version>
+      <sparkle:shortVersionString>0.14.1</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <description>&lt;p&gt;Films start once and keep playing, and anime pages end with their whole watch order.&lt;/p&gt;
+&lt;ul&gt;&lt;li&gt;A film that takes a few seconds to start keeps loading until it plays, instead of jumping to another source.&lt;/li&gt;&lt;li&gt;Hold the video or the right arrow key to play it at 2x, and let go to return to your speed.&lt;/li&gt;&lt;li&gt;Every anime with more than one season, special or film shows its full watch order at the bottom of its page, with the one you're on marked.&lt;/li&gt;&lt;/ul&gt;</description>
+      <enclosure url="https://github.com/CyberVerse2/asterion-ios/releases/download/v0.14.1/Asterion.dmg" length="23456449" type="application/octet-stream" sparkle:edSignature="JvlVU1O79d2KcKFvaO1DzR5hZU3C26yRqzXQhVgfuocLt2ElfY5kNY1DhJPs6Jtx1Gv+/GMQHLdwJ1JfgDgKBA==" />
+    </item>
+    <item>
       <title>Asterion 0.14.0</title>
       <pubDate>Thu, 19 Nov 2026 09:43:14 GMT</pubDate>
       <sparkle:version>1400</sparkle:version>
@@ -91,16 +101,6 @@
       <description>&lt;p&gt;Search everything, and title pages with the cast, what's next and where each story comes from.&lt;/p&gt;
 &lt;ul&gt;&lt;li&gt;Search on Home finds people, characters, stories, films, series, anime, manga, novels and matches, with your own titles first and where you are in them. Name an episode, like "One Piece 1100" or "Breaking Bad s3 e7", and a Play card starts it.&lt;/li&gt;&lt;li&gt;Your reader theme, typeface, text size and line spacing, Listen voice and speed, manga page layout, skip intros, weekly goal and alerts follow your account to every device you sign in on.&lt;/li&gt;&lt;li&gt;The reader's themes are System, Parchment and Night, and System follows your Mac's light or dark appearance.&lt;/li&gt;&lt;li&gt;Settings has the reader's theme and typeface, manga pages, notifications and privacy, with the Literary, Classic and Accessible typefaces.&lt;/li&gt;&lt;li&gt;Film, series and anime pages show wide artwork, the title's logo, a tagline and the age rating.&lt;/li&gt;&lt;li&gt;See the cast and characters with their photos, and open anyone's page to see what else they're known for.&lt;/li&gt;&lt;li&gt;More like this, the rest of a film series and an anime's watch order sit on every page.&lt;/li&gt;&lt;li&gt;Series and anime show when the next episode airs, and each episode shows its air date and length.&lt;/li&gt;&lt;li&gt;An anime based on a manga or novel leads to it with Read the manga or Read the novel, and manga and novel pages lead to their anime.&lt;/li&gt;&lt;li&gt;Anime Discover opens on this season's top shows.&lt;/li&gt;&lt;li&gt;Choose the picture quality in the player, and the version you pick is the one that plays.&lt;/li&gt;&lt;li&gt;A stream's subtitles and More subtitles are in the player's subtitles menu by language, in time with the picture, in your caption style and in Picture in Picture.&lt;/li&gt;&lt;li&gt;Films and episodes start on the first stream that works, and anime episodes start quickly.&lt;/li&gt;&lt;li&gt;A picture shows whole until you fill the window for that title, and Asterion remembers your choice.&lt;/li&gt;&lt;/ul&gt;</description>
       <enclosure url="https://github.com/CyberVerse2/asterion-ios/releases/download/v0.9.0/Asterion.dmg" length="28866514" type="application/octet-stream" sparkle:edSignature="pBC7HLp+AvaYL81QwgN9q5cb2mMuOSJcKkuzwcZQxWfDoIhIEe0OOLi+Ez0PcF0g0Vag7DhjWKUi02L7xR5VBg==" />
-    </item>
-    <item>
-      <title>Asterion 0.8.0</title>
-      <pubDate>Thu, 22 Oct 2026 21:48:35 GMT</pubDate>
-      <sparkle:version>800</sparkle:version>
-      <sparkle:shortVersionString>0.8.0</sparkle:shortVersionString>
-      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
-      <description>&lt;p&gt;More subtitles, a short welcome, and tips that show where things are.&lt;/p&gt;
-&lt;ul&gt;&lt;li&gt;More subtitles to choose from for every film and episode.&lt;/li&gt;&lt;li&gt;Match pages list the streams that play straight in Asterion's own player.&lt;/li&gt;&lt;li&gt;A short welcome on first launch asks once about notifications, so alerts for new episodes, chapters and your matches reach you.&lt;/li&gt;&lt;li&gt;Short tips point out Listen, subtitles, Continue, saving and downloads the first time you need them.&lt;/li&gt;&lt;li&gt;Every title page saves to your library with the same bookmark button.&lt;/li&gt;&lt;/ul&gt;</description>
-      <enclosure url="https://github.com/CyberVerse2/asterion-ios/releases/download/v0.8.0/Asterion.dmg" length="27603319" type="application/octet-stream" sparkle:edSignature="eSLSn0ddJMqh3glE6NBmLhTEcqzwVAAljqiiVqf8jd/eQ5ZpdE04iThREVjnY6PGpSky3qzDCsYs4qk8v7EmAg==" />
     </item>
   </channel>
 </rss>
